@@ -356,6 +356,11 @@ unsafe fn sse4a(code: *const u8, xmm: &mut [M128A; 16]) -> Option<usize> {
     Some(len)
 }
 
+fn skip_int3_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("VICTORY_SKIP_INT3").is_some_and(|v| v != "0"))
+}
+
 unsafe extern "system" fn handler(info: *mut EXCEPTION_POINTERS) -> i32 {
     // an instruction of the console's CPU this one lacks: emulated, the title goes on
     // SAFETY: the system passes valid exception pointers.
@@ -364,6 +369,26 @@ unsafe extern "system" fn handler(info: *mut EXCEPTION_POINTERS) -> i32 {
         let r = unsafe { crate::console_insn::emulate(&mut *(*info).ContextRecord) };
         if r != 0 {
             return r;
+        }
+    }
+    // LOCAL DIAG: VICTORY_SKIP_INT3=1 steps over the title's soft asserts (an int3 followed by code that carries on),
+    // each address logged once.
+    // SAFETY: the system passes valid exception pointers; the context is the faulting thread's.
+    unsafe {
+        let rec = &*(*info).ExceptionRecord;
+        if rec.ExceptionCode == EXCEPTION_BREAKPOINT && skip_int3_enabled() {
+            let ctx = &mut *(*info).ContextRecord;
+            if *(ctx.Rip as *const u8) == 0xCC {
+                static SEEN: std::sync::Mutex<Vec<u64>> = std::sync::Mutex::new(Vec::new());
+                if let Ok(mut seen) = SEEN.try_lock() {
+                    if !seen.contains(&ctx.Rip) {
+                        seen.push(ctx.Rip);
+                        eprintln!("VIctory: stepped over a soft assert at {:#x} (VICTORY_SKIP_INT3)", ctx.Rip);
+                    }
+                }
+                ctx.Rip += 1;
+                return -1; // EXCEPTION_CONTINUE_EXECUTION
+            }
         }
     }
     // SAFETY: the system passes valid exception pointers.
