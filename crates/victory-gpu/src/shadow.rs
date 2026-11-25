@@ -1873,7 +1873,6 @@ fn back_piece(
     let last = last_difference(host, old).unwrap_or(first);
     let n = last + 1 - first;
     let (host, old) = (&mut host[first..=last], &old[first..=last]);
-    title.clear();
     title.resize(n, 0);
     if !read(first, title) {
         return None;
@@ -1889,7 +1888,6 @@ fn back_piece(
     // data (one cleared a bit of a record the title had already replaced,
     // and copying it back broke the title's object: an access violation
     // through 0xffffffff00000000; PalmVIDev e0b70476, VIctory f39c6c2).
-    mask.clear();
     mask.resize(n, 0);
     let mut differs = 0u8;
     for (((t, h), o), m) in title.iter_mut().zip(host.iter_mut()).zip(old).zip(mask.iter_mut()) {
@@ -2192,6 +2190,38 @@ fn changed_runs_wide(now: &[u8], was: &[u8]) -> Vec<(usize, usize)> {
 #[cfg(test)]
 mod merge_tests {
     use super::{PIECE, back_piece, changed_chunks, changed_runs, changed_runs_bytes, changed_runs_wide};
+
+    #[test]
+    fn back_piece_reuses_scratch_across_short_and_partial_reads() {
+        let mut title = vec![0xcc; 64];
+        let mut mask = vec![0xff; 64];
+        let mut runs = vec![(0, 64)];
+        for n in [12, 5, 17] {
+            let old = vec![1; n];
+            let mut gpu = old.clone();
+            gpu[0] = 4;
+            gpu[n - 1] = 6;
+            let unchanged = gpu.clone();
+            let partial = |_: usize, dst: &mut [u8]| {
+                dst[0] = 9;
+                false
+            };
+            assert_eq!(back_piece(&mut gpu, &old, &mut title, &mut mask, &mut runs, partial), None);
+            assert_eq!(gpu, unchanged);
+            assert!(runs.is_empty());
+
+            let full = |_: usize, dst: &mut [u8]| {
+                assert_eq!(dst.len(), n);
+                dst.fill(1);
+                dst[n / 2] = 7;
+                true
+            };
+            assert_eq!(back_piece(&mut gpu, &old, &mut title, &mut mask, &mut runs, full), Some((0, n)));
+            assert_eq!(runs, [(0, 1), (n - 1, 1)]);
+            assert_eq!(title, gpu);
+            assert_eq!(gpu[n / 2], 7);
+        }
+    }
 
     #[test]
     fn changed_chunks_hold_every_changed_byte() {
@@ -3082,7 +3112,6 @@ impl Shadow {
         let last = last_difference(now, held).unwrap_or(first);
         let (at, n) = (at + first, last + 1 - first);
         let (now, held) = (&now[first..=last], &mut held[first..=last]);
-        title.clear();
         title.resize(n, 0);
         // Who touched the page since its last store is looked at before our
         // own read of it (`VICTORY_BACK_READS`): counted only.
@@ -3872,7 +3901,6 @@ impl Shadow {
         let last = last_difference(gpu, old).unwrap_or(first);
         let (at, n) = (at + first, last + 1 - first);
         let (gpu, old) = (&gpu[first..=last], &mut old[first..=last]);
-        title.clear();
         title.resize(n, 0);
         let mut written = 0;
         if crate::host::read_into((start + at) as *const u8, title) {
@@ -3954,7 +3982,6 @@ impl Shadow {
                 .filter(|&(a, b)| a < at + n && b > at)
                 .collect()
         };
-        title.clear();
         title.resize(n, 0);
         // Who touched the page since its last store is looked at before our
         // own read of it (`VICTORY_BACK_READS`): counted only.
