@@ -130,14 +130,19 @@ fn defer_new_views() -> bool {
     *ON.get_or_init(|| std::env::var_os("VICTORY_DEFER_NEW_VIEWS").is_none_or(|v| v != "0"))
 }
 
-/// Result of [`make_checked`]: made (holding the optional resource), refused
-/// (`None`), or deferred because the resource was created after submission
-/// `born_after` which has not finished on the card yet.
+/// Result of [`make_checked`]: made (holding the optional resource, and the
+/// copy a buffer view reads when the make resolved it, [`BufferCopy`]),
+/// refused (`None`), or deferred because the resource was created after
+/// submission `born_after` which has not finished on the card yet.
 enum Make {
-    Made(Kept),
+    Made(Kept, Option<BufferCopy>),
     None,
     Deferred(u64),
 }
+
+/// The host copy a buffer view reads, and the title range (address, bytes)
+/// it reads there: what [`buffer_copy`] reports for it.
+pub(crate) type BufferCopy = (std::sync::Arc<crate::shadow::Shadow>, u64, u64);
 
 /// The spans of every view heap made ([`HostHeap::placed`]), for the
 /// texture code, which has no heap at hand ([`next_start`],
@@ -2404,6 +2409,7 @@ impl HostHeap {
     /// data: a host copy of a buffer is made on first use.
     pub(crate) fn mirror(&self, index: u32, handle: u64, for_draw: bool) -> Option<View> {
         self.mirror_inner(index, handle, for_draw, false, true)
+            .map(|(view, _)| view)
     }
 
     /// As [`HostHeap::mirror`], marking a deferred new-BO view as required
@@ -2411,13 +2417,16 @@ impl HostHeap {
     /// directly through a non-fresh table).
     pub(crate) fn mirror_required(&self, index: u32, handle: u64, for_draw: bool) -> Option<View> {
         self.mirror_inner(index, handle, for_draw, true, true)
+            .map(|(view, _)| view)
     }
 
     /// [`HostHeap::mirror`] for the pass over slots whose buffer view was
     /// written ([`super::heap_buffers`]): a slot it mirrors is not handed
     /// back to the pass as changed, which made it look at every buffer slot
-    /// it mirrored again on the next frame.
-    pub(crate) fn mirror_heap_buffer(&self, index: u32, handle: u64) -> Option<View> {
+    /// it mirrored again on the next frame. The copy the slot reads
+    /// ([`buffer_copy`]) comes with it when making the view resolved it, so
+    /// the pass need not look it up again.
+    pub(crate) fn mirror_heap_buffer(&self, index: u32, handle: u64) -> Option<(View, Option<BufferCopy>)> {
         self.mirror_inner(index, handle, true, false, false)
     }
 
@@ -2473,6 +2482,10 @@ impl HostHeap {
         n
     }
 
+    /// The view at `handle`, made on slot `index` if it changed since, and
+    /// the copy a buffer view was made on when the make resolved it
+    /// ([`BufferCopy`]; otherwise `None` and the caller looks it up with
+    /// [`buffer_copy`]).
     fn mirror_inner(
         &self,
         index: u32,
@@ -2480,7 +2493,7 @@ impl HostHeap {
         for_draw: bool,
         required: bool,
         record_change: bool,
-    ) -> Option<View> {
+    ) -> Option<(View, Option<BufferCopy>)> {
         let mut made = self.made.lock().unwrap_or_else(|e| e.into_inner());
         self.mirror_with_made(&mut made, index, handle, for_draw, required, record_change, None)
     }
@@ -2498,7 +2511,7 @@ impl HostHeap {
         required: bool,
         record_change: bool,
         mut batch: Option<&mut Vec<u32>>,
-    ) -> Option<View> {
+    ) -> Option<(View, Option<BufferCopy>)> {
         if index >= self.count {
             // Diagnostic (NVIDIA heap cap): the highest title slot past the
             // host heap seen so far.
@@ -2531,6 +2544,8 @@ impl HostHeap {
             }
             return None;
         };
+        // The copy the make resolved for a buffer view, if it made one.
+        let mut resolved = None;
         if made[index as usize] != key {
             // Views of other textures in the memory this one describes
             // are stale: their host slots read nothing from here on, and
@@ -2572,7 +2587,7 @@ impl HostHeap {
                     .is_some_and(|old| same_placed_texture(&old, &view))
             {
                 KEPT_VIEWS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                return Some(view);
+                return Some((view, None));
             }
             if later {
                 // A slot of ours that never made a view is already null
@@ -2599,11 +2614,12 @@ impl HostHeap {
                             .lock()
                             .unwrap_or_else(|e| e.into_inner())
                             .push((index, handle, for_draw, born_after, required));
-                        return Some(view);
+                        return Some((view, None));
                     }
-                    Make::Made(kept) => {
+                    Make::Made(kept, copy) => {
                         made[index as usize] = key;
                         self.keep(index, kept);
+                        resolved = copy;
                     }
                     Make::None => {
                         made[index as usize] = key;
@@ -2615,7 +2631,7 @@ impl HostHeap {
                 }
             }
         }
-        Some(view)
+        Some((view, resolved))
     }
 
     /// Whether slot `index` is backed by a made host descriptor (tests).
@@ -2862,7 +2878,7 @@ fn view_extent() -> bool {
 /// part's one), and for buffer objects, a part that also lies in a smaller
 /// buffer object. The slot then showed a copy nothing brought up to date,
 /// and what shaders wrote through it was looked for in the other copy.
-pub(crate) fn buffer_copy(view: &View) -> Option<(std::sync::Arc<crate::shadow::Shadow>, u64, u64)> {
+pub(crate) fn buffer_copy(view: &View) -> Option<BufferCopy> {
     let (address, len) = buffer_range(view)?;
     if len == 0 {
         return None;
@@ -3121,32 +3137,45 @@ fn left_null(why: &'static str, unordered: bool, address: u64, len: u64, element
     }
 }
 
+/// `buffer_view`: whether [`buffer_fields`] reads the view as a buffer view,
+/// which decides what [`buffer_copy`] reports for it.
 fn buffer_srv(
     address: u64,
     len: u64,
     mut desc: D3D12_SHADER_RESOURCE_VIEW_DESC,
     at: D3D12_CPU_DESCRIPTOR_HANDLE,
     max_born: Option<u64>,
+    buffer_view: bool,
 ) -> Make {
-    let Some(shadow) = crate::shadow::find(address, len) else {
+    let Some(whole) = crate::shadow::find(address, len) else {
         return Make::None;
     };
-    let offset = shadow.offset(address);
+    let offset = whole.offset(address);
+    // The title range the view reads ([`buffer_range`]): what `buffer_copy`
+    // reports the copy of a made slot with.
+    // SAFETY: a buffer view's union member.
+    let range = {
+        let b = unsafe { desc.Anonymous.Buffer };
+        let element = element_size(&desc);
+        (address + b.FirstElement * element, u64::from(b.NumElements) * element)
+    };
     // Off the elements of that copy: on a copy of its own bytes, from its
     // element 0 (`own_bytes`).
-    let (shadow, offset) = {
-        // SAFETY: a buffer view's union member.
-        let b = unsafe { desc.Anonymous.Buffer };
-        let unknown = desc.Format == DXGI_FORMAT_UNKNOWN;
-        match own_bytes(offset, address, b.FirstElement, b.NumElements, element_size(&desc), b.StructureByteStride, unknown)
-            .and_then(|(start, bytes)| crate::shadow::exact(start, bytes))
-        {
-            Some(own) => {
-                desc.Anonymous.Buffer.FirstElement = 0;
-                (own, 0)
-            }
-            None => (shadow, offset),
+    let own = buffer_view
+        .then_some(())
+        .and_then(|()| {
+            // SAFETY: a buffer view's union member.
+            let b = unsafe { desc.Anonymous.Buffer };
+            let unknown = desc.Format == DXGI_FORMAT_UNKNOWN;
+            own_bytes(offset, address, b.FirstElement, b.NumElements, element_size(&desc), b.StructureByteStride, unknown)
+                .and_then(|(start, bytes)| crate::shadow::exact(start, bytes).map(|own| (own, start, bytes)))
+        });
+    let (shadow, offset, own_copy) = match own {
+        Some((own, start, bytes)) => {
+            desc.Anonymous.Buffer.FirstElement = 0;
+            (own, 0, Some((start, bytes)))
         }
+        None => (whole, offset, None),
     };
     // A structured view as a raw view of the same bytes (see `raw_window`).
     // SAFETY: a buffer view's union member.
@@ -3201,6 +3230,16 @@ fn buffer_srv(
     if max_born.is_some_and(|done| shadow.born_after() > done) {
         return Make::Deferred(shadow.born_after());
     }
+    // The copy this slot now shows, as `buffer_copy` reports it: a copy of
+    // the view's own bytes, else the whole buffer's, which the view lies in
+    // (`VICTORY_VIEW_EXTENT=0` looks copies up by the view's range alone).
+    let copy = match own_copy {
+        Some((start, bytes)) => Some((shadow.clone(), start, bytes)),
+        None if view_extent() && range.1 > 0 && range.0 >= address && range.0 - address < len.max(1) => {
+            Some((shadow.clone(), range.0, range.1))
+        }
+        None => None,
+    };
     let Some(host) = host() else {
         return Make::None;
     };
@@ -3209,7 +3248,7 @@ fn buffer_srv(
         host.device
             .CreateShaderResourceView(&shadow.buffer, Some(&desc), at)
     };
-    Make::Made(Some(shadow.buffer.clone()))
+    Make::Made(Some(shadow.buffer.clone()), copy)
 }
 
 /// An unordered access view of title buffer memory at `address` (`len`
@@ -3217,39 +3256,59 @@ fn buffer_srv(
 /// written by shaders (upload memory).
 /// shortcut: what shaders write stays in the host copy; title memory (and
 /// so the CPU, and copies run on the CPU) does not see it.
+/// `buffer_view`: whether [`buffer_fields`] reads the view as a buffer view,
+/// which decides what [`buffer_copy`] reports for it.
 fn buffer_uav(
     address: u64,
     len: u64,
     mut desc: D3D12_UNORDERED_ACCESS_VIEW_DESC,
     at: D3D12_CPU_DESCRIPTOR_HANDLE,
     max_born: Option<u64>,
+    buffer_view: bool,
 ) -> Make {
-    let Some(shadow) = crate::shadow::find(address, len) else {
+    let Some(whole) = crate::shadow::find(address, len) else {
         return Make::None;
     };
-    // Off the elements of that copy: on a copy of its own bytes, from its
-    // element 0 (`own_bytes`).
-    let (shadow, own) = {
+    // The title range the view reads ([`buffer_range`]: `None` where it finds
+    // none): what `buffer_copy` reports the copy of a made slot with.
+    let range = {
         // SAFETY: a buffer view's union member.
         let b = unsafe { desc.Anonymous.Buffer };
         let element = if b.StructureByteStride > 0 {
-            u64::from(b.StructureByteStride)
+            Some(u64::from(b.StructureByteStride))
         } else if b.Flags.0 & D3D12_BUFFER_UAV_FLAG_RAW.0 != 0 {
-            4
+            Some(4)
         } else {
-            crate::resource::element(desc.Format.0 as u32).map_or(0, |(bytes, _)| bytes)
+            crate::resource::element(desc.Format.0 as u32).map(|(bytes, _)| bytes)
         };
-        let unknown = desc.Format == DXGI_FORMAT_UNKNOWN;
-        match own_bytes(shadow.offset(address), address, b.FirstElement, b.NumElements, element, b.StructureByteStride, unknown)
-            .and_then(|(start, bytes)| crate::shadow::exact(start, bytes))
-        {
-            Some(own) => {
-                desc.Anonymous.Buffer.FirstElement = 0;
-                (own, true)
-            }
-            None => (shadow, false),
-        }
+        element.map(|element| (address + b.FirstElement * element, u64::from(b.NumElements) * element))
     };
+    // Off the elements of that copy: on a copy of its own bytes, from its
+    // element 0 (`own_bytes`).
+    let own = buffer_view
+        .then_some(())
+        .and_then(|()| {
+            // SAFETY: a buffer view's union member.
+            let b = unsafe { desc.Anonymous.Buffer };
+            let element = if b.StructureByteStride > 0 {
+                u64::from(b.StructureByteStride)
+            } else if b.Flags.0 & D3D12_BUFFER_UAV_FLAG_RAW.0 != 0 {
+                4
+            } else {
+                crate::resource::element(desc.Format.0 as u32).map_or(0, |(bytes, _)| bytes)
+            };
+            let unknown = desc.Format == DXGI_FORMAT_UNKNOWN;
+            own_bytes(whole.offset(address), address, b.FirstElement, b.NumElements, element, b.StructureByteStride, unknown)
+                .and_then(|(start, bytes)| crate::shadow::exact(start, bytes).map(|own| (own, start, bytes)))
+        });
+    let (shadow, own_copy) = match own {
+        Some((own, start, bytes)) => {
+            desc.Anonymous.Buffer.FirstElement = 0;
+            (own, Some((start, bytes)))
+        }
+        None => (whole, None),
+    };
+    let own = own_copy.is_some();
     // SAFETY: a live buffer.
     let flags = unsafe { shadow.buffer.GetDesc() }.Flags;
     if flags.0 & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS.0 == 0 {
@@ -3312,6 +3371,18 @@ fn buffer_uav(
     if max_born.is_some_and(|done| shadow.born_after() > done) {
         return Make::Deferred(shadow.born_after());
     }
+    // The copy this slot now shows, as `buffer_copy` reports it: a copy of
+    // the view's own bytes, else the whole buffer's, which the view lies in
+    // (`VICTORY_VIEW_EXTENT=0` looks copies up by the view's range alone).
+    let copy = match (own_copy, range) {
+        (Some((start, bytes)), _) => Some((shadow.clone(), start, bytes)),
+        (None, Some((from, bytes)))
+            if view_extent() && bytes > 0 && from >= address && from - address < len.max(1) =>
+        {
+            Some((shadow.clone(), from, bytes))
+        }
+        _ => None,
+    };
     let Some(host) = host() else {
         return Make::None;
     };
@@ -3320,7 +3391,7 @@ fn buffer_uav(
         host.device
             .CreateUnorderedAccessView(&shadow.buffer, None::<&ID3D12Resource>, Some(&desc), at)
     };
-    Make::Made(Some(shadow.buffer.clone()))
+    Make::Made(Some(shadow.buffer.clone()), copy)
 }
 
 /// Whether the host can make a shader (or unordered access) view of
@@ -3458,7 +3529,7 @@ fn twin_uav(
 /// views, or `None` if it cannot.
 fn make(view: &View, at: D3D12_CPU_DESCRIPTOR_HANDLE) -> Option<Kept> {
     match make_checked(view, at, None) {
-        Make::Made(kept) => Some(kept),
+        Make::Made(kept, _) => Some(kept),
         Make::None | Make::Deferred(_) => None,
     }
 }
@@ -3493,7 +3564,7 @@ fn make_checked(view: &View, at: D3D12_CPU_DESCRIPTOR_HANDLE, max_born: Option<u
             };
             // SAFETY: a slot of our heap; the range lies in the host copy.
             unsafe { device.CreateConstantBufferView(Some(&desc), at) };
-            Make::Made(Some(shadow.buffer.clone()))
+            Make::Made(Some(shadow.buffer.clone()), None)
         }
         View::Shader(resource, desc) => {
             let resource = *resource as crate::object::This;
@@ -3566,11 +3637,13 @@ fn make_checked(view: &View, at: D3D12_CPU_DESCRIPTOR_HANDLE, max_born: Option<u
                         at,
                     )
                 };
-                Make::Made(Some(texture.clone()))
+                Make::Made(Some(texture.clone()), None)
             } else if let (Some((data, len)), Some(desc)) =
                 (crate::resource::buffer_bytes(resource), desc)
             {
-                buffer_srv(data as u64, len, srv_desc(desc), at, max_born)
+                // Buffer views: dimension 1 (`buffer_fields`).
+                const BUFFER: u32 = 1;
+                buffer_srv(data as u64, len, srv_desc(desc), at, max_born, desc[1] == BUFFER)
             } else {
                 Make::None
             }
@@ -3580,7 +3653,9 @@ fn make_checked(view: &View, at: D3D12_CPU_DESCRIPTOR_HANDLE, max_born: Option<u
             let Some(texture) = crate::resource::host_resource(resource) else {
                 return match (crate::resource::buffer_bytes(resource), desc) {
                     (Some((data, len)), Some(desc)) => {
-                        buffer_uav(data as u64, len, uav_desc(desc), at, max_born)
+                        // Buffer views: dimension 1 (`buffer_fields`).
+                        const BUFFER: u32 = 1;
+                        buffer_uav(data as u64, len, uav_desc(desc), at, max_born, desc[1] == BUFFER)
                     }
                     _ => Make::None,
                 };
@@ -3634,7 +3709,7 @@ fn make_checked(view: &View, at: D3D12_CPU_DESCRIPTOR_HANDLE, max_born: Option<u
                     at,
                 )
             };
-            Make::Made(Some(texture.clone()))
+            Make::Made(Some(texture.clone()), None)
         }
         View::Sampler(words) => {
             // SAFETY: 13 words in the host's layout.
@@ -3645,13 +3720,13 @@ fn make_checked(view: &View, at: D3D12_CPU_DESCRIPTOR_HANDLE, max_born: Option<u
             };
             // SAFETY: a slot of our sampler heap.
             unsafe { device.CreateSampler(&desc, at) };
-            Make::Made(None)
+            Make::Made(None, None)
         }
         View::ConsoleSampler(words) => {
             let desc = crate::sampler::console(words);
             // SAFETY: a slot of our sampler heap.
             unsafe { device.CreateSampler(&desc, at) };
-            Make::Made(None)
+            Make::Made(None, None)
         }
         View::Placed(unordered, resource, desc) => {
             if let Some(view) = placed_texture(view) {
@@ -3674,10 +3749,11 @@ fn make_checked(view: &View, at: D3D12_CPU_DESCRIPTOR_HANDLE, max_born: Option<u
             if len == 0 {
                 return Make::None;
             }
+            // A placed buffer view is one by its resource (`buffer_fields`).
             if *unordered {
-                buffer_uav(address, len, uav_desc(words), at, max_born)
+                buffer_uav(address, len, uav_desc(words), at, max_born, true)
             } else {
-                buffer_srv(address, len, srv_desc(words), at, max_born)
+                buffer_srv(address, len, srv_desc(words), at, max_born, true)
             }
         }
     }
