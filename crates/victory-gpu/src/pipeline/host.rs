@@ -9,6 +9,7 @@ use std::ffi::{CStr, CString};
 use std::sync::Arc;
 
 use victory_shader::emit::{ROOT_CBV_SPACE, SAMPLER_SPACE, USER_DATA_SPACE};
+use victory_shader::resource::RootIndexedView;
 use victory_shader::{ResourceType, RootType, UsedResource};
 use windows::Win32::Graphics::Direct3D::ID3DBlob;
 use windows::Win32::Graphics::Direct3D12::*;
@@ -288,10 +289,12 @@ pub(crate) struct TableLayout {
     pub(crate) entries: Vec<UsedResource>,
     /// The first declared resource for each 32-byte record, in record order.
     pub(crate) records: Vec<(u32, ResourceType)>,
+    /// Draw-evaluable expressions belonging to this table only.
+    pub(crate) indexed: Vec<RootIndexedView>,
 }
 
 impl TableLayout {
-    fn build(used: &[UsedResource]) -> Vec<Self> {
+    pub(crate) fn build(used: &[UsedResource], indexed: &[RootIndexedView]) -> Vec<Self> {
         let mut by_slot = std::collections::BTreeMap::<u8, Vec<UsedResource>>::new();
         for &entry in used.iter().filter(|u| u.root == RootType::Table) {
             by_slot.entry(entry.slot).or_default().push(entry);
@@ -307,7 +310,8 @@ impl TableLayout {
                 // linear search did for aliases within a record.
                 records.sort_by_key(|&(record, _)| record);
                 records.dedup_by_key(|entry| entry.0);
-                Self { slot, entries, records }
+                let indexed = indexed.iter().copied().filter(|view| view.table_slot == slot).collect();
+                Self { slot, entries, records, indexed }
             })
             .collect()
     }
@@ -332,13 +336,23 @@ fn table_layout_preserves_shader_order_and_first_record_alias() {
         entry(9, 32, ResourceType::Uav, RootType::Table),
         entry(9, 160, ResourceType::Srv, RootType::Constants),
     ];
-    let layouts = TableLayout::build(&used);
+    let expression = |table_slot, byte_offset| RootIndexedView {
+        table_slot,
+        constant_slot: 3,
+        constant_dword: 1,
+        byte_offset,
+        shift: 5,
+    };
+    let indexed = [expression(9, 64), expression(2, 32), expression(9, 96), expression(10, 0)];
+    let layouts = TableLayout::build(&used, &indexed);
+    assert_eq!(layouts[0].indexed, [indexed[1]]);
+    assert_eq!(layouts[1].indexed, [indexed[0], indexed[2]]);
     assert_eq!(layouts.len(), 2);
     assert_eq!(layouts[0].slot, 2);
     assert_eq!(layouts[1].slot, 9);
     assert_eq!(layouts[1].entries, [used[0], used[2], used[3]]);
     assert_eq!(layouts[1].records, [(0, ResourceType::Cbv), (4, ResourceType::Srv)]);
-    assert!(TableLayout::build(&used[4..]).is_empty());
+    assert!(TableLayout::build(&used[4..], &indexed).is_empty());
 }
 
 /// One stage of a host pipeline and where its bindings go.
@@ -453,7 +467,7 @@ impl HostPipeline {
             let t = &translated.host;
             let mut stage = Stage {
                 shader: shader.clone(),
-                tables: TableLayout::build(&translated.used),
+                tables: TableLayout::build(&translated.used, &t.root_indexed_views),
                 user_data: None,
                 root_cbvs: Vec::new(),
                 root_srvs: Vec::new(),

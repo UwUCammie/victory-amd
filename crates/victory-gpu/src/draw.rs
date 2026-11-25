@@ -10,7 +10,6 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use victory_shader::resource::RootIndexedView;
 use victory_shader::{ResourceType, RootType, UsedResource};
 
 use crate::descriptor::View;
@@ -388,7 +387,7 @@ impl TableSlots {
 
 /// Remapped table offsets, with inline room for small sets.
 #[derive(Default)]
-struct MadeTables {
+pub(crate) struct MadeTables {
     inline: [(u8, u32); 8],
     len: usize,
     overflow: Vec<(u8, u32)>,
@@ -404,7 +403,7 @@ impl MadeTables {
         }
     }
 
-    fn iter(&self) -> impl Iterator<Item = &(u8, u32)> {
+    pub(crate) fn iter(&self) -> impl Iterator<Item = &(u8, u32)> {
         self.inline[..self.len].iter().chain(self.overflow.iter())
     }
 }
@@ -1086,7 +1085,6 @@ impl State {
                 list,
                 &t.used,
                 &stage.tables,
-                &t.host.root_indexed_views,
                 &t.host.half_views,
                 compute,
             );
@@ -2579,7 +2577,6 @@ impl State {
         list: &HostList,
         used: &[UsedResource],
         layouts: &[TableLayout],
-        indexed: &[RootIndexedView],
         half: &[(u8, u32)],
         compute: bool,
     ) -> MadeTables {
@@ -2660,31 +2657,35 @@ impl State {
             let Some(host) = heap.host() else {
                 continue;
             };
-            let mut selected: Vec<u32> = indexed
-                .iter()
-                .filter(|index| index.table_slot == slot)
-                .map(|index| {
-                    let constant = self.user_value(
-                        compute,
-                        index.constant_slot,
-                        RootType::Constants,
-                        index.constant_dword,
-                    );
-                    // The shader adds i32 byte offsets and shifts by 5.
-                    index.byte_offset.wrapping_add(constant << index.shift) / 32
-                })
-                .collect();
-            // The descriptors the shader moves halves through are made too,
-            // and the table reaches them: they may lie past the range starts
-            // the entries give (a range of several views names only its
-            // first; review on #927).
-            selected.extend(
-                half.iter()
-                    .filter(|&&(s, _)| s == slot)
-                    .map(|&(_, at)| at / 8),
-            );
-            selected.sort_unstable();
-            selected.dedup();
+            let evaluate = |index: &victory_shader::resource::RootIndexedView| {
+                let constant = self.user_value(
+                    compute,
+                    index.constant_slot,
+                    RootType::Constants,
+                    index.constant_dword,
+                );
+                // The shader adds i32 byte offsets and shifts by 5.
+                index.byte_offset.wrapping_add(constant << index.shift) / 32
+            };
+            let single;
+            let mut many;
+            // A half view can reach beyond the first entry of a declared range.
+            let mut halves = half.iter().filter(|&&(s, _)| s == slot).map(|&(_, at)| at / 8);
+            let selected: &[u32] = match (layout.indexed.as_slice(), halves.next()) {
+                ([], None) => &[],
+                ([expression], None) => {
+                    single = evaluate(expression);
+                    std::slice::from_ref(&single)
+                }
+                (expressions, first_half) => {
+                    many = expressions.iter().map(evaluate).collect::<Vec<_>>();
+                    many.extend(first_half);
+                    many.extend(halves);
+                    many.sort_unstable();
+                    many.dedup();
+                    &many
+                }
+            };
             let n = layout.records.last().map_or(0, |entry| entry.0)
                 .max(selected.last().copied().unwrap_or(0))
                 + 1;
@@ -2716,7 +2717,7 @@ impl State {
                         readable(list, u.kind, &view);
                     }
                 }
-                for k in selected {
+                for &k in selected {
                     if layout.records.binary_search_by_key(&k, |entry| entry.0).is_ok() {
                         continue;
                     }

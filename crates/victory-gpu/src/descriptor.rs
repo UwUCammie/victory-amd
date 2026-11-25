@@ -1262,7 +1262,9 @@ mod tests {
             user_data: 4,
             slot: 1,
         };
-        let made = state.tables(&list, &[range], &[], &[(1, 8)], true);
+        let layouts = crate::pipeline::host::TableLayout::build(&[range], &[]);
+        let made: Vec<_> = state.tables(&list, &[range], &layouts, &[(1, 8)], true)
+            .iter().copied().collect();
         let [(1, offset)] = made[..] else {
             panic!("one fresh table for root parameter 1, not {made:?}");
         };
