@@ -24,6 +24,11 @@ use windows::Win32::Graphics::Direct3D12::ID3D12Resource;
 use crate::host::{HostList, host};
 use crate::watch::PAGE;
 
+thread_local! {
+    static COMPARED_ROOM: std::cell::Cell<(Vec<u8>, Vec<(usize, usize)>)> =
+        const { std::cell::Cell::new((Vec::new(), Vec::new())) };
+}
+
 /// A title buffer's host copy.
 pub(crate) struct Shadow {
     pub(crate) buffer: ID3D12Resource,
@@ -292,8 +297,7 @@ static CARD_QUEUE: Mutex<Vec<std::sync::Weak<Shadow>>> = Mutex::new(Vec::new());
 static LIVE_CARDS: AtomicU64 = AtomicU64::new(0);
 
 fn note_carded(shadow: &Arc<Shadow>) {
-    if let Some(card) = &shadow.card {
-        let _ = card.owner.set(Arc::downgrade(shadow));
+    if let Some(card) = &shadow.card && card.owner.set(Arc::downgrade(shadow)).is_ok() {
         LIVE_CARDS.fetch_add(1, Ordering::Relaxed);
     }
 }
@@ -2134,9 +2138,90 @@ fn changed_runs_wide(now: &[u8], was: &[u8]) -> Vec<(usize, usize)> {
     changed_runs_bytes(now, was)
 }
 
+/// The step a refresh that compares ([`refresh_compare`]) takes or leaves
+/// whole: the kernel's page, which is as fine as its write watch tells.
+const CHUNK: usize = 4 << 10;
+
+/// Into `runs`, emptied first: the runs of whole `chunk`-byte steps of
+/// `now` (the last step may be shorter) holding a byte that differs from
+/// `was` (of one length), as (offset, bytes) in order, steps next to each
+/// other joined.
+fn changed_chunks(now: &[u8], was: &[u8], chunk: usize, runs: &mut Vec<(usize, usize)>) {
+    runs.clear();
+    let n = now.len().min(was.len());
+    let mut at = 0;
+    while at < n {
+        let m = chunk.min(n - at);
+        if now[at..at + m] != was[at..at + m] {
+            match runs.last_mut() {
+                Some(last) if last.0 + last.1 == at => last.1 += m,
+                _ => runs.push((at, m)),
+            }
+        }
+        at += m;
+    }
+}
+
+/// Whether a refresh compares the pages the write watch names with the
+/// copy before it takes them (`VICTORY_REFRESH_COMPARE=1`; off by
+/// default), and takes only the 4 KiB steps that differ
+/// ([`Shadow::copy_changed`]). The watch is kept by 64 KiB page and names
+/// a page for one byte written, and for our own writes as well: what a
+/// landing puts into title memory is in the copy already, and the next
+/// refresh took the page again and sent it up to the card.
+///
+/// In the world, with every copy in the card's memory: 96 to 105 MB a
+/// frame of written pages, 11 to 12 MB of them different from the copy
+/// (run st-t-rc). The bytes sent up to the card went from 98 MB a frame in
+/// 797 ranges (run st-t-k, the same build without the switch) to 11 MB in
+/// 494, and the frame from 71.5-73.6 ms to 68.3-72.2. The refresh itself
+/// takes as long as before on the submitting thread (16 to 19 ms a frame):
+/// a page is read and compared where it was read and written.
+pub(crate) fn refresh_compare() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("VICTORY_REFRESH_COMPARE").is_some_and(|v| v == "1"))
+}
+
+/// Since the last frame-rate line, of [`Shadow::copy_changed`]: bytes of
+/// written pages read and compared, the bytes of them that differed and
+/// were taken, and their runs.
+static COMPARED: [AtomicU64; 3] = [const { AtomicU64::new(0) }; 3];
+
+/// [`COMPARED`], taken.
+pub(crate) fn compared_stats() -> [u64; 3] {
+    [0, 1, 2].map(|i| COMPARED[i].swap(0, Ordering::Relaxed))
+}
+
 #[cfg(test)]
 mod merge_tests {
     use super::{PIECE, back_piece, changed_runs, join_runs};
+
+    #[test]
+    fn changed_chunks_are_the_whole_steps_that_differ() {
+        use super::changed_chunks;
+        let was: Vec<u8> = (0..70u32).map(|i| (i * 13 + 5) as u8).collect();
+        let mut runs = vec![(9, 9)];
+        for (changes, steps) in [
+            (vec![], vec![]),
+            (vec![0], vec![(0, 16)]),
+            (vec![15, 16], vec![(0, 32)]),
+            (vec![3, 40], vec![(0, 16), (32, 16)]),
+            (vec![69], vec![(64, 6)]),
+            (vec![50, 69], vec![(48, 22)]),
+        ] {
+            let mut now = was.clone();
+            for &at in &changes {
+                now[at] ^= 0x41;
+            }
+            changed_chunks(&now, &was, 16, &mut runs);
+            assert_eq!(runs, steps, "{changes:?}");
+            let mut put = was.clone();
+            for &(at, n) in &runs {
+                put[at..at + n].copy_from_slice(&now[at..at + n]);
+            }
+            assert_eq!(put, now, "{changes:?}");
+        }
+    }
 
     /// Runs with fewer bytes between them than the gap become one, from the
     /// first's start to the last's end; the others stay as they are.
@@ -3558,9 +3643,12 @@ impl Shadow {
     /// asking), whole pages within the buffer.
     fn copy_stale(&self, from: usize, to: usize, now: u64, written: &[(usize, u64)]) -> usize {
         let base = self.start as usize / PAGE;
+        let compare = refresh_compare();
         let mut copied = self.copied.lock().unwrap_or_else(|e| e.into_inner());
         let mut writes = written.iter().peekable();
-        let (mut bytes, mut run) = (0, None);
+        // The run of stale pages gathered: its first page, and whether the
+        // copy never took its pages (those are taken whole, not compared).
+        let (mut bytes, mut run): (usize, Option<(usize, bool)>) = (0, None);
         let last = (to - 1) / PAGE;
         for page in from / PAGE..=last {
             let write = match writes.peek() {
@@ -3572,21 +3660,79 @@ impl Shadow {
             };
             let at = &mut copied[page - base];
             if *at == 0 || write > *at {
+                let fresh = *at == 0;
                 // A page only partly in the range is copied in part: it
                 // stays stale for the rest.
                 let (start, end) = (self.start as usize, (self.start + self.len) as usize);
                 if (page * PAGE).max(start) >= from && ((page + 1) * PAGE).min(end) <= to {
                     *at = now;
                 }
-                run.get_or_insert(page);
-            } else if let Some(first) = run.take() {
-                bytes += self.copy((first * PAGE).max(from), (page * PAGE).min(to));
+                match run {
+                    Some((_, was)) if was == fresh => {}
+                    Some((first, was)) => {
+                        bytes += self.copy_run((first * PAGE).max(from), (page * PAGE).min(to), compare && !was);
+                        run = Some((page, fresh));
+                    }
+                    None => run = Some((page, fresh)),
+                }
+            } else if let Some((first, fresh)) = run.take() {
+                bytes += self.copy_run((first * PAGE).max(from), (page * PAGE).min(to), compare && !fresh);
             }
         }
         // Cut to the range: next to it shaders may be writing the copy.
-        if let Some(first) = run {
-            bytes += self.copy((first * PAGE).max(from), ((last + 1) * PAGE).min(to));
+        if let Some((first, fresh)) = run {
+            bytes += self.copy_run((first * PAGE).max(from), ((last + 1) * PAGE).min(to), compare && !fresh);
         }
+        bytes
+    }
+
+    /// Takes title memory `[from, to)`: what differs from the copy
+    /// (`compared`: [`Shadow::copy_changed`]), or all of it.
+    fn copy_run(&self, from: usize, to: usize, compared: bool) -> usize {
+        if compared { self.copy_changed(from, to) } else { self.copy(from, to) }
+    }
+
+    /// [`Shadow::copy`] of pages the copy took before, with
+    /// [`refresh_compare`]: title memory `[from, to)`, cut to the buffer,
+    /// is read and compared with the copy, and only the 4 KiB steps that
+    /// differ go into the copy and, for a copy in the card's memory, up to
+    /// the card. Returns the bytes taken.
+    fn copy_changed(&self, from: usize, to: usize) -> usize {
+        let (start, end) = (self.start as usize, (self.start + self.len) as usize);
+        let (from, to) = (from.max(start), to.min(end));
+        let (mut title, mut runs) = COMPARED_ROOM.take();
+        title.resize(PAGE, 0);
+        let (mut bytes, mut at) = (0, from);
+        while at < to {
+            let n = (PAGE - at % PAGE).min(to - at);
+            let page = &mut title[..n];
+            if !crate::host::read_into(at as *const u8, page) {
+                // Not all of it is mapped: as `copy` takes it.
+                bytes += self.copy(at, at + n);
+                at += n;
+                continue;
+            }
+            let offset = at - start;
+            // SAFETY: inside the mapping (`from` and `to` are within the
+            // buffer) and outside the ranges shaders are writing
+            // (`update`), where only the refreshing thread writes the copy.
+            let held = unsafe { std::slice::from_raw_parts_mut(self.data.add(offset), n) };
+            changed_chunks(page, held, CHUNK, &mut runs);
+            let mut taken = 0;
+            for &(r, m) in &runs {
+                held[r..r + m].copy_from_slice(&page[r..r + m]);
+                // After the bytes are in, as `copy` tells of them.
+                self.changed(offset + r, offset + r + m);
+                self.card_changed(offset + r, offset + r + m);
+                taken += m;
+            }
+            COMPARED[0].fetch_add(n as u64, Ordering::Relaxed);
+            COMPARED[1].fetch_add(taken as u64, Ordering::Relaxed);
+            COMPARED[2].fetch_add(runs.len() as u64, Ordering::Relaxed);
+            bytes += taken;
+            at += n;
+        }
+        COMPARED_ROOM.set((title, runs));
         bytes
     }
 

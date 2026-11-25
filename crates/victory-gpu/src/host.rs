@@ -8061,6 +8061,15 @@ impl Meter {
         crate::shadow::exact_line(frames);
         crate::descriptor::sync_line(frames);
         late_line(frames);
+        if crate::shadow::refresh_compare() {
+            let [read, taken, runs] = crate::shadow::compared_stats().map(|n| n as f64 / frames);
+            tracing::info!(
+                "refreshes that compare per frame (VICTORY_REFRESH_COMPARE=1): {:.1} MB of pages written since their last \
+                 copy read, {:.1} MB of them differed from the copy and were taken, in {runs:.0} runs",
+                read / (1 << 20) as f64,
+                taken / (1 << 20) as f64
+            );
+        }
         card_clock_line(frames, ms);
         crate::shadow::placed_line();
         crate::queue2::line(frames);
