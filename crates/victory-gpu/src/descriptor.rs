@@ -178,6 +178,12 @@ fn mirror(handle: u64) {
 /// slots a frame in the world of the title this fork works on, against a
 /// few hundred views made by calls; without it those host slots stayed
 /// null, or went on showing what they showed before.
+///
+/// A heap's dirty pages are read and scanned a few at a time
+/// ([`host::HostHeap::sync_copied_pages_wide`]): `VICTORY_WIDE_HEAP_SYNC=0`
+/// keeps them on this thread, as does `VICTORY_HEAP_SYNC_PAGE=0` for the
+/// whole pass.
+///
 /// `VICTORY_HEAP_SYNC=0`: not done, as before. [`SYNCED`] counts.
 #[cfg(windows)]
 pub(crate) fn sync_heaps() {
@@ -188,10 +194,12 @@ pub(crate) fn sync_heaps() {
     }
     let started = std::time::Instant::now();
     let (mut pages, mut looked, mut mirrored) = (0u64, 0u64, 0u64);
-    // One page of bytes for every page looked at, and one list of the
-    // slots to mirror for every page: neither is allocated per page.
+    // One page of bytes for every page looked at, one list of the slots to
+    // mirror for every page, and the pages of one heap: none is allocated
+    // per page.
     let mut page_bytes = vec![0u8; crate::watch::PAGE];
-    let mut due: Vec<(u32, u64)> = Vec::new();
+    let mut due: Vec<host::CopiedDue> = Vec::new();
+    let mut dirty: Vec<(usize, usize, std::ops::Range<u64>)> = Vec::new();
     let _one = SYNCING.lock().unwrap_or_else(|e| e.into_inner());
     let heaps = SHADER_HEAPS.read().unwrap_or_else(|e| e.into_inner());
     for &(start, end, at) in heaps.iter() {
@@ -206,48 +214,64 @@ pub(crate) fn sync_heaps() {
         // Capped host heaps have no counterparts for the title slots reserved
         // for per-draw tables; raw writes there must not be mirrored.
         let mirrored_count = heap.desc.count.min(host.count());
+        dirty.clear();
         for (range_from, range_end) in written.take(start as usize, end as usize) {
             let mut page = range_from & !(crate::watch::PAGE - 1);
             while page < range_end {
                 let from = page.max(range_from);
                 let to = (page + crate::watch::PAGE).min(range_end);
-                // The page's records are read through the kernel, into a
-                // copy: a page the title unmaps meanwhile fails the read
-                // where 2,048 reads in place would fault.
-                let slice = &mut page_bytes[..to - from];
-                if crate::host::read_into(from as *const u8, slice) {
-                    pages += 1;
-                    let slots = changed_slots(from, to, start as usize, step, mirrored_count);
-                    // The page's records in one go, under one lock
-                    // (`HostHeap::mirror_copied_page`); one by one below
-                    // with `VICTORY_HEAP_SYNC_PAGE=0`.
-                    let slots = if page_at_once() {
-                        let (seen, made) = host.mirror_copied_page(slots, (start, step), from, slice, &mut due);
-                        looked += seen;
-                        mirrored += made;
-                        0..0
-                    } else {
-                        slots
+                let slots = changed_slots(from, to, start as usize, step, mirrored_count);
+                dirty.push((from, to, slots));
+                page += crate::watch::PAGE;
+            }
+        }
+        // A heap's pages read and scanned by several threads
+        // (`HostHeap::sync_copied_pages_wide`: read through the kernel,
+        // and filtered against the fingerprints, which are per-slot
+        // atomics there). A page read and scanned on its own; short heaps
+        // stay on this thread.
+        if page_at_once() && wide_heap_sync() && dirty.len() >= 4 {
+            let (read, seen, made) = host.sync_copied_pages_wide(&dirty, (start, step));
+            pages += read;
+            looked += seen;
+            mirrored += made;
+            continue;
+        }
+        for (from, to, slots) in dirty.drain(..) {
+            // The page's records are read through the kernel, into a
+            // copy: a page the title unmaps meanwhile fails the read
+            // where 2,048 reads in place would fault.
+            let slice = &mut page_bytes[..to - from];
+            if crate::host::read_into(from as *const u8, slice) {
+                pages += 1;
+                // The page's records in one go, under one lock
+                // (`HostHeap::mirror_copied_page`); one by one below
+                // with `VICTORY_HEAP_SYNC_PAGE=0`.
+                let slots = if page_at_once() {
+                    let (seen, made) = host.mirror_copied_page(slots, (start, step), from, slice, &mut due);
+                    looked += seen;
+                    mirrored += made;
+                    0..0
+                } else {
+                    slots
+                };
+                for index in slots {
+                    let handle = start + index * step;
+                    // A record that straddles the range's ends is left
+                    // to the range that holds its first byte.
+                    let Some(at) = (handle as usize).checked_sub(from) else {
+                        continue;
                     };
-                    for index in slots {
-                        let handle = start + index * step;
-                        // A record that straddles the range's ends is left
-                        // to the range that holds its first byte.
-                        let Some(at) = (handle as usize).checked_sub(from) else {
-                            continue;
-                        };
-                        let Some(record) = slice.get(at..at + step as usize) else {
-                            continue;
-                        };
-                        looked += 1;
-                        // Only a record that is not the one last seen there
-                        // (`HostHeap::mirror_copied`).
-                        if host.mirror_copied(index as u32, handle, record) {
-                            mirrored += 1;
-                        }
+                    let Some(record) = slice.get(at..at + step as usize) else {
+                        continue;
+                    };
+                    looked += 1;
+                    // Only a record that is not the one last seen there
+                    // (`HostHeap::mirror_copied`).
+                    if host.mirror_copied(index as u32, handle, record) {
+                        mirrored += 1;
                     }
                 }
-                page += crate::watch::PAGE;
             }
         }
     }
@@ -329,6 +353,14 @@ pub(crate) fn flush_deferred_views() {
 fn page_at_once() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| std::env::var_os("VICTORY_HEAP_SYNC_PAGE").is_none_or(|v| v != "0"))
+}
+
+/// Whether [`sync_heaps`] scans dirty heap pages in parallel across `wide_run`
+/// when a heap has at least 4 dirty pages (`VICTORY_WIDE_HEAP_SYNC=0`: serial).
+#[cfg(windows)]
+fn wide_heap_sync() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("VICTORY_WIDE_HEAP_SYNC").is_none_or(|v| v != "0"))
 }
 
 /// Title descriptor slots in a changed byte range that have host counterparts.
@@ -955,6 +987,22 @@ pub(crate) fn view_at_in(views: &Views, i: u32, generation: u32) -> Option<View>
         CONSTANT => Some(constant_of(i, generation)),
         PLACED => views.placed_of(i, generation),
         _ => None,
+    }
+}
+
+/// Whether [`view_at_in`] would return `Some`, without cloning the `View`.
+pub(crate) fn view_exists_in(views: &Views, i: u32, generation: u32) -> bool {
+    match generation >> KIND_SHIFT {
+        0 => views
+            .list
+            .get(i as usize)
+            .is_some_and(|(_, current)| *current == generation),
+        CONSTANT => true,
+        PLACED => {
+            let payload = payload(i, generation);
+            views.shapes.get((payload >> PLACED_ADDRESS_BITS) as usize).is_some()
+        }
+        _ => false,
     }
 }
 

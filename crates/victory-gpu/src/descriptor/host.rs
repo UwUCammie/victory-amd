@@ -10,7 +10,7 @@ use std::sync::{Mutex, MutexGuard};
 use windows::Win32::Graphics::Direct3D12::*;
 use windows::Win32::Graphics::Dxgi::Common::*;
 
-use super::{VIEW_TAG, View, view_at, view_at_in, with_views};
+use super::{VIEW_TAG, View, view_at, view_at_in, view_exists_in, with_views};
 use crate::host::host;
 
 /// [`HostHeap::slot_flags`]: title slot `index` is in the texture queue
@@ -50,8 +50,10 @@ pub(crate) struct HostHeap {
     made_lock: Mutex<()>,
     /// A fingerprint of the record each slot held when the pass over
     /// records copied in as bytes last looked at it
-    /// ([`HostHeap::mirror_copied`]; 0: never looked at). Made on first use.
-    copied: Mutex<Vec<u64>>,
+    /// ([`HostHeap::mirror_copied`]; 0: never looked at). Made on first use:
+    /// one atomic per slot, so a page can be scanned a few at a time
+    /// ([`HostHeap::sync_copied_pages_wide`]).
+    copied: std::sync::OnceLock<Vec<std::sync::atomic::AtomicU64>>,
     /// The host resource each slot views, held while the slot does: shaders
     /// index heaps directly, so a slot the title has not rewritten since it
     /// released the resource may still be read, and a freed host resource
@@ -154,6 +156,12 @@ enum Make {
 /// The host copy a buffer view reads, and the title range (address, bytes)
 /// it reads there: what [`buffer_copy`] reports for it.
 pub(crate) type BufferCopy = (std::sync::Arc<crate::shadow::Shadow>, u64, u64);
+
+/// A slot one changed page of the title's heap left to mirror
+/// ([`HostHeap::scan_copied_page`]): `index`, the title `handle` of the
+/// slot, and the record's words as read from the page's copy (tag, `i`,
+/// generation).
+pub(crate) type CopiedDue = (u32, u64, u32, u32, u32);
 
 /// The spans of every view heap made ([`HostHeap::placed`]), for the
 /// texture code, which has no heap at hand ([`next_start`],
@@ -1144,7 +1152,7 @@ impl HostHeap {
                 .map(|_| std::sync::atomic::AtomicU64::new(0))
                 .collect(),
             made_lock: Mutex::new(()),
-            copied: Mutex::new(Vec::new()),
+            copied: std::sync::OnceLock::new(),
             kept: Mutex::new(vec![None; (count + extra) as usize]),
             next: Mutex::new((0, taken)),
             free: std::sync::atomic::AtomicU32::new(extra.saturating_sub(1)),
@@ -2332,22 +2340,27 @@ impl HostHeap {
         // frame this pass took over some 250,000 to 300,000 records, run
         // 200.)
         let print = record_print(record) | 1;
-        {
-            let mut copied = self.copied.lock().unwrap_or_else(|e| e.into_inner());
-            if copied.is_empty() {
-                copied.resize(self.count as usize, 0);
-            }
-            let Some(last) = copied.get_mut(index as usize) else {
-                return false;
-            };
-            // A slot never looked at that holds nothing: as it was.
-            if *last == print || (*last == 0 && record_is_zero(record)) {
-                return false;
-            }
-            *last = print;
+        // None past the host heap's slots.
+        let Some(slot_print) = self.copied_prints().get(index as usize) else {
+            return false;
+        };
+        // A slot never looked at that holds nothing: as it was.
+        let last = slot_print.load(std::sync::atomic::Ordering::Relaxed);
+        if last == print || (last == 0 && record_is_zero(record)) {
+            return false;
         }
+        slot_print.store(print, std::sync::atomic::Ordering::Relaxed);
         self.mirror(index, handle, false);
         true
+    }
+
+    /// A fingerprint per slot, made on first use: all 0 (never looked at).
+    fn copied_prints(&self) -> &[std::sync::atomic::AtomicU64] {
+        self.copied.get_or_init(|| {
+            (0..self.count as usize)
+                .map(|_| std::sync::atomic::AtomicU64::new(0))
+                .collect()
+        })
     }
 
     /// [`HostHeap::mirror_copied`] for every record of one changed page of
@@ -2358,13 +2371,16 @@ impl HostHeap {
     ///
     /// The same records are mirrored as one by one. What differs is the
     /// work for the others, which are nearly all of them (some 330,000
-    /// looked at a frame for 14,000 mirrored, 16 ms, run 225): the lock of
-    /// the fingerprints is taken once for the page and not once for each
-    /// record, and a record whose fingerprint is the one last seen is done
+    /// looked at a frame for 14,000 mirrored, 16 ms, run 225): the
+    /// fingerprints are per-slot atomics (one lock for the page became
+    /// none) and a record whose fingerprint is the one last seen is done
     /// with before the question whether its slot was a table's lately. So
     /// the count of slots "left to the draws" is now of records that
     /// changed, not of every record on the page. The slots to mirror are
-    /// made after the page's walk, in slot order as before.
+    /// made after the page's walk, in slot order as before
+    /// ([`HostHeap::apply_copied_due`]); a slot that is not a view and was
+    /// never made is not even resolved, and one already made from the
+    /// record the page holds is not cloned or locked.
     ///
     /// `due` is the caller's list of the slots to mirror, emptied here and
     /// left holding this page's (one page looked at after another needs
@@ -2375,92 +2391,224 @@ impl HostHeap {
         (start, step): (u64, u64),
         from: usize,
         page: &[u8],
-        due: &mut Vec<(u32, u64)>,
+        due: &mut Vec<CopiedDue>,
     ) -> (u64, u64) {
         let (frame, tables) = (crate::frame::current(), sync_tables());
-        let mut looked = 0u64;
         due.clear();
-        {
-            let mut copied = self.copied.lock().unwrap_or_else(|e| e.into_inner());
-            if copied.is_empty() {
-                copied.resize(self.count as usize, 0);
+        let looked = self.scan_copied_page(slots, (start, step), from, page, frame, tables, due);
+        (looked, self.apply_copied_due(due))
+    }
+
+    /// Walks the records of one changed page of the title's heap
+    /// ([`HostHeap::mirror_copied_page`], [`HostHeap::sync_copied_pages_wide`]):
+    /// title slots `slots`, the record of slot `i` at title address
+    /// `start + i * step`, and `page` the bytes read from title address
+    /// `from` on. Pushes the slots whose record is new into `due`; returns
+    /// the records looked at.
+    ///
+    /// The record's words are read from the page's copy, not title memory
+    /// again, and a slot that is not a view and was never made is dropped
+    /// here: mirroring it would do nothing at all.
+    #[allow(clippy::too_many_arguments)] // the page's place and what was switched
+    fn scan_copied_page(
+        &self,
+        slots: std::ops::Range<u64>,
+        (start, step): (u64, u64),
+        from: usize,
+        page: &[u8],
+        frame: u64,
+        tables: bool,
+        due: &mut Vec<CopiedDue>,
+    ) -> u64 {
+        use std::sync::atomic::Ordering::Relaxed;
+        let copied = self.copied_prints();
+        let mut looked = 0u64;
+        for index in slots {
+            let handle = start + index * step;
+            // A record that straddles the range's ends is left to the
+            // range that holds its first byte.
+            let Some(at) = (handle as usize).checked_sub(from) else {
+                continue;
+            };
+            let Some(record) = page.get(at..at + step as usize) else {
+                continue;
+            };
+            looked += 1;
+            // None past the host heap's slots, as `mirror_copied`.
+            let Some(slot_print) = copied.get(index as usize) else {
+                continue;
+            };
+            let last = slot_print.load(Relaxed);
+            // A slot never looked at that holds nothing: as it was, and
+            // the fingerprint is not computed for it (nearly all of the
+            // page's slots are empty ones).
+            if last == 0 && record_is_zero(record) {
+                continue;
             }
-            for index in slots {
-                let handle = start + index * step;
-                // A record that straddles the range's ends is left to the
-                // range that holds its first byte.
-                let Some(at) = (handle as usize).checked_sub(from) else {
-                    continue;
-                };
-                let Some(record) = page.get(at..at + step as usize) else {
-                    continue;
-                };
-                looked += 1;
-                // None past the host heap's slots, as `mirror_copied`.
-                let Some(last) = copied.get_mut(index as usize) else {
-                    continue;
-                };
-                // A slot never looked at that holds nothing: as it was, and
-                // the fingerprint is not computed for it (nearly all of the
-                // page's slots are empty ones).
-                if *last == 0 && record_is_zero(record) {
-                    continue;
-                }
-                // Never 0, which is "never looked at".
-                let print = record_print(record) | 1;
-                // The record last seen: as it was.
-                if *last == print {
-                    continue;
-                }
-                // A table's slot lately: left to its draws, and looked at
-                // again next time.
-                if !tables && self.tabled_lately(index as u32, frame) {
-                    COPIED_TABLED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    continue;
-                }
-                *last = print;
-                due.push((index as u32, handle));
+            // Never 0, which is "never looked at".
+            let print = record_print(record) | 1;
+            // The record last seen: as it was.
+            if last == print {
+                continue;
             }
-        }
-        if !due.is_empty() {
-            // The views' lock once for the page, not once for each record
-            // (`view_at` took it some 42,000 times a frame here), and the
-            // records' lock once, and the buffer changes' once, not once for
-            // each record mirrored (some 270 a page, 42,000 a frame):
-            // `note_buffer_into` pushed the slots whose buffer membership
-            // changed into `changed` under the records' lock before.
-            let mut resolved = Vec::with_capacity(due.len());
-            with_views(|views| {
-                for &(index, handle) in due.iter() {
-                    // SAFETY: the handle is a descriptor slot in title
-                    // memory.
-                    let [tag, i, generation] =
-                        unsafe { (handle as *const [u32; 3]).read_unaligned() };
-                    // Generations start at 1, so a made slot's key is never 0.
-                    let key = u64::from(generation) << 32 | u64::from(i);
-                    let view = (tag == VIEW_TAG)
-                        .then(|| view_at_in(views, i, generation))
-                        .flatten();
-                    resolved.push((index, handle, key, view));
-                }
-            });
-            let mut changed = Vec::new();
-            let mut kept: Vec<(u32, Kept)> = Vec::new();
+            // A table's slot lately: left to its draws, and looked at
+            // again next time.
+            if !tables && self.tabled_lately(index as u32, frame) {
+                COPIED_TABLED.fetch_add(1, Relaxed);
+                continue;
+            }
+            slot_print.store(print, Relaxed);
+            // The record's first three words are the tag, the index and
+            // the generation (`super::view_at`): from the copy, so the
+            // title's memory is not read a second time.
+            let (tag, i, generation) = if record.len() >= 12 {
+                (
+                    u32::from_le_bytes(record[0..4].try_into().unwrap()),
+                    u32::from_le_bytes(record[4..8].try_into().unwrap()),
+                    u32::from_le_bytes(record[8..12].try_into().unwrap()),
+                )
+            } else {
+                (0, 0, 0)
+            };
+            // A slot that is not a view and was never made has nothing to
+            // undo (`mirror_resolved` with no view, not for a draw, and no
+            // key made does nothing): nearly all records of a per-draw
+            // table are these.
+            if tag != VIEW_TAG
+                && self.made.get(index as usize).is_none_or(|made| made.load(Relaxed) == 0)
             {
-                let made = self.made_lock.lock().unwrap_or_else(|e| e.into_inner());
-                for (index, handle, key, view) in resolved {
-                    let batch = Some(&mut changed);
-                    self.mirror_resolved(
-                        &made, index, handle, key, view, false, false, true, batch, Some(&mut kept),
-                    );
-                }
-                self.apply_kept(&mut kept);
+                continue;
             }
-            if !changed.is_empty() {
-                self.changed.lock().unwrap_or_else(|e| e.into_inner()).extend(changed);
-            }
+            due.push((index as u32, handle, tag, i, generation));
         }
-        (looked, due.len() as u64)
+        looked
+    }
+
+    /// Mirrors the slots [`HostHeap::scan_copied_page`] left in `due`: the
+    /// views' lock once for the page and the made lock once, not one each
+    /// per record (`view_at` took the views' lock some 42,000 times a frame
+    /// here, and `note_buffer_into` pushed the slots whose buffer
+    /// membership changed into `changed` under the records' lock before),
+    /// and no `View` cloned nor made lock taken for a slot already made
+    /// from the record it shows. Returns the slots resolved.
+    fn apply_copied_due(&self, due: &[CopiedDue]) -> u64 {
+        use std::sync::atomic::Ordering::Relaxed;
+        if due.is_empty() {
+            return 0;
+        }
+        let mut resolved = Vec::with_capacity(due.len());
+        with_views(|views| {
+            for &(index, handle, tag, i, generation) in due {
+                // Generations start at 1, so a made slot's key is never 0.
+                let key = u64::from(generation) << 32 | u64::from(i);
+                let made_key = self.made.get(index as usize).map_or(0, |m| m.load(Relaxed));
+                if tag == VIEW_TAG {
+                    // Already made from this record and still showing it:
+                    // nothing to clone, nothing to lock.
+                    if made_key == key && view_exists_in(views, i, generation) {
+                        continue;
+                    }
+                    let view = view_at_in(views, i, generation);
+                    resolved.push((index, handle, key, view));
+                } else if made_key != 0 {
+                    resolved.push((index, handle, key, None));
+                }
+            }
+        });
+        if resolved.is_empty() {
+            return 0;
+        }
+        let count = resolved.len() as u64;
+        let mut changed = Vec::new();
+        let mut kept: Vec<(u32, Kept)> = Vec::new();
+        {
+            let made = self.made_lock.lock().unwrap_or_else(|e| e.into_inner());
+            for (index, handle, key, view) in resolved {
+                self.mirror_resolved(&made, index, handle, key, view, false, false, true, Some(&mut changed), Some(&mut kept));
+            }
+            self.apply_kept(&mut kept);
+        }
+        if !changed.is_empty() {
+            self.changed.lock().unwrap_or_else(|e| e.into_inner()).extend(changed);
+        }
+        count
+    }
+
+    /// [`HostHeap::mirror_copied_page`] for the pages of one heap, up to
+    /// eight at a time on [`crate::shadow::wide_run`] (`super::sync_heaps`:
+    /// a heap with at least 4 dirty pages). Each page is read and scanned
+    /// on its own — the fingerprints they share are atomics — and all the
+    /// slots left are mirrored here, after the jobs are done. Returns the
+    /// pages read, the records looked at, and those mirrored.
+    pub(crate) fn sync_copied_pages_wide(
+        &self,
+        pages: &[(usize, usize, std::ops::Range<u64>)],
+        (start, step): (u64, u64),
+    ) -> (u64, u64, u64) {
+        let (frame, tables) = (crate::frame::current(), sync_tables());
+        // Made before the jobs run: the workers only load and store
+        // through it, and never take the lock of the `OnceLock`.
+        let _ = self.copied_prints();
+        // The jobs of `wide_run` must be `'static`, and this heap is
+        // borrowed: they name it by address instead (`This`).
+        #[derive(Clone, Copy)]
+        struct This(usize);
+        // SAFETY: `sync_copied_pages_wide` returns only after
+        // `wide_run` has joined every job, and its caller holds `SYNCING`
+        // and the `SHADER_HEAPS` read lock throughout (`super::sync_heaps`),
+        // so the heap outlives the jobs. `HostHeap`'s state is behind
+        // mutexes and atomics: recording threads already share it.
+        unsafe impl Send for This {}
+        let this = This(self as *const HostHeap as usize);
+        let (sender, receiver) = std::sync::mpsc::channel::<(u64, u64, Vec<CopiedDue>)>();
+        let each = pages.len().div_ceil(8);
+        let jobs: Vec<Box<dyn FnOnce() + Send>> = pages
+            .chunks(each)
+            .map(|chunk| {
+                let chunk = chunk.to_vec();
+                let sender = sender.clone();
+                Box::new(move || {
+                    // SAFETY: the invariant of `This`: the heap is alive
+                    // while `wide_run` runs.
+                    let this = unsafe { &*(this.0 as *const HostHeap) };
+                    let mut page_bytes = vec![0u8; crate::watch::PAGE];
+                    let mut local_due = Vec::new();
+                    let (mut read, mut looked) = (0u64, 0u64);
+                    for (from, to, slots) in chunk {
+                        // The page's records are read through the kernel,
+                        // into a copy, as in `super::sync_heaps`.
+                        let slice = &mut page_bytes[..to - from];
+                        if crate::host::read_into(from as *const u8, slice) {
+                            read += 1;
+                            looked += this.scan_copied_page(
+                                slots,
+                                (start, step),
+                                from,
+                                slice,
+                                frame,
+                                tables,
+                                &mut local_due,
+                            );
+                        }
+                    }
+                    let _ = sender.send((read, looked, local_due));
+                }) as Box<dyn FnOnce() + Send>
+            })
+            .collect();
+        drop(sender);
+        crate::shadow::wide_run(jobs);
+        let (mut read, mut looked, mut due) = (0u64, 0u64, Vec::new());
+        for (pages_read, seen, mut local) in receiver {
+            read += pages_read;
+            looked += seen;
+            due.append(&mut local);
+        }
+        // The jobs finish in any order: the slots are made in slot order,
+        // as one page after another made them on one thread (a placed
+        // texture's newer view unmakes the older ones of the same memory,
+        // and the newer one is the later slot).
+        due.sort_unstable_by_key(|slot| slot.0);
+        (read, looked, self.apply_copied_due(&due))
     }
 
     /// Makes host slot `index` from the record at `handle` if it is still
