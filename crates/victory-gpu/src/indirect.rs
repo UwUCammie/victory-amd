@@ -2300,7 +2300,7 @@ void main() {
         let src_bytes = ARGS_OFFSET + (STRIDE as usize) * (MAX as usize) + 64;
         let (src_buf, src_ptr, _) = warp.shared_buffer(src_bytes as u64);
         let (count_buf, count_ptr, _) = warp.shared_buffer(512);
-        let (budget_buf, budget_ptr, _budget_gpu) = warp.shared_buffer(256);
+        let (budget_buf, budget_ptr, budget_gpu) = warp.shared_buffer(256);
         let (_hits_buf, hits_ptr, hits_gpu) = warp.shared_buffer(256);
         let (readback_buf, readback_ptr, _) = warp.shared_buffer((STRIDE * 8 + 16) as u64);
         let dst_buf = warp.default_uav(layout.total_bytes);
@@ -2502,7 +2502,7 @@ void main() {
         ];
         for (asked, parts) in cases {
             let (src_buf, src_ptr, _) = warp.shared_buffer(16);
-            let (budget_buf, budget_ptr, _budget_gpu) = warp.shared_buffer(256);
+            let (budget_buf, budget_ptr, budget_gpu) = warp.shared_buffer(256);
             let (readback_buf, readback_ptr, _) = warp.shared_buffer(64);
             let dst_buf = warp.default_uav(u64::from(SPLIT) * PART_BYTES);
             // SAFETY: mapped buffers of these sizes.
@@ -2652,7 +2652,7 @@ void main() {
         for ahead in [true, false] {
             let layout = scratch_layout(total as u64, RECORDS, ahead);
             let (src_buf, src_ptr, _) = warp.shared_buffer(total as u64);
-            let (budget_buf, budget_ptr, _budget_gpu) = warp.shared_buffer(256);
+            let (budget_buf, budget_ptr, budget_gpu) = warp.shared_buffer(256);
             let (readback_buf, readback_ptr, _) = warp.shared_buffer(layout.total_bytes);
             let dst_buf = warp.default_uav(layout.total_bytes);
             // SAFETY: mapped buffers of these sizes.
@@ -2728,7 +2728,7 @@ void main() {
         let layout = scratch_layout(total_bytes as u64, RECORDS, false);
         let count_off = layout.count_offset.unwrap();
         let (src_buf, src_ptr, _) = warp.shared_buffer(total_bytes as u64);
-        let (budget_buf, budget_ptr, _budget_gpu) = warp.shared_buffer(256);
+        let (budget_buf, budget_ptr, budget_gpu) = warp.shared_buffer(256);
         let (readback_buf, readback_ptr, _) = warp.shared_buffer(layout.total_bytes);
         let dst_buf = warp.default_uav(layout.total_bytes);
 
@@ -2820,7 +2820,7 @@ void main() {
             let layout = scratch_layout(args_bytes, records, false);
             let count_off = layout.count_offset.unwrap();
             let (src_buf, src_ptr, _) = warp.shared_buffer(args_bytes);
-            let (budget_buf, budget_ptr, _budget_gpu) = warp.shared_buffer(256);
+            let (budget_buf, budget_ptr, budget_gpu) = warp.shared_buffer(256);
             let (_hits_buf, hits_ptr, hits_gpu) = warp.shared_buffer(256);
             let (readback_buf, readback_ptr, _) = warp.shared_buffer(args_bytes + 4);
             let dst_buf = warp.default_uav(layout.total_bytes);
@@ -2931,7 +2931,7 @@ void main() {
             let layout = scratch_layout(args_bytes, records, false);
             let count_off = layout.count_offset.unwrap();
             let (src_buf, src_ptr, _) = warp.shared_buffer(args_bytes);
-            let (budget_buf, budget_ptr, _budget_gpu) = warp.shared_buffer(256);
+            let (budget_buf, budget_ptr, budget_gpu) = warp.shared_buffer(256);
             let (readback_buf, readback_ptr, _) = warp.shared_buffer(args_bytes + 4);
             let dst_buf = warp.default_uav(layout.total_bytes);
             let dwords = (stride / 4) as usize;
@@ -3045,7 +3045,7 @@ void main() {
             let layout = scratch_layout(args_bytes, RECORDS, false);
             let count_off = layout.count_offset.unwrap();
             let (src_buf, src_ptr, _) = warp.shared_buffer(args_bytes);
-            let (budget_buf, budget_ptr, _budget_gpu) = warp.shared_buffer(256);
+            let (budget_buf, budget_ptr, budget_gpu) = warp.shared_buffer(256);
             let (_hits_buf, hits_ptr, hits_gpu) = warp.shared_buffer(256);
             let (readback_buf, readback_ptr, _) = warp.shared_buffer(16);
             let dst_buf = warp.default_uav(layout.total_bytes);
@@ -3113,7 +3113,7 @@ void main() {
         let count_off = layout.count_offset.unwrap();
         let (src_buf, src_ptr, _) = warp.shared_buffer(args_bytes);
         let (count_buf, count_ptr, _) = warp.shared_buffer(64);
-        let (budget_buf, budget_ptr, _budget_gpu) = warp.shared_buffer(256);
+        let (budget_buf, budget_ptr, budget_gpu) = warp.shared_buffer(256);
         let (_hits_buf, hits_ptr, hits_gpu) = warp.shared_buffer(256);
         let (readback_buf, readback_ptr, _) = warp.shared_buffer(args_bytes + 4);
         let dst_buf = warp.default_uav(layout.total_bytes);
@@ -3270,7 +3270,7 @@ void main() {
         let layout = scratch_layout(args_bytes, RECORDS, false);
         let count_off = layout.count_offset.unwrap();
         let (src_buf, src_ptr, _) = warp.shared_buffer(args_bytes);
-        let (budget_buf, budget_ptr, _budget_gpu) = warp.shared_buffer(256);
+        let (budget_buf, budget_ptr, budget_gpu) = warp.shared_buffer(256);
         let (_hits_buf, hits_ptr, hits_gpu) = warp.shared_buffer(256);
         let (readback_buf, readback_ptr, _) = warp.shared_buffer(args_bytes + 4);
         let dst_buf = warp.default_uav(layout.total_bytes);
@@ -3559,7 +3559,7 @@ void main() {
         for ahead in [true, false] {
             let layout = scratch_layout(total as u64, counts.len() as u32, ahead);
             let (src_buf, src_ptr, _) = warp.shared_buffer(total as u64);
-            let (budget_buf, budget_ptr, _budget_gpu) = warp.shared_buffer(256);
+            let (budget_buf, budget_ptr, budget_gpu) = warp.shared_buffer(256);
             let (readback_buf, readback_ptr, _) = warp.shared_buffer(layout.total_bytes);
             let dst_buf = warp.default_uav(layout.total_bytes);
             // SAFETY: mapped buffers of these sizes.
@@ -3807,7 +3807,7 @@ void main() {
         let windows: [&[u32]; 2] = [&[1, 2, 3, 4], &[10, 11, 12, 13]];
         let sources: Vec<ID3D12Resource> =
             windows.iter().map(|g| dispatch_records(&warp, g, STEP)).collect();
-        let (budget_buf, budget_ptr, _budget_gpu) = warp.shared_buffer(256);
+        let (budget_buf, budget_ptr, budget_gpu) = warp.shared_buffer(256);
         let (_hits_buf, hits_ptr, hits_gpu) = warp.shared_buffer(256);
         let dst_buf = warp.default_uav(u64::from(STEP) * 4);
         let sig = warp.signature(KIND_DISPATCH, STRIDE);
