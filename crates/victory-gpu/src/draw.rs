@@ -372,7 +372,7 @@ pub(crate) static HEAP_BUFFER_MICROS: AtomicU64 = AtomicU64::new(0);
 /// Of [`HEAP_BUFFER_MICROS`], the microseconds of the pass over textures
 /// picked by index that runs inside it (`heap_textures`), and the buffer
 /// slots the pass over buffer views looked at; since the last frame line.
-pub(crate) static HEAP_PASS_PARTS: [AtomicU64; 2] = [const { AtomicU64::new(0) }; 2];
+pub(crate) static HEAP_PASS_PARTS: [AtomicU64; 6] = [const { AtomicU64::new(0) }; 6];
 /// Textures brought up to date for shaders that pick them by index
 /// ([`State::heap_textures`]), the bytes of their memory, and the slots
 /// still waiting.
@@ -1505,8 +1505,11 @@ impl State {
         static GONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
         let mut alive = !GONE.load(Ordering::Relaxed) && crate::descriptor::host::device_removed().is_none();
         HEAP_PASS_PARTS[1].fetch_add(slots.len() as u64, Ordering::Relaxed);
+        // Of the slots looked at: those whose view reads the copy and range
+        // it read at the last look (counted with the frame line).
+        let mut same = 0u64;
         for (n, &index) in slots.iter().enumerate() {
-            ranges.remove(&index);
+            let before = ranges.remove(&index);
             let Some(handle) = heap.handle(index) else {
                 continue;
             };
@@ -1537,8 +1540,13 @@ impl State {
             if host.shows(index, &shadow.buffer) == Some(false) {
                 HEAP_VIEWS_ELSEWHERE.fetch_add(1, Ordering::Relaxed);
             }
+            if before.is_some_and(|b| std::sync::Arc::ptr_eq(&b.0, &shadow) && b.1 == address && b.2 == address + len) {
+                same += 1;
+            }
             ranges.insert(index, (shadow, address, address + len));
         }
+        HEAP_PASS_PARTS[2].fetch_add(started.elapsed().as_micros() as u64, Ordering::Relaxed);
+        HEAP_PASS_PARTS[3].fetch_add(same, Ordering::Relaxed);
         let views = ranges.len() as u32;
         // Per host copy, the span its picked views cover.
         let mut spans: std::collections::HashMap<usize, (std::sync::Arc<crate::shadow::Shadow>, u64, u64)> =
@@ -1583,6 +1591,8 @@ impl State {
             }
             shadow.refresh(list, *from, to - from);
         }
+        HEAP_PASS_PARTS[4].fetch_add(started.elapsed().as_micros() as u64, Ordering::Relaxed);
+        HEAP_PASS_PARTS[5].fetch_add(spans.len() as u64, Ordering::Relaxed);
         let textures_began = std::time::Instant::now();
         self.heap_textures(list, heap, host);
         HEAP_PASS_PARTS[0].fetch_add(textures_began.elapsed().as_micros() as u64, Ordering::Relaxed);

@@ -7537,11 +7537,18 @@ impl Meter {
         // dispatch runs; the counter went when the clamp's budget moved to
         // the card's memory.)
         {
-            let [texture_us, slots] = [0, 1].map(|i| crate::draw::HEAP_PASS_PARTS[i].swap(0, Ordering::Relaxed));
+            let [texture_us, slots, looking_us, same, refreshed_us, spans] =
+                [0, 1, 2, 3, 4, 5].map(|i| crate::draw::HEAP_PASS_PARTS[i].swap(0, Ordering::Relaxed));
             tracing::info!(
-                "the pass over the heap per frame (the frame line's \"heap buffers ... ms\" is both parts): {:.1} ms in its                  pass over textures picked by index; {:.0} buffer slots looked at by its pass over buffer views",
+                "the pass over the heap per frame (the frame line's \"heap buffers ... ms\" is both parts): {:.1} ms in its \
+                 pass over textures picked by index; {:.0} buffer slots looked at by its pass over buffer views in {:.1} ms, \
+                 {:.0} of them read the copy and range they read at the last look; then {:.1} ms bringing {:.0} copies up to date",
                 texture_us as f64 / 1e3 / frames,
-                slots as f64 / frames
+                slots as f64 / frames,
+                looking_us as f64 / 1e3 / frames,
+                same as f64 / frames,
+                refreshed_us.saturating_sub(looking_us) as f64 / 1e3 / frames,
+                spans as f64 / frames
             );
         }
         crate::shadow::exact_line(frames);
