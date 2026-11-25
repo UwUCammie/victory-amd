@@ -56,7 +56,7 @@ pub(crate) fn track(start: usize, len: usize, views: bool) -> Option<Tracked> {
 
 struct Journal {
     /// Numbers the askings; 0 is "never".
-    asked: u64,
+    asked: std::sync::atomic::AtomicU64,
     /// Page number → the asking that last found it written.
     written: BTreeMap<usize, u64>,
     /// Room for the kernel's answer.
@@ -72,8 +72,14 @@ struct Journal {
     kept: bool,
 }
 
+impl Journal {
+    fn next_asking(&self) -> u64 {
+        self.asked.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1
+    }
+}
+
 static JOURNAL: RwLock<Journal> = RwLock::new(Journal {
-    asked: 0,
+    asked: std::sync::atomic::AtomicU64::new(0),
     written: BTreeMap::new(),
     found: Vec::new(),
     ahead: Vec::new(),
@@ -131,8 +137,7 @@ pub(crate) fn ask_ahead(ranges: &[(usize, usize)]) {
     }
     #[cfg(feature = "diagnostics")]
     AHEAD_VIEWS.fetch_add((all - pieces.len()) as u64, std::sync::atomic::Ordering::Relaxed);
-    j.asked += 1;
-    j.ahead_asked = j.asked;
+    j.ahead_asked = j.next_asking();
     j.ahead.clear();
     let mut i = 0;
     while i < pieces.len() {
@@ -227,8 +232,7 @@ pub(crate) fn ask_once(ranges: &[(usize, usize)]) {
     let j = &mut *j;
     if j.ahead.is_empty() {
         // `ask_ahead` asked nothing (fewer than two ranges).
-        j.asked += 1;
-        j.ahead_asked = j.asked;
+        j.ahead_asked = j.next_asking();
     }
     // `ask_ahead` leaves a range that lies alone to `writes`, which asks
     // once per flush: with one asking for the submission that was every
@@ -274,8 +278,7 @@ pub(crate) fn wrote(at: usize, len: usize) {
     if !j.kept || len == 0 {
         return;
     }
-    j.asked += 1;
-    let now = j.asked;
+    let now = j.next_asking();
     // The asking that stands moves with it: `asked` and `writes` give it as
     // "now", and a page noted written after "now" stays stale for every
     // copy that takes it (copied at `now`, written at `now + 1`): copied
@@ -298,8 +301,7 @@ pub(crate) fn wrote(at: usize, len: usize) {
 pub(crate) fn wrote_own(page: usize, others: &[usize]) -> (u64, u64) {
     let mut j = JOURNAL.write().unwrap_or_else(|e| e.into_inner());
     let j = &mut *j;
-    j.asked += 1;
-    let now = j.asked;
+    let now = j.next_asking();
     // As in [`wrote`]: an asking that stands for a submission, or for a
     // flush, moves with it, or a copy taking the page at the standing
     // asking would find it written "later" at every refresh.
@@ -391,6 +393,19 @@ fn ahead_answer(j: &Journal, first: usize, last: usize) -> Option<(u64, Vec<(usi
         .then(|| (j.ahead_asked, j.written.range(first..last).map(|(&p, &w)| (p, w)).collect()))
 }
 
+pub(crate) fn clean_guard_read() -> bool {
+    static MODE: std::sync::OnceLock<u8> = std::sync::OnceLock::new();
+    match *MODE.get_or_init(|| match std::env::var("VICTORY_CLEAN_GUARD_READ").as_deref() {
+        Ok("alt") => 2,
+        Ok("1") => 1,
+        _ => 0,
+    }) {
+        2 => crate::host::now_ms() / 15000 % 2 == 1,
+        1 => true,
+        _ => false,
+    }
+}
+
 /// The pages of `[start, end)` (whole pages) as last written, for pages
 /// written since tracking began: `(page number, asking)` in page order, and
 /// this asking's number, which is higher than any in the list but those the
@@ -408,6 +423,18 @@ pub(crate) fn writes(start: usize, end: usize, guarded: bool) -> Option<(u64, Ve
         crate::copystat::add(crate::copystat::C::WatchLockNs, phase.elapsed().as_nanos() as u64);
         if let Some(answer) = ahead_answer(&j, first, last) {
             return Some(answer);
+        }
+        if guarded && first < last && !view_ask_enabled() && clean_guard_read() {
+            let clean = {
+                let g = guards();
+                is_known_view_in(&g, first * PAGE, view_known()) && g.clean.covers(first, last)
+            };
+            if clean {
+                // No protection or kernel watch needs resetting. The read lock
+                // keeps page generations stable until the answer is collected.
+                let now = j.next_asking();
+                return Some((now, j.written.range(first..last).map(|(&p, &w)| (p, w)).collect()));
+            }
         }
     }
     #[cfg(feature = "diagnostics")]
@@ -475,8 +502,7 @@ pub(crate) fn writes(start: usize, end: usize, guarded: bool) -> Option<(u64, Ve
         add(C::WatchUs, started.elapsed().as_micros() as u64);
         slow(started.elapsed().as_micros() as u64);
     }
-    j.asked += 1;
-    let now = j.asked;
+    let now = j.next_asking();
     // Disjoint fields of `j`: no `Vec` of the pages, which was one allocation
     // per flush for thousands of flushes a frame.
     for &at in &j.found[..count] {
