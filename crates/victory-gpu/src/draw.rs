@@ -579,6 +579,25 @@ fn reupload_when_full() -> bool {
     *ON.get_or_init(|| std::env::var_os("VICTORY_REUPLOAD_WHEN_FULL").is_none_or(|v| v != "0"))
 }
 
+/// Every how many passes the pass over the heap's buffer views
+/// (`State::heap_buffers`) looks at every buffer slot, and not only the ones
+/// written since (`VICTORY_HEAP_RESCAN_FRAMES`, 16 by default; VItoriaBr
+/// 5a84eb4 (uiliannn) takes 64). That pass took 96.7 ms of one recording
+/// thread every 16th frame here (A4, 2026-11-25). Longer, a view whose
+/// resource the title released without writing the slot, or a slot written
+/// before its memory had a host copy, waits that much longer: stale buffer
+/// data for shaders that pick buffers by index.
+pub(crate) fn heap_rescan_frames() -> u64 {
+    static EVERY: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+    *EVERY.get_or_init(|| {
+        std::env::var("VICTORY_HEAP_RESCAN_FRAMES")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .filter(|&n: &u64| n > 0)
+            .unwrap_or(16)
+    })
+}
+
 /// Whether textures picked by index are looked at again after their upload
 /// (`VICTORY_HEAP_RECHECK=0`: no).
 fn heap_recheck() -> bool {
@@ -1685,9 +1704,10 @@ impl State {
         // Per host heap: the host copy and range each slot's buffer view
         // reads, kept from pass to pass. Only the slots written since the
         // last pass are looked at again (83,000 slots a pass otherwise, 0.1 s
-        // at best); all of them every 16 passes, because a view of a
-        // released resource goes stale without a write, and a slot written
-        // before its memory had a host copy is only made then.
+        // at best); all of them every 16 passes (`heap_rescan_frames`),
+        // because a view of a released resource goes stale without a write,
+        // and a slot written before its memory had a host copy is only made
+        // then.
         type Ranges = std::collections::HashMap<u32, (std::sync::Arc<crate::shadow::Shadow>, u64, u64)>;
         static RANGES: std::sync::Mutex<Option<std::collections::HashMap<usize, (u64, Ranges)>>> =
             std::sync::Mutex::new(None);
@@ -1697,7 +1717,7 @@ impl State {
             .entry(std::ptr::from_ref(host) as usize)
             .or_insert_with(|| (0, Ranges::new()));
         let changed = host.buffer_changes();
-        let slots = if *passes % 16 == 0 {
+        let slots = if (*passes).is_multiple_of(heap_rescan_frames()) {
             ranges.clear();
             host.buffer_slots()
         } else {
