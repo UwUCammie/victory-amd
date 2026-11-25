@@ -6874,7 +6874,7 @@ impl HostList {
             None
         };
         // (before the lock: it takes the list's other locks)
-        let Some(budget) = self.budget() else {
+        let Some((_, budget)) = self.budget_with_resource() else {
             return none(4);
         };
         let mut gather = self.gather.lock().unwrap_or_else(|e| e.into_inner());
