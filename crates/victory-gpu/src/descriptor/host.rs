@@ -2779,6 +2779,8 @@ impl HostHeap {
         (start, step): (u64, u64),
     ) -> (u64, u64, u64) {
         let (frame, tables) = (crate::frame::current(), sync_tables());
+        #[cfg(feature = "diagnostics")]
+        let phase = std::time::Instant::now();
         // Made before the jobs run: the workers only load and store
         // through it, and never take the lock of the `OnceLock`.
         let _ = self.copied_prints();
@@ -2841,7 +2843,14 @@ impl HostHeap {
         // texture's newer view unmakes the older ones of the same memory,
         // and the newer one is the later slot).
         due.sort_unstable_by_key(|slot| slot.0);
-        (read, looked, self.apply_copied_due(&due))
+        #[cfg(feature = "diagnostics")]
+        crate::copystat::add(crate::copystat::C::HeapWideScanNs, phase.elapsed().as_nanos() as u64);
+        #[cfg(feature = "diagnostics")]
+        let phase = std::time::Instant::now();
+        let made = self.apply_copied_due(&due);
+        #[cfg(feature = "diagnostics")]
+        crate::copystat::add(crate::copystat::C::HeapApplyNs, phase.elapsed().as_nanos() as u64);
+        (read, looked, made)
     }
 
     /// Makes host slot `index` from the record at `handle` if it is still

@@ -133,8 +133,13 @@ pub(crate) enum C {
     /// `watch::writes` askings not made because the range's first block is
     /// already known to be guarded view memory (no kernel call).
     WatchKnownView,
+    HeapLocksNs,
+    HeapRangesNs,
+    HeapWideScanNs,
+    HeapApplyNs,
+    WatchLockNs,
 }
-const COUNTERS: usize = 80;
+const COUNTERS: usize = C::WatchLockNs as usize + 1;
 static COUNT: [AtomicU64; COUNTERS] = [const { AtomicU64::new(0) }; COUNTERS];
 
 pub(crate) fn add(c: C, n: u64) {
@@ -1151,6 +1156,14 @@ pub(crate) fn log(frames: f64) {
         ms(c[C::PaceUs as usize]),
         c[C::GpuWritesLeftOut as usize],
         mb(c[C::GpuWritesLeftOutBytes as usize]),
+    );
+    tracing::info!(
+        "per-frame phase times (ms): heap locks {:.3}, dirty ranges {:.3}, wide scan and sort {:.3}, wide apply {:.3}; watch::writes journal lock (all threads) {:.3}",
+        c[C::HeapLocksNs as usize] / 1e6,
+        c[C::HeapRangesNs as usize] / 1e6,
+        c[C::HeapWideScanNs as usize] / 1e6,
+        c[C::HeapApplyNs as usize] / 1e6,
+        c[C::WatchLockNs as usize] / 1e6,
     );
     let [together, written, mapped] =
         [0, 1, 2].map(|n| crate::watch::ALIASES[n].load(std::sync::atomic::Ordering::Relaxed));

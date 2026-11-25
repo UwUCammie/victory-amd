@@ -200,8 +200,12 @@ pub(crate) fn sync_heaps() {
     let mut page_bytes = vec![0u8; crate::watch::PAGE];
     let mut due: Vec<host::CopiedDue> = Vec::new();
     let mut dirty: Vec<(usize, usize, std::ops::Range<u64>)> = Vec::new();
+    #[cfg(feature = "diagnostics")]
+    let phase = std::time::Instant::now();
     let _one = SYNCING.lock().unwrap_or_else(|e| e.into_inner());
     let heaps = SHADER_HEAPS.read().unwrap_or_else(|e| e.into_inner());
+    #[cfg(feature = "diagnostics")]
+    crate::copystat::add(crate::copystat::C::HeapLocksNs, phase.elapsed().as_nanos() as u64);
     for &(start, end, at) in heaps.iter() {
         // SAFETY: registered heaps are live (removed when dropped).
         let heap = unsafe { &*(at as *const Heap) };
@@ -214,6 +218,8 @@ pub(crate) fn sync_heaps() {
         // Capped host heaps have no counterparts for the title slots reserved
         // for per-draw tables; raw writes there must not be mirrored.
         let mirrored_count = heap.desc.count.min(host.count());
+        #[cfg(feature = "diagnostics")]
+        let phase = std::time::Instant::now();
         dirty.clear();
         for (range_from, range_end) in written.take(start as usize, end as usize) {
             let mut page = range_from & !(crate::watch::PAGE - 1);
@@ -225,6 +231,8 @@ pub(crate) fn sync_heaps() {
                 page += crate::watch::PAGE;
             }
         }
+        #[cfg(feature = "diagnostics")]
+        crate::copystat::add(crate::copystat::C::HeapRangesNs, phase.elapsed().as_nanos() as u64);
         // A heap's pages read and scanned by several threads
         // (`HostHeap::sync_copied_pages_wide`: read through the kernel,
         // and filtered against the fingerprints, which are per-slot
