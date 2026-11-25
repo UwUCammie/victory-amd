@@ -455,6 +455,28 @@ pub(crate) fn behind() -> bool {
     })
 }
 
+/// Whether the descriptor records the title copied into its heaps as bytes
+/// (`crate::descriptor::sync_heaps`) are mirrored by the thread that
+/// submits, in its submit call, when a thread of ours prepares and sends
+/// the submission ([`behind`]). `VICTORY_HEAP_SYNC_EARLY=0`: only by our
+/// thread, as before.
+///
+/// Why: with [`behind`] our one thread is what a frame waits for (run fa2:
+/// 240 ms a frame, 6.8 ms of it between its submissions), and some 55 ms
+/// of every frame it spends in that mirroring, at the head of each of the
+/// frame's 29 submissions (175 changed heap pages, 357,000 records looked
+/// at, 37,000 mirrored). The title's thread meanwhile only puts lists in
+/// line. The records are those the title wrote before its submit call
+/// either way: on the console the card reads them from the heap itself,
+/// so a slot that a list in line still reads is not one the title may
+/// have rewritten. Our thread looks again before it prepares (pages
+/// written since), which finds little.
+#[cfg(windows)]
+fn sync_early() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    behind() && *ON.get_or_init(|| std::env::var_os("VICTORY_HEAP_SYNC_EARLY").is_none_or(|v| v != "0"))
+}
+
 /// Whether there is something for [`worker`] to look at.
 #[cfg(windows)]
 static WORK: (std::sync::Mutex<bool>, std::sync::Condvar) = (std::sync::Mutex::new(false), std::sync::Condvar::new());
@@ -778,6 +800,12 @@ fn execute_now(this: This, count: u32, lists: *const This) {
     }
     #[cfg(windows)]
     if let Some(host) = crate::host::host() {
+        // The records the title copied into its heaps as bytes are mirrored
+        // here, on its own thread, when a thread of ours sends the
+        // submission ([`sync_early`]).
+        if sync_early() {
+            crate::descriptor::sync_heaps();
+        }
         // SAFETY: the title passes `count` lists.
         let lists = unsafe { std::slice::from_raw_parts(lists, count as usize) };
         if cuts() && !this.is_null() {
