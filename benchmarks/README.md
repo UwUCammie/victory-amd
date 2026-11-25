@@ -51,3 +51,7 @@ Eight paired trials on the 9700X gave median times of 21.40 and 11.15 ms for two
 ## Staging copy granularity
 
 For a run that uses card-resident buffers, add `victory-gpu/copy-audit` to the build features above and set `VICTORY_COPY_AUDIT=1`. Each refreshing thread samples one in 67 stale pages that it previously copied into card-buffer staging memory. The sample compares the current bytes with staging in aligned 4, 16 and 64 KiB chunks, clipping each chunk to the requested view. Each line totals 128 samples. A failed read is counted separately. The renderer still performs the ordinary full refresh. These counts measure how much unchanged data a finer journal could avoid copying if it tracked those changes exactly.
+
+During the complete 150–225 s first-room sampling window on the RX 7900 XT, 9,984 sampled stale pages covered 646,286,720 bytes. Every sampled read succeeded. A 4 KiB chunk containing a changed byte accounted for 201,543,604 bytes (31.18% of the sample). At 16 KiB the figure was 253,796,276 (39.27%), and at 64 KiB it was 360,882,096 (55.84%). The sampled run averaged 7.13 FPS, with 4,942 draws/frame.
+
+Add `VICTORY_COPY_JOURNAL_AUDIT=1` to compare the kernel’s own 4 KiB write-watch reports with those byte comparisons. `known` counts bytes covered by an exact history since the staging copy. `predicted` counts bytes in chunks that history marks dirty. `missed` counts bytes in unmarked chunks that actually differ. A coarse notification invalidates the history of its whole page. The sampler continues to copy all requested bytes.

@@ -3692,7 +3692,7 @@ impl Shadow {
                     let held = unsafe {
                         std::slice::from_raw_parts(self.data.add(lo - self.start as usize).cast_const(), hi - lo)
                     };
-                    crate::copy_audit::observe(lo, held);
+                    crate::copy_audit::observe(lo, held, *at, write);
                 }
                 // A page only partly in the range is copied in part: it
                 // stays stale for the rest.

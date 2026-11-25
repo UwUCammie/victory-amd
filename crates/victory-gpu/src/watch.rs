@@ -59,6 +59,8 @@ struct Journal {
     asked: u64,
     /// Page number → the asking that last found it written.
     written: BTreeMap<usize, u64>,
+    #[cfg(feature = "copy-audit")]
+    fine: BTreeMap<usize, crate::copy_audit::PageWrites>,
     /// Room for the kernel's answer.
     found: Vec<usize>,
     /// Page ranges asked ahead for a submission's refreshes ([`ask_ahead`])
@@ -72,9 +74,41 @@ struct Journal {
     kept: bool,
 }
 
+#[cfg(feature = "copy-audit")]
+pub(super) fn observed_kernel_mask(page: usize, copied: u64, write: u64) -> Option<u16> {
+    let j = JOURNAL.lock().unwrap_or_else(|e| e.into_inner());
+    if j.written.get(&page).copied() != Some(write) { return None; }
+    j.fine.get(&page)?.since(copied)
+}
+
+impl Journal {
+    fn note_kernel(&mut self, address: usize, now: u64, _granularity: u32) {
+        let page = address / PAGE;
+        let _before = self.written.insert(page, now);
+        #[cfg(feature = "copy-audit")]
+        if crate::copy_audit::journal_enabled() {
+            if _granularity as usize == KERNEL_PAGE && address.is_multiple_of(KERNEL_PAGE) {
+                self.fine.entry(page).or_insert_with(|| crate::copy_audit::PageWrites::new(_before.unwrap_or(0)))
+                    .record((address % PAGE) / KERNEL_PAGE, now);
+            } else {
+                self.fine.remove(&page);
+            }
+        }
+    }
+
+    fn note_coarse(&mut self, page: usize, now: u64) -> Option<u64> {
+        #[cfg(feature = "copy-audit")]
+        if crate::copy_audit::journal_enabled() { self.fine.remove(&page); }
+        self.written.insert(page, now)
+    }
+
+}
+
 static JOURNAL: Mutex<Journal> = Mutex::new(Journal {
     asked: 0,
     written: BTreeMap::new(),
+    #[cfg(feature = "copy-audit")]
+    fine: BTreeMap::new(),
     found: Vec::new(),
     ahead: Vec::new(),
     ahead_asked: 0,
@@ -275,7 +309,7 @@ pub(crate) fn wrote(at: usize, len: usize) {
     // (fxceless/victory-fork#410).
     j.ahead_asked = now;
     for page in at / PAGE..at.saturating_add(len).div_ceil(PAGE) {
-        j.written.insert(page, now);
+        j.note_coarse(page, now);
     }
 }
 
@@ -298,10 +332,10 @@ pub(crate) fn wrote_own(page: usize, others: &[usize]) -> (u64, u64) {
     if j.kept || !j.ahead.is_empty() {
         j.ahead_asked = now;
     }
-    let before = j.written.insert(page, now).unwrap_or(0);
+    let before = j.note_coarse(page, now).unwrap_or(0);
     for &other in others {
         if other != page {
-            j.written.insert(other, now);
+            j.note_coarse(other, now);
         }
     }
     (before, now)
@@ -366,8 +400,7 @@ fn ask_kernel(j: &mut Journal, first: usize, last: usize) -> bool {
     }
     let now = j.ahead_asked;
     for k in 0..count {
-        let page = j.found[k] / PAGE;
-        j.written.insert(page, now);
+        j.note_kernel(j.found[k], now, granularity);
     }
     true
 }
@@ -464,9 +497,12 @@ pub(crate) fn writes(start: usize, end: usize, guarded: bool) -> Option<(u64, Ve
     }
     j.asked += 1;
     let now = j.asked;
-    let pages = j.found[..count].iter().map(|&at| at / PAGE).chain(guarded);
-    for page in pages.collect::<Vec<_>>() {
-        j.written.insert(page, now);
+    for k in 0..count {
+        let address = j.found[k];
+        j.note_kernel(address, now, granularity);
+    }
+    for page in guarded {
+        j.note_coarse(page, now);
     }
     Some((
         now,
