@@ -22,16 +22,19 @@ Ryzen 7 9700X, RX 7900 XT, RADV 26.3.1, Wine 11.22, vkd3d-proton v3.1-83. I used
 | --- | ---: | ---: | ---: | ---: |
 | 64 KiB readbacks | 663 | 73.99 | 8.96 | 4,895 |
 | 16 KiB readbacks | 752 | 74.31 | 10.12 | 4,829 |
+| 16 KiB readbacks, same binary and settings, repeat | 538 | 73.74 | 7.30 | 4,867 |
 | 4 KiB readbacks | 591 | 73.67 | 8.02 | 4,875 |
 | 16 KiB, levels on demand | 624 | 73.76 | 8.46 | 4,905 |
 | 16 KiB, Vulkan descriptor buffers | 693 | 74.07 | 9.36 | 4,873 |
 | 16 KiB, host-read and viewport sampling | 655 | 73.82 | 8.87 | 4,854 |
 | Same sampling build, 1080p display setting | 555 | 73.22 | 7.58 | 4,870 |
 | 16 KiB, consecutive GPU fetch commands joined, sampling on | 384 | 73.12 | 5.25 | 4,931 |
+| 16 KiB, reusable merge scratch | 588 | 73.89 | 7.96 | 4,881 |
+| Same scratch build with shared copy-worker completion | 693 | 74.37 | 9.32 | 4,919 |
 
 For the piece-size trial, the renderer used asynchronous submit, two queues, parallel refresh and merge, the 64-lane card compare, and a zero merge gap. The only setting changed between those three rows was `VICTORY_CARD_PIECE_KB`. The measurement branch supplies the sampler and analysis tools. The figures came from an integration build with additional changes, including [registration lookup](https://github.com/fxceless/victory-fork/pull/1142), [parallel refresh timing](https://github.com/fxceless/victory-fork/pull/1135), [descriptor bookkeeping](https://github.com/fxceless/victory-fork/pull/1128), and [relay page ordering](https://github.com/fxceless/victory-fork/pull/1066).
 
-The first three rows use the same executable. Median copy-queue readback fell from 93.5 to 85.8 to 59.7 MB/frame as pieces got smaller. The 4 KiB copy queue took 6.3 ms/frame, versus 4.7 ms at 16 KiB. There is one run per row so far. The desktop shared the GPU, and some runs overlapped low-priority builds. [Readback PR](https://github.com/fxceless/victory-fork/pull/1164)
+The readback-size rows all use the same executable. Median copy-queue readback fell from 93.5 to 85.8 to 59.7 MB/frame as pieces got smaller. The 4 KiB copy queue took 6.3 ms/frame, versus 4.7 ms at 16 KiB. The two 16 KiB baseline runs averaged 8.72 FPS together (1,290 presents in 148.05 seconds). The desktop shared the GPU, and some runs overlapped low-priority builds. [Readback PR](https://github.com/fxceless/victory-fork/pull/1164)
 
 The two display settings both produced a 3840×2160 swapchain. The most frequently sampled viewport was 2560×1440 in both, followed by 2048×2048. The first room was visible in a capture from each run. [Display measurements](https://github.com/fxceless/victory-fork/issues/10#issuecomment-7176659252)
 
@@ -47,3 +50,5 @@ python3 benchmarks/copy_pool.py 9c184b35 FETCH_HEAD
 ```
 
 Eight paired trials on the 9700X gave median times of 21.40 and 11.15 ms for two callers each submitting 64 batches of 512 counter jobs. Two callers updating 1–5 KiB buffers took 7.77 and 5.13 ms. [Worker-pool PR](https://github.com/fxceless/victory-fork/pull/1172)
+
+The [renderer trial sources](https://github.com/UwUCammie/victory-amd/tree/bench/radv-renderer-trials) include the optional registered-range cache, the adjacent GPU readback command trial and a CPU benchmark of descriptor bookkeeping. The [sparse indirect draw test](https://github.com/UwUCammie/victory-amd/commit/2ba2d770080da9ff507701a09b1103553ccfbfbb) runs on the head of [PR #1171](https://github.com/fxceless/victory-fork/pull/1171). The consecutive and sparse cases both passed on the physical RX 7900 XT.
