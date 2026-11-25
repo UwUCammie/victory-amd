@@ -85,6 +85,8 @@ fn build() -> &'static [u8; 32] {
             "VICTORY_F16_NEAREST",
             "VICTORY_STRICT_JOINS",
             "VICTORY_MESH_OUTPUT_STRICT",
+            "VICTORY_FIRST_HALF",
+            "VICTORY_FIRSTLANE_OWN",
         ] {
             hash.update(name.as_bytes());
             hash.update(b"=");

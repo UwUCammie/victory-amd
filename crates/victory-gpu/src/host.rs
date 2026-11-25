@@ -2837,7 +2837,9 @@ impl Host {
                     )
                     .is_ok()
             };
-            let supported = ok && options.DepthBoundsTestSupported.as_bool();
+            // VICTORY_DEPTH_BOUNDS=0 leaves the test out (a driver that misbehaves with DEPTH_STENCIL1 streams).
+            let wanted = std::env::var_os("VICTORY_DEPTH_BOUNDS").is_none_or(|v| v != "0");
+            let supported = wanted && ok && options.DepthBoundsTestSupported.as_bool();
             tracing::info!(supported, "host depth bounds support");
             supported
         })
