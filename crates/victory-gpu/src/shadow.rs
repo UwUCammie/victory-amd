@@ -3658,98 +3658,118 @@ pub(crate) fn find_any(address: u64, len: u64) -> Option<Arc<Shadow>> {
 
 fn lookup(address: u64, len: u64, any: bool) -> Option<Arc<Shadow>> {
     let end = address.checked_add(len.max(1))?;
-    // Fast path: the buffer found has its copy already (all but the first
-    // ask for a buffer), so the ask only needs the read lock.
-    let needs_copy = {
-        let map = buffers_read();
-        match map.range(..=(address, usize::MAX)).rev().take(64).find(|(_, e)| e.end >= end) {
-            Some((_, entry)) => match &entry.shadow {
-                Some(shadow) => return Some(shadow.clone()),
-                // The entry exists but its copy is not made yet: drop the
-                // read lock and make it under the write lock.
-                None => true,
-            },
-            None => false,
-        }
-    };
-    if !needs_copy {
-        return loose(address, end, len <= 1, any);
-    }
-    // Slow path, under the write lock: the copy is made once. A second
-    // thread that raced here finds it made and only clones it.
-    let mut map = buffers_write();
-    let key = map
-        .range(..=(address, usize::MAX))
-        .rev()
-        .take(64)
-        .find(|(_, e)| e.end >= end)
-        .map(|(k, _)| *k);
-    let Some(key) = key else {
-        drop(map);
-        return loose(address, end, len <= 1, any);
-    };
-    let entry = map.get_mut(&key)?;
-    if entry.shadow.is_none() {
-        let len = entry.end - key.0;
-        // Rounded up so that views ending in the buffer's last 256 bytes fit.
-        // Shaders write some buffers (unordered access), so not upload memory.
-        let size = len.next_multiple_of(1 << 16);
-        // In place, if asked for and the memory can be opened
-        // (`crate::inplace::place_for`): the buffer is the title's own
-        // memory. Not the big ones `cards` puts in the card's memory: those
-        // are read too often to stay in the PC's.
-        let big = cards() && size >= card_limits().0;
-        if !big && let Some(placed) = crate::inplace::place_for(key.0, len, false) {
-            entry.shadow = Some(Arc::new(Shadow::placed(placed, key.0, len, false)));
-            return entry.shadow.clone();
-        }
-        let (buffer, data) = host()?.shared_buffer(size)?;
-        crate::host::name(&buffer, || format!("title buffer {:#x}+{len:#x}", key.0));
-        // A big one, with `cards`: shaders get a buffer in the card's own
-        // memory, and the one just made is the CPU's side.
-        let (buffer, card) = match card_for(size) {
-            Some(on_card) => {
-                crate::host::name(&on_card, || format!("title buffer {:#x}+{len:#x} on the card", key.0));
-                tracing::info!(
-                    start = format_args!("{:#x}", key.0),
-                    len,
-                    "a buffer's host copy is in the card's memory"
-                );
-                let card = Card {
-                    staging: buffer,
-                    before: Mutex::default(),
-                    dirty: Mutex::default(),
-                    sent: Mutex::default(),
-                    size,
-                };
-                (on_card, Some(card))
+    loop {
+        // Fast path: the buffer found has its copy already (all but the first
+        // ask for a buffer), so the ask only needs the read lock.
+        let pending = {
+            let map = buffers_read();
+            match map.range(..=(address, usize::MAX)).rev().take(64).find(|(_, e)| e.end >= end) {
+                Some((&key, entry)) => match &entry.shadow {
+                    Some(shadow) => return Some(shadow.clone()),
+                    // The entry exists but its copy is not made yet: drop the
+                    // read lock and make it outside every lock.
+                    None => Some((key, entry.end)),
+                },
+                None => None,
             }
-            None => (buffer, None),
         };
-        // SAFETY: a live buffer.
-        let gpu = unsafe { buffer.GetGPUVirtualAddress() };
-        if len >= 16 << 20 {
-            tracing::info!(
-                start = format_args!("{:#x}", key.0),
-                len,
-                "large buffer copied to the host"
-            );
-        } else {
-            tracing::debug!(
-                start = format_args!("{:#x}", key.0),
-                len,
-                "buffer copied to the host"
-            );
+        let Some((key, buffer_end)) = pending else {
+            return loose(address, end, len <= 1, any);
+        };
+        // Slow path: the copy is made once, outside the locks: asking D3D12
+        // for its memory (a card side opens a heap of its own) takes long
+        // enough that the other recording threads must not wait on it. A
+        // thread that raced here finds the copy made under the write lock
+        // and only clones it; one that loses the race drops its own, which
+        // gives back every byte it counted (`impl Drop for Shadow`).
+        let new_shadow = buffer_shadow(key.0, buffer_end - key.0)?;
+        let mut map = buffers_write();
+        let Some(entry) = map.get_mut(&key) else {
+            // The title released the buffer while its copy was made.
+            drop(map);
+            return loose(address, end, len <= 1, any);
+        };
+        if entry.end != buffer_end {
+            // The buffer was registered again with another length: nothing
+            // of this copy can be used. Dropped outside the lock.
+            drop(map);
+            drop(new_shadow);
+            continue;
         }
-        let mut shadow = Shadow::new(buffer, data, gpu, key.0, len);
-        shadow.card = card;
-        let shadow = Arc::new(shadow);
-        if shadow.card.is_some() {
-            CARDED.lock().unwrap_or_else(|e| e.into_inner()).push(Arc::downgrade(&shadow));
+        if let Some(shadow) = &entry.shadow {
+            // Another thread made the copy while this one was making its
+            // own; `new_shadow` goes and gives back what it took.
+            return Some(shadow.clone());
         }
-        entry.shadow = Some(shadow);
+        // Only the copy that goes in the map is listed for the card's side:
+        // one a loser drops was never inserted.
+        if new_shadow.card.is_some() {
+            CARDED.lock().unwrap_or_else(|e| e.into_inner()).push(Arc::downgrade(&new_shadow));
+        }
+        entry.shadow = Some(new_shadow.clone());
+        return Some(new_shadow);
     }
-    entry.shadow.clone()
+}
+
+/// The copy of the title buffer `[start, start + len)`: in place when
+/// `crate::inplace` asks for it, else in a host buffer, with a copy in the
+/// card's memory when [`card_for`] gives one.
+///
+/// Made outside `BUFFERS`, `LOOSE` and `EXACT`: a thread that loses a race
+/// drops the copy it made, and [`Drop`] gives back what it counted.
+fn buffer_shadow(start: u64, len: u64) -> Option<Arc<Shadow>> {
+    // Rounded up so that views ending in the buffer's last 256 bytes fit.
+    // Shaders write some buffers (unordered access), so not upload memory.
+    let size = len.next_multiple_of(1 << 16);
+    // In place, if asked for and the memory can be opened
+    // (`crate::inplace::place_for`): the buffer is the title's own
+    // memory. Not the big ones `cards` puts in the card's memory: those
+    // are read too often to stay in the PC's.
+    let big = cards() && size >= card_limits().0;
+    if !big && let Some(placed) = crate::inplace::place_for(start, len, false) {
+        return Some(Arc::new(Shadow::placed(placed, start, len, false)));
+    }
+    let (buffer, data) = host()?.shared_buffer(size)?;
+    crate::host::name(&buffer, || format!("title buffer {start:#x}+{len:#x}"));
+    // A big one, with `cards`: shaders get a buffer in the card's own
+    // memory, and the one just made is the CPU's side.
+    let (buffer, card) = match card_for(size) {
+        Some(on_card) => {
+            crate::host::name(&on_card, || format!("title buffer {start:#x}+{len:#x} on the card"));
+            tracing::info!(
+                start = format_args!("{start:#x}"),
+                len,
+                "a buffer's host copy is in the card's memory"
+            );
+            let card = Card {
+                staging: buffer,
+                before: Mutex::default(),
+                dirty: Mutex::default(),
+                sent: Mutex::default(),
+                size,
+            };
+            (on_card, Some(card))
+        }
+        None => (buffer, None),
+    };
+    // SAFETY: a live buffer.
+    let gpu = unsafe { buffer.GetGPUVirtualAddress() };
+    if len >= 16 << 20 {
+        tracing::info!(
+            start = format_args!("{start:#x}"),
+            len,
+            "large buffer copied to the host"
+        );
+    } else {
+        tracing::debug!(
+            start = format_args!("{start:#x}"),
+            len,
+            "buffer copied to the host"
+        );
+    }
+    let mut shadow = Shadow::new(buffer, data, gpu, start, len);
+    shadow.card = card;
+    Some(Arc::new(shadow))
 }
 
 /// Titles also use memory outside any buffer object as GPU memory (
@@ -3887,11 +3907,19 @@ fn longest_tail(windows: impl Iterator<Item = (u64, u64)>, address: u64, end: u6
 /// Copies of title memory outside buffers, by (start, length).
 static LOOSE: Mutex<BTreeMap<(u64, u64), Arc<Shadow>>> = Mutex::new(BTreeMap::new());
 
-fn loose(address: u64, end: u64, unsized_ask: bool, any: bool) -> Option<Arc<Shadow>> {
-    let mut map = LOOSE.lock().unwrap_or_else(|e| e.into_inner());
+/// The window `(start, length)` an ask for `[address, end)` outside buffers
+/// takes: a tail or a window that is there already and holds it
+/// ([`longest_tail`], [`holder`]), else the one the ask makes.
+fn loose_key(
+    map: &BTreeMap<(u64, u64), Arc<Shadow>>,
+    address: u64,
+    end: u64,
+    unsized_ask: bool,
+    any: bool,
+) -> (u64, u64) {
     let (cell, _) = window_of(address, end, WINDOW);
     let named = window_of(address, end, if unsized_ask { WINDOW } else { window() });
-    let (start, len) = if unsized_ask && tails() {
+    if unsized_ask && tails() {
         let there = map.range((cell, 0)..=(address, u64::MAX)).map(|(key, _)| *key);
         longest_tail(there, address, end).unwrap_or_else(|| tail_of(address, end))
     } else if any && fine() && !unsized_ask {
@@ -3902,7 +3930,10 @@ fn loose(address: u64, end: u64, unsized_ask: bool, any: bool) -> Option<Arc<Sha
         holder(there, address, end).unwrap_or(named)
     } else {
         named
-    };
+    }
+}
+
+fn loose(address: u64, end: u64, unsized_ask: bool, any: bool) -> Option<Arc<Shadow>> {
     // Under the lock, with the handing out: see `let_go_idle`.
     let note = |shadow: &Shadow| {
         shadow.used.store(crate::host::moment(), Ordering::Relaxed);
@@ -3912,17 +3943,52 @@ fn loose(address: u64, end: u64, unsized_ask: bool, any: bool) -> Option<Arc<Sha
             shadow.unsized_asks.fetch_add(1, Ordering::Relaxed);
         }
     };
-    if let Some(shadow) = map.get(&(start, len)) {
+    let (start, len) = {
+        let map = LOOSE.lock().unwrap_or_else(|e| e.into_inner());
+        let key = loose_key(&map, address, end, unsized_ask, any);
+        if let Some(shadow) = map.get(&key) {
+            note(shadow);
+            return Some(shadow.clone());
+        }
+        key
+    };
+    // Outside LOOSE: the window's host buffer (and its card side, a heap of
+    // its own) is made while the other threads' asks carry on. A thread
+    // that raced here finds the window made under the lock and only clones
+    // it; one that loses the race drops its own, which gives back every
+    // byte it counted (`impl Drop for Shadow`).
+    let new_shadow = window_shadow(start, len)?;
+    let mut map = LOOSE.lock().unwrap_or_else(|e| e.into_inner());
+    // The window chosen before may be there now, or a finer one that holds
+    // the ask (a longer tail) may have been made meanwhile: take that one.
+    let key = loose_key(&map, address, end, unsized_ask, any);
+    if let Some(shadow) = map.get(&key).or_else(|| map.get(&(start, len))) {
         note(shadow);
         return Some(shadow.clone());
     }
+    // The window this ask would have taken may have gone while its copy was
+    // made: the one made is still a window that holds the ask, so it goes
+    // in under its own key.
+    if new_shadow.card.is_some() {
+        CARDED.lock().unwrap_or_else(|e| e.into_inner()).push(Arc::downgrade(&new_shadow));
+    }
+    note(&new_shadow);
+    map.insert((start, len), new_shadow.clone());
+    Some(new_shadow)
+}
+
+/// The copy of the window `[start, start + len)` of title memory outside
+/// buffers: in place when `crate::inplace` asks for it, else in a host
+/// buffer, with a copy in the card's memory when [`window_card_for`] gives
+/// one.
+///
+/// Made outside `BUFFERS`, `LOOSE` and `EXACT`: a thread that loses a race
+/// drops the copy it made, and [`Drop`] gives back what it counted.
+fn window_shadow(start: u64, len: u64) -> Option<Arc<Shadow>> {
     // In place, if asked for and the window's memory can be opened: the
     // window is the title's own memory, with nothing to copy.
     if let Some(placed) = crate::inplace::place_for(start, len, true) {
-        let shadow = Arc::new(Shadow::placed(placed, start, len, true));
-        note(&shadow);
-        map.insert((start, len), shadow.clone());
-        return Some(shadow);
+        return Some(Arc::new(Shadow::placed(placed, start, len, true)));
     }
     let (buffer, data) = host()?.shared_buffer(len)?;
     crate::host::name(&buffer, || format!("title memory {start:#x}+{len:#x}"));
@@ -3952,13 +4018,7 @@ fn loose(address: u64, end: u64, unsized_ask: bool, any: bool) -> Option<Arc<Sha
     let mut shadow = Shadow::new(buffer, data, gpu, start, len);
     shadow.window = true;
     shadow.card = card;
-    let shadow = Arc::new(shadow);
-    if shadow.card.is_some() {
-        CARDED.lock().unwrap_or_else(|e| e.into_inner()).push(Arc::downgrade(&shadow));
-    }
-    note(&shadow);
-    map.insert((start, len), shadow.clone());
-    Some(shadow)
+    Some(Arc::new(shadow))
 }
 
 /// Copies of single buffer views' own bytes ([`exact`]), by (start,
@@ -3994,6 +4054,29 @@ pub(crate) fn exact(address: u64, len: u64) -> Option<Arc<Shadow>> {
         return None;
     }
     EXACT_STATS[0].fetch_add(1, Ordering::Relaxed);
+    {
+        let mut guard = EXACT.lock().unwrap_or_else(|e| e.into_inner());
+        let (tick, map) = &mut *guard;
+        *tick += 1;
+        let now = *tick;
+        if let Some((shadow, used)) = map.get_mut(&(address, len)) {
+            *used = now;
+            shadow.used.store(crate::host::moment(), Ordering::Relaxed);
+            return Some(shadow.clone());
+        }
+        if map.len() >= MANY {
+            // Held by the map alone (no list), its buffer by the copy alone (no
+            // slot shows it), and not asked for lately.
+            map.retain(|_, (shadow, used)| {
+                Arc::strong_count(shadow) > 1 || crate::host::references(&shadow.buffer) > 1 || *used + LATELY > now
+            });
+        }
+    }
+    // Outside EXACT: a view's copy is made while the other threads' asks
+    // carry on. A thread that raced here finds the copy made under the lock
+    // and only clones it; one that loses the race drops its own, which
+    // gives back every byte it counted (`impl Drop for Shadow`).
+    let new_shadow = view_shadow(address, len)?;
     let mut guard = EXACT.lock().unwrap_or_else(|e| e.into_inner());
     let (tick, map) = &mut *guard;
     *tick += 1;
@@ -4003,21 +4086,21 @@ pub(crate) fn exact(address: u64, len: u64) -> Option<Arc<Shadow>> {
         shadow.used.store(crate::host::moment(), Ordering::Relaxed);
         return Some(shadow.clone());
     }
-    if map.len() >= MANY {
-        // Held by the map alone (no list), its buffer by the copy alone (no
-        // slot shows it), and not asked for lately.
-        map.retain(|_, (shadow, used)| {
-            Arc::strong_count(shadow) > 1 || crate::host::references(&shadow.buffer) > 1 || *used + LATELY > now
-        });
-    }
+    map.insert((address, len), (new_shadow.clone(), now));
+    EXACT_STATS[1].fetch_add(1, Ordering::Relaxed);
+    Some(new_shadow)
+}
+
+/// The copy of the title view's own bytes `[address, address + len)`.
+///
+/// Made outside `BUFFERS`, `LOOSE` and `EXACT`: a thread that loses a race
+/// drops the copy it made, and [`Drop`] gives back what it counted.
+fn view_shadow(address: u64, len: u64) -> Option<Arc<Shadow>> {
     let (buffer, data) = host()?.shared_buffer(len.next_multiple_of(256))?;
     crate::host::name(&buffer, || format!("title view {address:#x}+{len:#x}"));
     // SAFETY: a live buffer.
     let gpu = unsafe { buffer.GetGPUVirtualAddress() };
-    let shadow = Arc::new(Shadow::new(buffer, data, gpu, address, len));
-    map.insert((address, len), (shadow.clone(), now));
-    EXACT_STATS[1].fetch_add(1, Ordering::Relaxed);
-    Some(shadow)
+    Some(Arc::new(Shadow::new(buffer, data, gpu, address, len)))
 }
 
 /// With the frame line: the buffer views that got a copy of their own
