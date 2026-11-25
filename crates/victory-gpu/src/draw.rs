@@ -2322,7 +2322,15 @@ impl State {
             once!("no stand-in for indirect light: the resolve's tables are not as expected");
             return false;
         }
-        crate::ambient::replace(list, light as This)
+        let (slot, offset) = crate::ambient::DEPTH;
+        let depth = match self.roots_ref(true).get(usize::from(slot)) {
+            Some(Root::Table(table)) => match crate::descriptor::view(table + u64::from(offset) * 4) {
+                Some(View::Shader(r, _)) => Some(r as This),
+                _ => None,
+            },
+            _ => None,
+        };
+        crate::ambient::replace(list, light as This, depth)
     }
 
     /// What a draw or dispatch runs, for the device-removed report
