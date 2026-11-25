@@ -1892,6 +1892,53 @@ fn wide_merge() -> bool {
     *ON.get_or_init(|| std::env::var_os("VICTORY_WIDE_MERGE").is_some_and(|v| v == "1"))
 }
 
+/// Join consecutive commands when both the source and readback offsets
+/// continue. Keep the original pieces for the CPU merge and its page locks.
+fn fetch_runs<T>(
+    pieces: &[(std::sync::Arc<T>, usize, usize, u64)],
+    join: bool,
+) -> impl Iterator<Item = (&T, usize, usize, u64)> {
+    let mut iter = pieces.iter().peekable();
+    std::iter::from_fn(move || {
+        let (shadow, lo, hi, at) = iter.next()?;
+        let mut end = *hi;
+        while join {
+            let Some((_, _, next_end, _)) = iter.next_if(|(next, from, _, dest)| {
+                std::sync::Arc::ptr_eq(shadow, next) && *from == end && *dest == *at + (end - *lo) as u64
+            }) else { break };
+            end = *next_end;
+        }
+        Some((shadow.as_ref(), *lo, end, *at))
+    })
+}
+
+static FETCH_SAVED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn fetch_runs_enabled() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| std::env::var_os("VICTORY_FETCH_RUNS").is_some_and(|v| v == "1"))
+}
+
+#[cfg(test)]
+mod fetch_run_tests {
+    use std::sync::Arc;
+    use super::fetch_runs;
+
+    #[test]
+    fn joins_only_contiguous_source_and_destination_on_the_same_buffer() {
+        let a = Arc::new(1u8);
+        let b = Arc::new(2u8);
+        let requests = vec![
+            (a.clone(), 1, 5, 0), (a.clone(), 5, 9, 4),
+            (b.clone(), 9, 13, 8), (b.clone(), 13, 16, 16),
+            (a.clone(), 8, 10, 19), (a, 9, 13, 21),
+        ];
+        let runs: Vec<_> = fetch_runs(&requests, true).map(|(source, lo, hi, at)| (*source, lo, hi, at)).collect();
+        assert_eq!(runs, [(1,1,9,0),(2,9,13,8),(2,13,16,16),(1,8,10,19),(1,9,13,21)]);
+        assert_eq!(fetch_runs(&requests, false).count(), requests.len());
+    }
+}
+
 /// One declared range of a copy in the card's memory, in a submission.
 struct CardRange {
     shadow: std::sync::Arc<crate::shadow::Shadow>,
@@ -4649,9 +4696,12 @@ impl Host {
                     // title's either way.
                     let after = second.order_done();
                     let copy = second.down.list()?;
-                    for (shadow, lo, hi, at) in &pieces {
-                        copy.1.CopyBufferRegion(&buffer, *at, &shadow.buffer, *lo as u64, (*hi - *lo) as u64);
+                    let mut issued = 0usize;
+                    for (shadow, lo, hi, at) in fetch_runs(&pieces, fetch_runs_enabled()) {
+                        copy.1.CopyBufferRegion(&buffer, at, &shadow.buffer, lo as u64, (hi - lo) as u64);
+                        issued += 1;
                     }
+                    FETCH_SAVED.fetch_add((pieces.len() - issued) as u64, Ordering::Relaxed);
                     let job = second.down.send(copy, &[(&self.fence, behind)], total)?;
                     second.down.wait(job, event)?;
                     if beside {
@@ -4669,9 +4719,12 @@ impl Host {
                 }
                 allocator.Reset()?;
                 list.Reset(&allocator, None)?;
-                for (shadow, lo, hi, at) in &pieces {
-                    list.CopyBufferRegion(&buffer, *at, &shadow.buffer, *lo as u64, (*hi - *lo) as u64);
+                let mut issued = 0usize;
+                for (shadow, lo, hi, at) in fetch_runs(&pieces, fetch_runs_enabled()) {
+                    list.CopyBufferRegion(&buffer, at, &shadow.buffer, lo as u64, (hi - lo) as u64);
+                    issued += 1;
                 }
+                FETCH_SAVED.fetch_add((pieces.len() - issued) as u64, Ordering::Relaxed);
                 list.Close()?;
                 let lists = [Some(list.cast::<ID3D12CommandList>()?)];
                 // In the order of the queue: the sends of title bytes so
@@ -7855,7 +7908,7 @@ impl Meter {
         let frames = f64::from(self.frames);
         #[cfg(feature = "frame-sampling")]
         {
-            tracing::info!(target: "victory_bench", frames = self.frames, interval_us = elapsed.as_micros() as u64, draws = drawn - self.drawn, "presents");
+            tracing::info!(target: "victory_bench", frames = self.frames, interval_us = elapsed.as_micros() as u64, draws = drawn - self.drawn, fetch_commands_saved = FETCH_SAVED.swap(0, Ordering::Relaxed), "presents");
             crate::bench_reads::report();
         }
         let fps = frames / elapsed.as_secs_f64();
