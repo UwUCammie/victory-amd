@@ -1632,11 +1632,12 @@ impl State {
         // it read at the last look (counted with the frame line).
         let mut same = 0u64;
         for (n, &index) in slots.iter().enumerate() {
-            let before = ranges.remove(&index);
             let Some(handle) = heap.handle(index) else {
+                ranges.remove(&index);
                 continue;
             };
-            let Some(view) = host.mirror(index, handle, true) else {
+            let Some(view) = host.mirror_heap_buffer(index, handle) else {
+                ranges.remove(&index);
                 continue;
             };
             // Every 64 views while the device lives (a cheap query).
@@ -1657,16 +1658,25 @@ impl State {
             // The copy the slot shows (`buffer_copy`), not the one the
             // view's range alone would find.
             let Some((shadow, address, len)) = crate::descriptor::host::buffer_copy(&view) else {
+                ranges.remove(&index);
                 continue;
             };
             #[cfg(feature = "diagnostics")]
             if host.shows(index, &shadow.buffer) == Some(false) {
                 HEAP_VIEWS_ELSEWHERE.fetch_add(1, Ordering::Relaxed);
             }
-            if before.is_some_and(|b| std::sync::Arc::ptr_eq(&b.0, &shadow) && b.1 == address && b.2 == address + len) {
-                same += 1;
+            // The entry is mostly the one the last look left (the pass
+            // takes every buffer slot every 16 frames and the writes since
+            // between): written in place, not taken out and put back.
+            if let Some(entry) = ranges.get_mut(&index) {
+                if std::sync::Arc::ptr_eq(&entry.0, &shadow) && entry.1 == address && entry.2 == address + len {
+                    same += 1;
+                } else {
+                    *entry = (shadow, address, address + len);
+                }
+            } else {
+                ranges.insert(index, (shadow, address, address + len));
             }
-            ranges.insert(index, (shadow, address, address + len));
         }
         HEAP_PASS_PARTS[2].fetch_add(started.elapsed().as_micros() as u64, Ordering::Relaxed);
         HEAP_PASS_PARTS[3].fetch_add(same, Ordering::Relaxed);
