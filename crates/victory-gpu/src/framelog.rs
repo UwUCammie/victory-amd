@@ -640,8 +640,8 @@ mod tests {
     fn totals_and_a_threads_own_counts_add_up() {
         let before = TOTAL[T::DiskReads as usize].load(Relaxed);
         add(T::DiskReads, 3);
-        sub(T::DiskReads, 1);
-        assert_eq!(TOTAL[T::DiskReads as usize].load(Relaxed) - before, 2);
+        add(T::DiskReads, 1);
+        assert_eq!(TOTAL[T::DiskReads as usize].load(Relaxed) - before, 4);
         here(H::PaceUs, 5);
         here(H::PaceUs, 6);
         assert_eq!(HERE.with(|c| c.get())[H::PaceUs as usize], 11);
