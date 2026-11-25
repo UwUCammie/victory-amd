@@ -3682,6 +3682,18 @@ impl Shadow {
             };
             let at = &mut copied[page - base];
             if *at == 0 || write > *at {
+                #[cfg(feature = "copy-audit")]
+                if *at != 0 && self.card.is_some() && crate::copy_audit::selected() {
+                    let lo = (page * PAGE).max(from);
+                    let hi = ((page + 1) * PAGE).min(to);
+                    // SAFETY: the initialized CPU staging range is within the
+                    // shadow. This refresh already holds the copy lock and
+                    // excludes ranges with pending shader writes.
+                    let held = unsafe {
+                        std::slice::from_raw_parts(self.data.add(lo - self.start as usize).cast_const(), hi - lo)
+                    };
+                    crate::copy_audit::observe(lo, held);
+                }
                 // A page only partly in the range is copied in part: it
                 // stays stale for the rest.
                 let (start, end) = (self.start as usize, (self.start + self.len) as usize);

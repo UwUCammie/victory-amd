@@ -20,6 +20,8 @@ victory-shader.workspace = true
 tempfile.workspace = true
 
 [features]
+# Sample changed staging bytes during ordinary full-page refreshes.
+copy-audit = []
 # Debugging switches (frame capture, the host debug layer, per-draw data).
 diagnostics = []
 # Sample host reads and render viewports in an otherwise normal release build.

@@ -74,6 +74,8 @@ mod sampler;
 pub mod shader_cache;
 #[cfg(windows)]
 mod memory;
+#[cfg(all(windows, feature = "copy-audit"))]
+mod copy_audit;
 #[cfg(windows)]
 mod shadow;
 #[cfg(windows)]

@@ -47,3 +47,7 @@ python3 benchmarks/copy_pool.py 9c184b35 FETCH_HEAD
 ```
 
 Eight paired trials on the 9700X gave median times of 21.40 and 11.15 ms for two callers each submitting 64 batches of 512 counter jobs. Two callers updating 1–5 KiB buffers took 7.77 and 5.13 ms. [Worker-pool PR](https://github.com/fxceless/victory-fork/pull/1172)
+
+## Staging copy granularity
+
+For a run that uses card-resident buffers, add `victory-gpu/copy-audit` to the build features above and set `VICTORY_COPY_AUDIT=1`. Each refreshing thread samples one in 67 stale pages that it previously copied into card-buffer staging memory. The sample compares the current bytes with staging in aligned 4, 16 and 64 KiB chunks, clipping each chunk to the requested view. Each line totals 128 samples. A failed read is counted separately. The renderer still performs the ordinary full refresh. These counts measure how much unchanged data a finer journal could avoid copying if it tracked those changes exactly.
