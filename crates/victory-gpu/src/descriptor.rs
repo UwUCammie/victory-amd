@@ -944,8 +944,8 @@ fn view_at(i: u32, generation: u32) -> Option<View> {
     view_at_in(&views_read(), i, generation)
 }
 
-/// [`view_at`] for a caller that looks at many records with one read of the
-/// table ([`with_views`]): the same view, from the lock it already holds.
+/// [`view_at`] with the views' lock already held ([`with_views`]): a page
+/// of records then costs one lock, not one each.
 pub(crate) fn view_at_in(views: &Views, i: u32, generation: u32) -> Option<View> {
     match generation >> KIND_SHIFT {
         0 => {
@@ -958,8 +958,8 @@ pub(crate) fn view_at_in(views: &Views, i: u32, generation: u32) -> Option<View>
     }
 }
 
-/// Runs `f` with the table read-locked once: a page of records resolved
-/// together takes it once, not once for each of them.
+/// Runs `f` with the views' lock held once, for a page of records that are
+/// looked up together ([`view_at_in`]).
 pub(crate) fn with_views<R>(f: impl FnOnce(&Views) -> R) -> R {
     f(&views_read())
 }

@@ -1681,63 +1681,78 @@ impl State {
         // Of the slots looked at: those whose view reads the copy and range
         // it read at the last look (counted with the frame line).
         let mut same = 0u64;
-        for (n, &index) in slots.iter().enumerate() {
-            let Some(handle) = heap.handle(index) else {
-                ranges.remove(&index);
-                continue;
-            };
-            let Some((view, resolved)) = host.mirror_heap_buffer(index, handle) else {
-                ranges.remove(&index);
-                continue;
-            };
-            // Whether making the view just resolved the copy the slot reads
-            // (`buffer_copy`): the slot then shows that copy, as it was put
-            // in `kept` with it.
-            #[cfg(feature = "diagnostics")]
-            let made = resolved.is_some();
+        // The slots in chunks of 64: a chunk is resolved with the views' and
+        // the records' locks once each, not once a slot (58.6-68.0 ms for
+        // 29,000 slots on one recording thread, fx16-r2), and the device is
+        // asked whether it is there once a full chunk as before.
+        let mut chunk_in: Vec<(u32, u64)> = Vec::with_capacity(64);
+        let mut chunk_out = Vec::with_capacity(64);
+        for (n, chunk) in slots.chunks(64).enumerate() {
+            let at = n * 64;
+            chunk_in.clear();
+            for &index in chunk {
+                match heap.handle(index) {
+                    Some(handle) => chunk_in.push((index, handle)),
+                    None => {
+                        ranges.remove(&index);
+                    }
+                }
+            }
+            host.mirror_heap_buffers_chunk(&chunk_in, &mut chunk_out);
             // Every 64 views while the device lives (a cheap query).
             if alive
-                && n % 64 == 63
+                && chunk.len() == 64
                 && let Some(why) = crate::descriptor::host::device_removed()
             {
                 alive = false;
                 GONE.store(true, Ordering::Relaxed);
-                let last: Vec<String> = slots[n - 63..=n]
+                let last: Vec<String> = slots[at..at + 64]
                     .iter()
                     .filter_map(|&i| crate::descriptor::view(heap.handle(i)?).map(|v| format!("{i}: {v:?}")))
                     .map(|s| s.chars().take(200).collect())
                     .collect();
-                tracing::error!(why, slot = index, "the host device went while buffer views of the heap were made; one of: {last:#?}");
+                tracing::error!(why, slot = slots[at + 63], "the host device went while buffer views of the heap were made; one of: {last:#?}");
                 crate::host::log_removal_context();
             }
-            // The copy the slot shows (`buffer_copy`), not the one the
-            // view's range alone would find: the one making the view just
-            // resolved, when it did, and only otherwise looked up again.
-            let (shadow, address, len) = match resolved {
-                Some(copy) => copy,
-                None => match crate::descriptor::host::buffer_copy(&view) {
+            for (index, result) in chunk_out.drain(..) {
+                let Some((view, resolved)) = result else {
+                    ranges.remove(&index);
+                    continue;
+                };
+                // Whether making the view just resolved the copy the slot reads
+                // (`buffer_copy`): the slot then shows that copy, as it was put
+                // in `kept` with it.
+                #[cfg(feature = "diagnostics")]
+                let made = resolved.is_some();
+                // The copy the slot shows (`buffer_copy`), not the one the
+                // view's range alone would find: the one making the view just
+                // resolved, when it did, and only otherwise looked up again.
+                let (shadow, address, len) = match resolved {
                     Some(copy) => copy,
-                    None => {
-                        ranges.remove(&index);
-                        continue;
-                    }
-                },
-            };
-            #[cfg(feature = "diagnostics")]
-            if !made && host.shows(index, &shadow.buffer) == Some(false) {
-                HEAP_VIEWS_ELSEWHERE.fetch_add(1, Ordering::Relaxed);
-            }
-            // The entry is mostly the one the last look left (the pass
-            // takes every buffer slot every 16 frames and the writes since
-            // between): written in place, not taken out and put back.
-            if let Some(entry) = ranges.get_mut(&index) {
-                if std::sync::Arc::ptr_eq(&entry.0, &shadow) && entry.1 == address && entry.2 == address + len {
-                    same += 1;
-                } else {
-                    *entry = (shadow, address, address + len);
+                    None => match crate::descriptor::host::buffer_copy(&view) {
+                        Some(copy) => copy,
+                        None => {
+                            ranges.remove(&index);
+                            continue;
+                        }
+                    },
+                };
+                #[cfg(feature = "diagnostics")]
+                if !made && host.shows(index, &shadow.buffer) == Some(false) {
+                    HEAP_VIEWS_ELSEWHERE.fetch_add(1, Ordering::Relaxed);
                 }
-            } else {
-                ranges.insert(index, (shadow, address, address + len));
+                // The entry is mostly the one the last look left (the pass
+                // takes every buffer slot every 16 frames and the writes since
+                // between): written in place, not taken out and put back.
+                if let Some(entry) = ranges.get_mut(&index) {
+                    if std::sync::Arc::ptr_eq(&entry.0, &shadow) && entry.1 == address && entry.2 == address + len {
+                        same += 1;
+                    } else {
+                        *entry = (shadow, address, address + len);
+                    }
+                } else {
+                    ranges.insert(index, (shadow, address, address + len));
+                }
             }
         }
         HEAP_PASS_PARTS[2].fetch_add(started.elapsed().as_micros() as u64, Ordering::Relaxed);
