@@ -120,7 +120,15 @@ pub(crate) fn ask_ahead(ranges: &[(usize, usize)]) {
     // triippywhale d0581a55). `VICTORY_VIEW_ASK=1` asks as before.
     #[cfg(feature = "diagnostics")]
     let all = pieces.len();
-    pieces.retain(|&(first, _)| !known_view(first * PAGE));
+    // One lock of [`GUARDS`] for the whole pass: the filter asks about every
+    // piece, and asking [`known_view`] per piece locked it again each time
+    // (some 20,000 askings a frame). The order is [`known_view`]'s own,
+    // `JOURNAL` then `GUARDS`.
+    if !view_ask_enabled() {
+        let vk = view_known();
+        let g = guards();
+        pieces.retain(|&(first, _)| !is_known_view_in(&g, first * PAGE, vk));
+    }
     #[cfg(feature = "diagnostics")]
     AHEAD_VIEWS.fetch_add((all - pieces.len()) as u64, std::sync::atomic::Ordering::Relaxed);
     j.asked += 1;
@@ -457,8 +465,12 @@ pub(crate) fn writes(start: usize, end: usize, guarded: bool) -> Option<(u64, Ve
     }
     j.asked += 1;
     let now = j.asked;
-    let pages = j.found[..count].iter().map(|&at| at / PAGE).chain(guarded);
-    for page in pages.collect::<Vec<_>>() {
+    // Disjoint fields of `j`: no `Vec` of the pages, which was one allocation
+    // per flush for thousands of flushes a frame.
+    for &at in &j.found[..count] {
+        j.written.insert(at / PAGE, now);
+    }
+    for page in guarded {
         j.written.insert(page, now);
     }
     Some((
@@ -543,23 +555,35 @@ impl Tracked {
 /// Guarded blocks of view memory.
 const BLOCK: usize = PAGE;
 
+/// Whether the kernel is asked about view memory the guards hold anyway
+/// (`VICTORY_VIEW_ASK=1` or `VICTORY_GUARD_ASK=1`; off by default).
+fn view_ask_enabled() -> bool {
+    static ASK: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ASK.get_or_init(|| {
+        ["VICTORY_VIEW_ASK", "VICTORY_GUARD_ASK"]
+            .iter()
+            .any(|n| std::env::var_os(n).is_some_and(|v| v == "1"))
+    })
+}
+
+/// Whether the block holding `start` is one the guards hold, read under `g`:
+/// read-only by our hand, or noted absent, or (with `vk`, [`view_known`])
+/// once made read-only.
+fn is_known_view_in(g: &Guards, start: usize, vk: bool) -> bool {
+    let first = start / BLOCK;
+    g.protected.contains(first) || g.absent.contains(&first) || (vk && g.viewed.contains(first))
+}
+
 /// Whether the block holding `start` is view memory the guards already
 /// hold (read-only by our hand, or noted absent): asking the kernel's write
 /// watch about it can only fail. `VICTORY_VIEW_ASK=1` (or
 /// `VICTORY_GUARD_ASK=1`) asks the kernel anyway, as before.
 fn known_view(start: usize) -> bool {
-    static ASK: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    let ask = *ASK.get_or_init(|| {
-        ["VICTORY_VIEW_ASK", "VICTORY_GUARD_ASK"]
-            .iter()
-            .any(|n| std::env::var_os(n).is_some_and(|v| v == "1"))
-    });
-    if ask {
+    if view_ask_enabled() {
         return false;
     }
     let g = guards();
-    let first = start / BLOCK;
-    g.protected.contains(first) || g.absent.contains(&first) || (view_known() && g.viewed.contains(first))
+    is_known_view_in(&g, start, view_known())
 }
 
 /// Disjoint, non-adjacent maximal `[start, end)` runs of 64 KiB block indices

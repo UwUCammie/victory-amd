@@ -37,7 +37,7 @@ enum Root {
 }
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct VertexView {
     address: u64,
     size: u32,
@@ -45,7 +45,7 @@ pub(crate) struct VertexView {
 }
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct IndexView {
     address: u64,
     size: u32,
@@ -731,17 +731,26 @@ impl State {
     }
 
     pub(crate) fn set_pipeline(&mut self, pipeline: This) {
+        // The title sets the same pipeline before most draws: the same
+        // number need not be written again.
+        if self.pipeline == pipeline as usize {
+            return;
+        }
         self.pipeline = pipeline as usize;
     }
 
     pub(crate) fn set_heaps(&mut self, heaps: &[This]) {
-        self.heaps = [0; 2];
+        let mut next = [0usize; 2];
         for &h in heaps {
             if !h.is_null() {
                 let samplers = crate::descriptor::heap(h).samplers();
-                self.heaps[usize::from(samplers)] = h as usize;
+                next[usize::from(samplers)] = h as usize;
             }
         }
+        if next == self.heaps {
+            return;
+        }
+        self.heaps = next;
     }
 
     fn roots(&mut self, compute: bool) -> &mut Vec<Root> {
@@ -753,16 +762,32 @@ impl State {
     }
 
     pub(crate) fn set_table(&mut self, compute: bool, slot: u32, handle: u64) {
-        set(self.roots(compute), slot, Root::Table(handle));
+        let roots = self.roots(compute);
+        if matches!(roots.get(slot as usize), Some(Root::Table(h)) if *h == handle) {
+            return;
+        }
+        set(roots, slot, Root::Table(handle));
     }
 
     pub(crate) fn set_view(&mut self, compute: bool, slot: u32, address: u64) {
-        set(self.roots(compute), slot, Root::View(address));
+        let roots = self.roots(compute);
+        if matches!(roots.get(slot as usize), Some(Root::View(a)) if *a == address) {
+            return;
+        }
+        set(roots, slot, Root::View(address));
     }
 
     pub(crate) fn set_constants(&mut self, compute: bool, slot: u32, values: &[u32], offset: u32) {
         let roots = self.roots(compute);
         let s = slot as usize;
+        // Already these bytes there (the title sets the same constants
+        // often): nothing to write or grow.
+        if let Some(Root::Constants(c)) = roots.get(s) {
+            let end = offset as usize + values.len();
+            if end <= c.len() && &c[offset as usize..end] == values {
+                return;
+            }
+        }
         if !matches!(roots.get(s), Some(Root::Constants(_))) {
             set(roots, slot, Root::Constants(Vec::new()));
         }
@@ -778,7 +803,9 @@ impl State {
     pub(crate) fn set_vertex_buffers(&mut self, start: u32, views: &[VertexView]) {
         for (i, v) in views.iter().enumerate() {
             if let Some(slot) = self.vertex.get_mut(start as usize + i) {
-                *slot = *v;
+                if *slot != *v {
+                    *slot = *v;
+                }
             }
         }
     }
@@ -790,7 +817,11 @@ impl State {
     }
 
     pub(crate) fn set_index_buffer(&mut self, view: Option<&IndexView>) {
-        self.index = view.copied().unwrap_or_default();
+        let next = view.copied().unwrap_or_default();
+        if next == self.index {
+            return;
+        }
+        self.index = next;
     }
 
     /// Render targets and depth, set on the host list at once.
