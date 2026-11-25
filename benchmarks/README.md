@@ -21,6 +21,7 @@ Ryzen 7 9700X, RX 7900 XT, RADV 26.3.1, Wine 11.22, vkd3d-proton v3.1-83. I used
 | Variant | Presents | Seconds | FPS | Draws/frame |
 | --- | ---: | ---: | ---: | ---: |
 | 64 KiB readbacks | 663 | 73.99 | 8.96 | 4,895 |
+| 64 KiB readbacks, same binary and settings, repeat | 610 | 74.02 | 8.24 | 4,870 |
 | 16 KiB readbacks | 752 | 74.31 | 10.12 | 4,829 |
 | 16 KiB readbacks, same binary and settings, repeat | 538 | 73.74 | 7.30 | 4,867 |
 | 4 KiB readbacks | 591 | 73.67 | 8.02 | 4,875 |
@@ -34,7 +35,7 @@ Ryzen 7 9700X, RX 7900 XT, RADV 26.3.1, Wine 11.22, vkd3d-proton v3.1-83. I used
 
 For the piece-size trial, the renderer used asynchronous submit, two queues, parallel refresh and merge, the 64-lane card compare, and a zero merge gap. The only setting changed between those three rows was `VICTORY_CARD_PIECE_KB`. The measurement branch supplies the sampler and analysis tools. The figures came from an integration build with additional changes, including [registration lookup](https://github.com/fxceless/victory-fork/pull/1142), [parallel refresh timing](https://github.com/fxceless/victory-fork/pull/1135), [descriptor bookkeeping](https://github.com/fxceless/victory-fork/pull/1128), and [relay page ordering](https://github.com/fxceless/victory-fork/pull/1066).
 
-The readback-size rows all use the same executable. Median copy-queue readback fell from 93.5 to 85.8 to 59.7 MB/frame as pieces got smaller. The 4 KiB copy queue took 6.3 ms/frame, versus 4.7 ms at 16 KiB. The two 16 KiB baseline runs averaged 8.71 FPS together (1,290 presents in 148.05 seconds). The desktop shared the GPU, and some runs overlapped low-priority builds. [Readback PR](https://github.com/fxceless/victory-fork/pull/1164)
+The readback-size rows all use the same executable. Median copy-queue readback fell from 93.5 to 85.8 to 59.7 MB/frame as pieces got smaller. The 4 KiB copy queue took 6.3 ms/frame, versus 4.7 ms at 16 KiB. The two 16 KiB baseline runs averaged 8.71 FPS together (1,290 presents in 148.05 seconds), and the two at 64 KiB averaged 8.60 (1,273 presents in 148.01 seconds). The desktop shared the GPU, and some runs overlapped low-priority builds. [Readback PR](https://github.com/fxceless/victory-fork/pull/1164)
 
 The two display settings both produced a 3840×2160 swapchain. The most frequently sampled viewport was 2560×1440 in both, followed by 2048×2048. The first room was visible in a capture from each run. [Display measurements](https://github.com/fxceless/victory-fork/issues/10#issuecomment-7176659252)
 
@@ -52,3 +53,14 @@ python3 benchmarks/copy_pool.py 9c184b35 FETCH_HEAD
 Eight paired trials on the 9700X gave median times of 21.40 and 11.15 ms for two callers each submitting 64 batches of 512 counter jobs. Two callers updating 1–5 KiB buffers took 7.77 and 5.13 ms. [Worker-pool PR](https://github.com/fxceless/victory-fork/pull/1172)
 
 The [renderer trial sources](https://github.com/UwUCammie/victory-amd/tree/bench/radv-renderer-trials) include the optional registered-range cache, the adjacent GPU readback command trial and a CPU benchmark of descriptor bookkeeping. The [sparse indirect draw test](https://github.com/UwUCammie/victory-amd/commit/2ba2d770080da9ff507701a09b1103553ccfbfbb) runs on the head of [PR #1171](https://github.com/fxceless/victory-fork/pull/1171). The consecutive and sparse cases both passed on the physical RX 7900 XT.
+
+## Descriptor slot bookkeeping
+
+The native Rust benchmark compares the original B-tree and hash set with the bitset implementation from a Git revision. It starts with 83,000 live buffer descriptors in a 1.2-million-slot heap, checks a checksum of both sets, and alternates order over eight timed pairs. Each line gives the writes per frame, pair number, whether the bitset was used, and elapsed microseconds.
+
+```sh
+git fetch https://github.com/UwUCammie/victory-amd.git perf/ordered-buffer-slot-bits
+python3 benchmarks/slot_sets.py FETCH_HEAD
+```
+
+On the 9700X, 16 frames of 43,000 synthetic writes each took 73.56 ms with the original sets and 2.53 ms with the bitsets (medians). At 16 writes per frame over 48 frames the medians were 0.38 and 0.51 ms. The gameplay trial used an earlier integration build and averaged 9.04 FPS, within the range of the control runs.
