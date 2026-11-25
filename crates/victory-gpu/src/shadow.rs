@@ -85,7 +85,7 @@ pub(crate) struct Shadow {
     /// the title's own bytes and nothing is copied either way. The heap,
     /// and the bytes from the buffer's first byte to `start` (the heap
     /// begins on a 64 KiB line; a title buffer need not).
-    place: Option<(windows::Win32::Graphics::Direct3D12::ID3D12Heap, u64)>,
+    place: Option<(windows::Win32::Graphics::Direct3D12::ID3D12Heap, u64, bool)>,
     /// Submission number (`crate::host::started`) after this buffer was
     /// allocated (see `HostTexture::born_after`).
     born_after: u64,
@@ -2019,9 +2019,9 @@ static LIVE: [std::sync::atomic::AtomicU64; 2] = [const { std::sync::atomic::Ato
 
 impl Drop for Shadow {
     fn drop(&mut self) {
-        if self.place.is_some() {
+        if let Some((_, _, section)) = self.place {
             // Never counted with the copies (`Shadow::placed`).
-            crate::inplace::gone(self.window, self.len);
+            crate::inplace::gone(self.window, self.len, section);
             return;
         }
         LIVE[0].fetch_sub(1, Ordering::Relaxed);
@@ -2358,7 +2358,7 @@ impl Shadow {
     /// over it in a heap opened on it. Shaped as a copy so that everything
     /// that binds, views or keeps a copy works on it unchanged; what
     /// copies does nothing ([`Shadow::update`], [`Shadow::gpu_writes`]).
-    fn placed(placed: crate::inplace::Placed, start: u64, len: u64, window: bool) -> Shadow {
+    fn placed(placed: crate::inplace::Placed, start: u64, len: u64, window: bool, section: bool) -> Shadow {
         crate::host::name(&placed.buffer, || format!("title memory {start:#x}+{len:#x} in place"));
         let mut shadow = Shadow::new(placed.buffer, start as *mut u8, placed.gpu, start, len);
         // Not a copy: not counted with them, and nothing asks what the
@@ -2367,7 +2367,7 @@ impl Shadow {
         LIVE[1].fetch_sub(len, Ordering::Relaxed);
         *shadow.watched.get_mut() = NOT_WATCHED;
         shadow.window = window;
-        shadow.place = Some((placed.heap, placed.bias));
+        shadow.place = Some((placed.heap, placed.bias, section));
         shadow
     }
 
@@ -3775,7 +3775,7 @@ fn buffer_shadow(start: u64, len: u64) -> Option<Arc<Shadow>> {
     // are read too often to stay in the PC's.
     let big = cards() && size >= card_limits().0;
     if !big && let Some(placed) = crate::inplace::place_for(start, len, false) {
-        return Some(Arc::new(Shadow::placed(placed, start, len, false)));
+        return Some(Arc::new(Shadow::placed(placed, start, len, false, false)));
     }
     let (buffer, data) = host()?.shared_buffer(size)?;
     crate::host::name(&buffer, || format!("title buffer {start:#x}+{len:#x}"));
@@ -3992,11 +3992,32 @@ fn loose(address: u64, end: u64, unsized_ask: bool, any: bool) -> Option<Arc<Sha
         }
     };
     let (start, len) = {
-        let map = LOOSE.lock().unwrap_or_else(|e| e.into_inner());
+        let mut map = LOOSE.lock().unwrap_or_else(|e| e.into_inner());
         let key = loose_key(&map, address, end, unsized_ask, any);
         if let Some(shadow) = map.get(&key) {
             note(shadow);
             return Some(shadow.clone());
+        }
+        if crate::inplace::section_windows_on() {
+            let (cell, cell_len) = window_of(address, end, WINDOW);
+            let placed = map.range((cell, 0)..=(address, u64::MAX))
+                .filter(|(_, s)| s.place.as_ref().is_some_and(|p| p.2))
+                .map(|(key, _)| *key);
+            let cached = if unsized_ask {
+                longest_tail(placed, address, end)
+            } else {
+                holder(placed, address, end)
+            };
+            if let Some(shadow) = cached.and_then(|key| map.get(&key)) {
+                note(shadow);
+                return Some(shadow.clone());
+            }
+            if let Some((placed, rs, rl)) = crate::inplace::place_section_window(address, end, cell, cell_len, unsized_ask) {
+                let shadow = Arc::new(Shadow::placed(placed, rs, rl, true, true));
+                note(&shadow);
+                map.insert((rs, rl), shadow.clone());
+                return Some(shadow);
+            }
         }
         key
     };
@@ -4036,7 +4057,7 @@ fn window_shadow(start: u64, len: u64) -> Option<Arc<Shadow>> {
     // In place, if asked for and the window's memory can be opened: the
     // window is the title's own memory, with nothing to copy.
     if let Some(placed) = crate::inplace::place_for(start, len, true) {
-        return Some(Arc::new(Shadow::placed(placed, start, len, true)));
+        return Some(Arc::new(Shadow::placed(placed, start, len, true, false)));
     }
     let (buffer, data) = host()?.shared_buffer(len)?;
     crate::host::name(&buffer, || format!("title memory {start:#x}+{len:#x}"));
