@@ -2304,6 +2304,86 @@ impl HostHeap {
         }
     }
 
+    /// Makes the slots [`HostHeap::mirror_resolved`] collected read nothing:
+    /// one `ID3D12Device::CopyDescriptors` from the static [`NullBank`]
+    /// instead of a `Create*View` each (some 25,000 to 30,000 a frame in
+    /// `sync_heaps`). `nulls` is in ascending slot order, as
+    /// [`HostHeap::apply_copied_due`] scans a page.
+    ///
+    /// The caller holds the made lock: the slots it batched had their key
+    /// stored as 0 (`Release`) first, so no thread's fast path finds them
+    /// and every one takes the made lock, released only after the null
+    /// descriptors are in place.
+    fn apply_nulls(&self, nulls: &mut Vec<(u32, NullKind)>) {
+        if nulls.is_empty() {
+            return;
+        }
+        if self.sampler {
+            nulls.clear();
+            return;
+        }
+        let Some(bank) = null_bank() else {
+            // No bank (the device could not make it): make each slot null on
+            // its own, as `null_for` did.
+            for &(index, kind) in nulls.iter() {
+                write_null(kind, self.cpu(index));
+            }
+            nulls.clear();
+            return;
+        };
+        let Some(host) = host() else {
+            nulls.clear();
+            return;
+        };
+        // A slot can be scanned twice when two dirty ranges share a page:
+        // the last kind recorded for it wins, as the per-slot writes it
+        // replaces did.
+        nulls.dedup_by(|later, earlier| {
+            if later.0 == earlier.0 {
+                earlier.1 = later.1;
+                true
+            } else {
+                false
+            }
+        });
+        // The runs of consecutive slots of one kind: a run is one
+        // destination range of at most `NULL_RUN` slots, copied from the
+        // bank's start for that kind (its slots are all one descriptor).
+        let mut runs: Vec<(u32, NullKind, u32)> = Vec::new();
+        for &(index, kind) in nulls.iter() {
+            let joined = runs.last_mut().is_some_and(|(start, run_kind, len)| {
+                let joins = *run_kind == kind && index == *start + *len && *len < NULL_RUN as u32;
+                if joins {
+                    *len += 1;
+                }
+                joins
+            });
+            if !joined {
+                runs.push((index, kind, 1));
+            }
+        }
+        let dest_starts: Vec<D3D12_CPU_DESCRIPTOR_HANDLE> =
+            runs.iter().map(|&(start, ..)| self.cpu(start)).collect();
+        let dest_sizes: Vec<u32> = runs.iter().map(|&(_, _, len)| len).collect();
+        let src_starts: Vec<D3D12_CPU_DESCRIPTOR_HANDLE> =
+            runs.iter().map(|&(_, kind, _)| bank.cpu(kind)).collect();
+        let src_sizes: Vec<u32> = runs.iter().map(|&(_, _, len)| len).collect();
+        // SAFETY: plain copies inside live heaps of ours, into slots the
+        // caller holds the made lock for.
+        unsafe {
+            host.device.CopyDescriptors(
+                dest_starts.len() as u32,
+                dest_starts.as_ptr(),
+                Some(dest_sizes.as_ptr()),
+                src_starts.len() as u32,
+                src_starts.as_ptr(),
+                Some(src_sizes.as_ptr()),
+                D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
+            );
+        }
+        nulls.clear();
+    }
+
     /// Makes slot `index` (a dynamic one) a raw buffer view of `len` bytes
     /// of `buffer` from byte `offset` (a multiple of 16): a root SRV with a
     /// size, whose reads past it return zeros instead of reaching whatever
@@ -2652,6 +2732,10 @@ impl HostHeap {
             textures: Vec::new(),
         };
         let mut kept: Vec<(u32, Kept)> = Vec::new();
+        // The slots that go null, for one `CopyDescriptors` from the static
+        // null bank ([`HostHeap::apply_nulls`]) instead of a `Create*View`
+        // each.
+        let mut nulls: Vec<(u32, NullKind)> = Vec::new();
         {
             let made = self.made_lock.lock().unwrap_or_else(|e| e.into_inner());
             for (index, handle, key, view) in resolved {
@@ -2666,8 +2750,12 @@ impl HostHeap {
                     true,
                     Some(&mut note_batch),
                     Some(&mut kept),
+                    Some(&mut nulls),
                 );
             }
+            // The null descriptors before the made lock goes: a thread that
+            // finds a slot's key 0 takes the lock and must see them.
+            self.apply_nulls(&mut nulls);
             self.apply_kept(&mut kept);
             // The sets each write changed, once for the page: the buffer set
             // and the texture queue while the made lock is held, as each
@@ -2835,6 +2923,7 @@ impl HostHeap {
                     false,
                     None,
                     Some(&mut kept),
+                    None,
                 );
                 out.push((index, result));
             }
@@ -2941,7 +3030,7 @@ impl HostHeap {
         batch: Option<&mut NoteBatch>,
     ) -> Option<(View, Option<BufferCopy>)> {
         let (key, view) = self.record(None, index, handle, for_draw)?;
-        self.mirror_resolved(_made_lock, index, handle, key, view, for_draw, required, record_change, batch, None)
+        self.mirror_resolved(_made_lock, index, handle, key, view, for_draw, required, record_change, batch, None, None)
     }
 
     /// The key of the record at `handle` and the view it names; `None` past
@@ -3000,6 +3089,7 @@ impl HostHeap {
         record_change: bool,
         mut batch: Option<&mut NoteBatch>,
         mut kept_batch: Option<&mut Vec<(u32, Kept)>>,
+        mut null_batch: Option<&mut Vec<(u32, NullKind)>>,
     ) -> Option<(View, Option<BufferCopy>)> {
         use std::sync::atomic::Ordering::{Relaxed, Release};
         let made = &self.made[index as usize];
@@ -3010,7 +3100,19 @@ impl HostHeap {
                 // The key goes first (`Release`), before the slot is nulled:
                 // no thread's fast path finds a slot that is being nulled.
                 made.store(0, Release);
-                self.null_into(kept_batch.as_mut().map(|b| &mut **b), index);
+                // Batched when the caller collects nulls
+                // ([`HostHeap::apply_nulls`]): the key is 0, so no thread's
+                // fast path finds the slot, and the null descriptor goes in
+                // before the made lock is released.
+                if !self.sampler
+                    && null_bank().is_some()
+                    && let Some(nulls) = null_batch.as_mut()
+                {
+                    nulls.push((index, NullKind::View));
+                    self.keep_into(kept_batch.as_mut().map(|b| &mut **b), index, None);
+                } else {
+                    self.null_into(kept_batch.as_mut().map(|b| &mut **b), index);
+                }
                 let _ = self.note_buffer_into(index, None, false, record_change, batch);
             } else if for_draw {
                 // Left for later and stale since: out of the sets and the stride table.
@@ -3077,7 +3179,19 @@ impl HostHeap {
                     // As in `unmake`: the key goes first, then the slot.
                     made.store(0, Release);
                     if !self.sampler {
-                        null_for(&view, self.cpu(index));
+                        // Batched when the bank has this kind (the key is 0,
+                        // so the null goes in before the made lock is
+                        // released: `HostHeap::apply_nulls`).
+                        let batched = match (null_batch.as_mut(), null_kind_for(&view)) {
+                            (Some(nulls), Some(kind)) if null_bank().is_some() => {
+                                nulls.push((index, kind));
+                                true
+                            }
+                            _ => false,
+                        };
+                        if !batched {
+                            null_for(&view, self.cpu(index));
+                        }
                     }
                     self.keep_into(kept_batch.as_mut().map(|b| &mut **b), index, None);
                 }
@@ -3104,6 +3218,10 @@ impl HostHeap {
                         resolved = copy;
                     }
                     Make::None => {
+                        // Not batched: the key stored below is this record's
+                        // (not 0), so it is `Release`d when the null
+                        // descriptor is in place; a batch would store it
+                        // before the copy runs.
                         if !self.sampler {
                             null_for(&view, self.cpu(index));
                         }
@@ -4309,13 +4427,20 @@ pub(crate) fn placed_texture(view: &View) -> Option<View> {
     Some(View::Shader(texture as usize, desc[..10].try_into().ok()))
 }
 
+/// `VICTORY_NULL_MAGENTA=1`: a null 2D colour texture view shows magenta
+/// instead ([`magenta_for`]).
+#[cfg(feature = "diagnostics")]
+fn magenta_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("VICTORY_NULL_MAGENTA").is_some_and(|v| v == "1"))
+}
+
 /// With `VICTORY_NULL_MAGENTA=1`, a 2D colour texture view that shows
 /// nothing yet shows magenta: on the screen, a texture that is not there is
 /// told from one whose contents are black. False if it is to be null.
 #[cfg(feature = "diagnostics")]
 fn magenta_for(desc: &[u32; 16], at: D3D12_CPU_DESCRIPTOR_HANDLE) -> bool {
-    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    if !*ON.get_or_init(|| std::env::var_os("VICTORY_NULL_MAGENTA").is_some_and(|v| v == "1")) {
+    if !magenta_enabled() {
         return false;
     }
     // Block-compressed colour (BC1 to BC3, BC7) and 8-bit RGBA and BGRA.
@@ -4377,6 +4502,292 @@ fn magenta() -> Option<&'static ID3D12Resource> {
             }
         })
         .as_ref()
+}
+
+/// How many slots of one kind the null bank holds.
+const NULL_RUN: usize = 64;
+/// The kinds of null descriptor [`null_for`] makes.
+const NULL_KINDS: usize = 18;
+
+/// The kind of null descriptor a slot gets, as [`null_for`] picks it. Two
+/// slots of one kind get byte-identical descriptors, so [`NullBank`] holds
+/// one of each and a page of slots is made null by copies.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+enum NullKind {
+    /// [`null_view`]: a 2D RGBA8 shader view, for slots with no view of
+    /// ours.
+    View = 0,
+    /// [`null_buffer_view`]: a raw R32_TYPELESS buffer shader view.
+    Buffer = 1,
+    /// `CreateConstantBufferView` with a zero description.
+    Constant = 2,
+    /// [`null_like`] for the title's SRV dimension word 2..=10.
+    SrvDim2 = 3,
+    SrvDim3 = 4,
+    SrvDim4 = 5,
+    SrvDim5 = 6,
+    SrvDim6 = 7,
+    SrvDim7 = 8,
+    SrvDim8 = 9,
+    SrvDim9 = 10,
+    SrvDim10 = 11,
+    /// An R32_UINT buffer unordered access view.
+    UavBuffer = 12,
+    /// [`null_uav_desc`] for the title's UAV view dimension.
+    Uav1d = 13,
+    Uav1dArray = 14,
+    Uav2d = 15,
+    Uav2dArray = 16,
+    Uav3d = 17,
+}
+
+impl NullKind {
+    /// Every kind, one per bank block.
+    const ALL: [NullKind; NULL_KINDS] = [
+        NullKind::View,
+        NullKind::Buffer,
+        NullKind::Constant,
+        NullKind::SrvDim2,
+        NullKind::SrvDim3,
+        NullKind::SrvDim4,
+        NullKind::SrvDim5,
+        NullKind::SrvDim6,
+        NullKind::SrvDim7,
+        NullKind::SrvDim8,
+        NullKind::SrvDim9,
+        NullKind::SrvDim10,
+        NullKind::UavBuffer,
+        NullKind::Uav1d,
+        NullKind::Uav1dArray,
+        NullKind::Uav2d,
+        NullKind::Uav2dArray,
+        NullKind::Uav3d,
+    ];
+
+    /// The title's SRV dimension word this kind is [`null_like`] for.
+    fn srv_dim(self) -> Option<u32> {
+        match self {
+            NullKind::SrvDim2 => Some(2),
+            NullKind::SrvDim3 => Some(3),
+            NullKind::SrvDim4 => Some(4),
+            NullKind::SrvDim5 => Some(5),
+            NullKind::SrvDim6 => Some(6),
+            NullKind::SrvDim7 => Some(7),
+            NullKind::SrvDim8 => Some(8),
+            NullKind::SrvDim9 => Some(9),
+            NullKind::SrvDim10 => Some(10),
+            _ => None,
+        }
+    }
+
+    /// The title's UAV dimension word this kind is [`null_uav_desc`] for.
+    fn uav_dim(self) -> Option<u32> {
+        match self {
+            NullKind::Uav1d => Some(D3D12_UAV_DIMENSION_TEXTURE1D.0 as u32),
+            NullKind::Uav1dArray => Some(D3D12_UAV_DIMENSION_TEXTURE1DARRAY.0 as u32),
+            NullKind::Uav2d => Some(D3D12_UAV_DIMENSION_TEXTURE2D.0 as u32),
+            NullKind::Uav2dArray => Some(D3D12_UAV_DIMENSION_TEXTURE2DARRAY.0 as u32),
+            NullKind::Uav3d => Some(D3D12_UAV_DIMENSION_TEXTURE3D.0 as u32),
+            _ => None,
+        }
+    }
+}
+
+/// [`NullKind`] for a shader view's dimension word, as [`null_like`] reads
+/// it (2..=10 are textures; anything else is a plain 2D null view).
+fn srv_kind(dimension: u32) -> NullKind {
+    match dimension {
+        2 => NullKind::SrvDim2,
+        3 => NullKind::SrvDim3,
+        4 => NullKind::SrvDim4,
+        5 => NullKind::SrvDim5,
+        6 => NullKind::SrvDim6,
+        7 => NullKind::SrvDim7,
+        8 => NullKind::SrvDim8,
+        9 => NullKind::SrvDim9,
+        10 => NullKind::SrvDim10,
+        _ => NullKind::View,
+    }
+}
+
+/// [`NullKind`] for an unordered view's dimension word, as [`null_uav_desc`]
+/// reads it.
+fn uav_kind(dimension: Option<u32>) -> NullKind {
+    match dimension.map(|d| D3D12_UAV_DIMENSION(d as i32)) {
+        Some(D3D12_UAV_DIMENSION_TEXTURE1D) => NullKind::Uav1d,
+        Some(D3D12_UAV_DIMENSION_TEXTURE1DARRAY) => NullKind::Uav1dArray,
+        Some(D3D12_UAV_DIMENSION_TEXTURE2DARRAY) => NullKind::Uav2dArray,
+        Some(D3D12_UAV_DIMENSION_TEXTURE3D) => NullKind::Uav3d,
+        _ => NullKind::Uav2d,
+    }
+}
+
+/// [`NullKind`] of the null descriptor [`null_for`] would make for `view`;
+/// `None` when the view itself is written instead (magenta diagnostics).
+fn null_kind_for(view: &View) -> Option<NullKind> {
+    let is_buffer = |r: &usize| crate::resource::buffer_bytes(*r as crate::object::This).is_some();
+    // The branches here are `null_for`'s, in its order.
+    let (buffer, dimension) = match view {
+        View::Unordered(r, _, desc) => (
+            is_buffer(r) || desc.is_some_and(|d| d[1] == 1),
+            desc.map(|d| d[1]),
+        ),
+        View::Placed(true, resource, desc) => (resource[0] == 1, Some(desc[1])),
+        View::Shader(r, desc) if is_buffer(r) || desc.is_some_and(|d| d[1] == 1) => {
+            return Some(NullKind::Buffer);
+        }
+        View::Placed(false, resource, _) if resource[0] == 1 => return Some(NullKind::Buffer),
+        View::Shader(_, Some(desc)) => return Some(srv_kind(desc[1])),
+        View::Placed(false, _, desc) => {
+            // Magenta diagnostics write the view itself (`magenta_for`),
+            // not a null: the bank's 2D null view would hide the texture.
+            #[cfg(feature = "diagnostics")]
+            if magenta_enabled() {
+                return None;
+            }
+            return Some(srv_kind(desc[1]));
+        }
+        View::Constant(..) => return Some(NullKind::Constant),
+        _ => return Some(NullKind::View),
+    };
+    Some(if buffer {
+        NullKind::UavBuffer
+    } else {
+        uav_kind(dimension)
+    })
+}
+
+/// Writes the null descriptor of `kind` at `at`: `null_for`'s descriptor for
+/// it.
+fn write_null(kind: NullKind, at: D3D12_CPU_DESCRIPTOR_HANDLE) {
+    let Some(host) = host() else { return };
+    match kind {
+        NullKind::View => null_view(at),
+        NullKind::Buffer => null_buffer_view(at),
+        NullKind::Constant => {
+            let desc = D3D12_CONSTANT_BUFFER_VIEW_DESC::default();
+            // SAFETY: a slot of our heap; a zero location makes a null view.
+            unsafe { host.device.CreateConstantBufferView(Some(&desc), at) };
+        }
+        NullKind::UavBuffer => {
+            let desc = D3D12_UNORDERED_ACCESS_VIEW_DESC {
+                Format: DXGI_FORMAT_R32_UINT,
+                ViewDimension: D3D12_UAV_DIMENSION_BUFFER,
+                ..Default::default()
+            };
+            // SAFETY: a slot of our heap; a null resource is allowed with a desc.
+            unsafe {
+                host.device.CreateUnorderedAccessView(
+                    None::<&ID3D12Resource>,
+                    None::<&ID3D12Resource>,
+                    Some(&desc),
+                    at,
+                )
+            };
+        }
+        kind => {
+            if let Some(dimension) = kind.srv_dim() {
+                let mut words = [0u32; 10];
+                words[1] = dimension;
+                null_like(&words, at);
+            } else if let Some(dimension) = kind.uav_dim() {
+                // SAFETY: a slot of our heap; a null resource is allowed with a desc.
+                unsafe {
+                    host.device.CreateUnorderedAccessView(
+                        None::<&ID3D12Resource>,
+                        None::<&ID3D12Resource>,
+                        Some(&null_uav_desc(Some(dimension))),
+                        at,
+                    )
+                };
+            }
+        }
+    }
+}
+
+/// A CPU-only descriptor heap holding one null descriptor of every
+/// [`NullKind`], each doubled across [`NULL_RUN`] slots: the slots a page of
+/// records unmakes are made null by one `ID3D12Device::CopyDescriptors`
+/// from here, instead of a `Create*View` each (some 25,000 to 30,000 a frame
+/// in `sync_heaps`). Never shader visible, and never written after it is
+/// made.
+struct NullBank {
+    /// Kept alive for the handles `base` names: `CopyDescriptors` reads it.
+    _heap: ID3D12DescriptorHeap,
+    /// The first descriptor's CPU address.
+    base: usize,
+    /// The device's descriptor increment.
+    stride: usize,
+}
+
+// SAFETY: the heap is CPU-only and read-only once made; D3D12 descriptor
+// heaps are free-threaded, and `CopyDescriptors` only reads it.
+unsafe impl Send for NullBank {}
+// SAFETY: as above.
+unsafe impl Sync for NullBank {}
+
+impl NullBank {
+    /// Makes the bank: a heap, one null descriptor per kind from
+    /// [`write_null`], and copies doubling it across [`NULL_RUN`] slots.
+    fn new() -> Option<NullBank> {
+        let host = host()?;
+        // SAFETY: plain heap creation and copies inside a live heap of ours.
+        unsafe {
+            let heap: ID3D12DescriptorHeap = host
+                .device
+                .CreateDescriptorHeap(&D3D12_DESCRIPTOR_HEAP_DESC {
+                    Type: D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
+                    NumDescriptors: (NULL_KINDS * NULL_RUN) as u32,
+                    Flags: D3D12_DESCRIPTOR_HEAP_FLAG_NONE,
+                    ..Default::default()
+                })
+                .ok()?;
+            let stride = host
+                .device
+                .GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
+                as usize;
+            let base = heap.GetCPUDescriptorHandleForHeapStart().ptr;
+            let bank = NullBank {
+                _heap: heap,
+                base,
+                stride,
+            };
+            for kind in NullKind::ALL {
+                let src = bank.cpu(kind);
+                write_null(kind, src);
+                let mut have = 1;
+                while have < NULL_RUN {
+                    let copy = have.min(NULL_RUN - have);
+                    let at = D3D12_CPU_DESCRIPTOR_HANDLE {
+                        ptr: src.ptr + have * stride,
+                    };
+                    host.device.CopyDescriptorsSimple(
+                        copy as u32,
+                        at,
+                        src,
+                        D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
+                    );
+                    have += copy;
+                }
+            }
+            Some(bank)
+        }
+    }
+
+    /// The CPU handle of the first of `kind`'s [`NULL_RUN`] slots.
+    fn cpu(&self, kind: NullKind) -> D3D12_CPU_DESCRIPTOR_HANDLE {
+        D3D12_CPU_DESCRIPTOR_HANDLE {
+            ptr: self.base + (kind as usize) * NULL_RUN * self.stride,
+        }
+    }
+}
+
+/// The null bank, made on first use; `None` if the device cannot make it (a
+/// slot is then made null on its own, as before).
+fn null_bank() -> Option<&'static NullBank> {
+    static BANK: std::sync::OnceLock<Option<NullBank>> = std::sync::OnceLock::new();
+    BANK.get_or_init(NullBank::new).as_ref()
 }
 
 /// A null view of the kind `view` is, for a slot whose view the host
@@ -4554,6 +4965,61 @@ fn null_view(at: D3D12_CPU_DESCRIPTOR_HANDLE) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The null bank's kinds are the ones `null_for` picks, branch for
+    /// branch: a slot made null by a copy from the bank reads as one
+    /// `null_for` wrote.
+    #[test]
+    fn null_kinds_follow_null_for() {
+        let memory = |kind: u32| {
+            let mut memory = [0u32; 14];
+            memory[0] = kind;
+            memory
+        };
+        let words = |format: u32, dimension: u32| [format, dimension, 5768, 0, 0, 0, 64, 0, 0, 0];
+        let mut placed_desc = [0u32; 16];
+        placed_desc[..10].copy_from_slice(&words(28, 4));
+        // A constant buffer.
+        assert_eq!(
+            null_kind_for(&View::Constant(0x1000, 256)),
+            Some(NullKind::Constant)
+        );
+        // A shader view of a buffer's memory (kind 1) is a null buffer view.
+        assert_eq!(
+            null_kind_for(&View::Placed(false, memory(1), placed_desc)),
+            Some(NullKind::Buffer)
+        );
+        // A shader view of a texture's memory is a null view of its
+        // dimension word (4: 2D).
+        assert_eq!(
+            null_kind_for(&View::Placed(false, memory(3), placed_desc)),
+            Some(NullKind::SrvDim4)
+        );
+        // An unordered view of buffer memory is a null R32_UINT buffer UAV.
+        assert_eq!(
+            null_kind_for(&View::Placed(true, memory(1), placed_desc)),
+            Some(NullKind::UavBuffer)
+        );
+        // No resource (the index is not dereferenced): the description's
+        // dimension alone names the null view, or the 2D one without it.
+        assert_eq!(
+            null_kind_for(&View::Shader(0, Some(words(28, 4)))),
+            Some(NullKind::SrvDim4)
+        );
+        assert_eq!(null_kind_for(&View::Shader(0, None)), Some(NullKind::View));
+        assert_eq!(
+            null_kind_for(&View::Unordered(0, 0, Some(words(28, 1)))),
+            Some(NullKind::UavBuffer)
+        );
+        assert_eq!(
+            null_kind_for(&View::Unordered(0, 0, Some(words(28, 8)))),
+            Some(NullKind::Uav3d)
+        );
+        assert_eq!(
+            null_kind_for(&View::Unordered(0, 0, None)),
+            Some(NullKind::Uav2d)
+        );
+    }
 
     /// The unsigned twin of a 16-bit float or signed format has its layout,
     /// and only buffer views in such a format are shown as another view.
