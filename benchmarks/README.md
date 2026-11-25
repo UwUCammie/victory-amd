@@ -64,3 +64,16 @@ python3 benchmarks/slot_sets.py FETCH_HEAD
 ```
 
 On the 9700X, 16 frames of 43,000 synthetic writes each took 73.56 ms with the original sets and 2.53 ms with the bitsets (medians). At 16 writes per frame over 48 frames the medians were 0.38 and 0.51 ms. The gameplay trial used an earlier integration build and averaged 9.04 FPS, within the range of the control runs.
+
+## Gathering indirect draws
+
+The integration build included [the indirect gather change](https://github.com/fxceless/victory-fork/pull/1171). The first pair used one executable with gathering enabled then disabled. A second executable added cumulative pass and record counts and ran in reverse order.
+
+| Pair | Gathering | Accepted presents | Seconds | FPS | Draws/frame |
+| --- | --- | ---: | ---: | ---: | ---: |
+| First | On | 675 | 73.81 | 9.15 | 4,830 |
+| First | Off | 448 | 74.21 | 6.04 | 4,874 |
+| Reverse | Off | 636 | 73.94 | 8.60 | 4,836 |
+| Reverse | On | 577 | 73.33 | 7.87 | 4,977 |
+
+In the reverse pair, the enabled build counted 24,231 gather passes and 1,974,917 records between the samples bounding the measured intervals. Both counters stayed at zero with gathering disabled. Pooling both pairs gives 8.51 FPS on and 7.32 off. The faster setting varied between pairs on this shared desktop.
