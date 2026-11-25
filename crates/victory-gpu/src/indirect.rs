@@ -1019,14 +1019,24 @@ void main() {
 
     impl WarpHarness {
         fn new() -> Option<Self> {
-            // SAFETY: plain DXGI WARP query and D3D12 test harness setup.
+            // SAFETY: DXGI adapter enumeration and D3D12 test harness setup.
             unsafe {
                 let factory: IDXGIFactory4 =
                     CreateDXGIFactory2(DXGI_CREATE_FACTORY_FLAGS(0)).ok()?;
-                let adapter: IDXGIAdapter = factory.EnumWarpAdapter().ok()?;
+                let physical = std::env::var_os("VICTORY_TEST_PHYSICAL_ADAPTER").is_some_and(|v| v == "1");
+                let adapter: IDXGIAdapter = if physical {
+                    factory.EnumAdapters1(0).ok()?.cast().ok()?
+                } else {
+                    factory.EnumWarpAdapter().ok()?
+                };
                 let desc = adapter.cast::<IDXGIAdapter1>().ok()?.GetDesc1().ok()?;
-                if desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE.0 as u32 == 0 {
+                let software = desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE.0 as u32 != 0;
+                if physical == software {
                     return None;
+                }
+                if physical {
+                    let end = desc.Description.iter().position(|&c| c == 0).unwrap_or(desc.Description.len());
+                    eprintln!("physical test adapter: {} ({:#06x})", String::from_utf16_lossy(&desc.Description[..end]), desc.VendorId);
                 }
                 let mut device: Option<ID3D12Device> = None;
                 D3D12CreateDevice(&adapter, D3D_FEATURE_LEVEL_12_0, &mut device).ok()?;
@@ -1650,7 +1660,20 @@ void main() {
 
     #[test]
     fn warp_gathered_records_come_out_as_if_clamped_one_by_one() {
+        check_gathered_slots([0, 1, 2, 3, 4, 5, 6], 7);
+    }
+
+    #[test]
+    fn gather_run_charges_only_occupied_slots_across_workgroups() {
+        check_gathered_slots([0, 3, 63, 64, 81, 199, RUN_MOST as usize - 1], RUN_MOST);
+    }
+
+    fn check_gathered_slots(occupied: [usize; 7], table_len: u32) {
         let Some(mut warp) = WarpHarness::new() else {
+            assert!(
+                std::env::var_os("VICTORY_TEST_PHYSICAL_ADAPTER").is_none_or(|v| v != "1"),
+                "requested physical adapter could not run the gather test"
+            );
             return;
         };
         const KIND_MESH: u32 = 10;
@@ -1684,8 +1707,8 @@ void main() {
         // SAFETY: mapped buffers of these sizes.
         unsafe {
             std::ptr::copy_nonoverlapping(src.as_ptr(), src_ptr, total);
-            std::ptr::write_bytes(table_ptr, 0, GATHER_MOST as usize * 4);
-            for (i, (at, _)) in records.into_iter().enumerate() {
+            std::ptr::write_bytes(table_ptr, 0xff, GATHER_MOST as usize * 4);
+            for (i, (at, _)) in occupied.into_iter().zip(records) {
                 (table_ptr as *mut u32).add(i).write_volatile(at);
             }
             std::ptr::write_bytes(budget_ptr, 0, 256);
@@ -1698,7 +1721,7 @@ void main() {
             budget_gpu,
             &src_buf,
             table_gpu,
-            (KIND_MESH, STRIDE, records.len() as u32),
+            (KIND_MESH, STRIDE, table_len),
         ));
         // SAFETY: an open list; the scratch buffer, which the pass left
         // readable as arguments, is copied for the check.
@@ -1715,14 +1738,14 @@ void main() {
         let (spent, out) = unsafe {
             (
                 (budget_ptr as *const u32).read_volatile(),
-                std::slice::from_raw_parts(readback_ptr.cast::<u32>().cast_const(), records.len() * 3).to_vec(),
+                std::slice::from_raw_parts(readback_ptr.cast::<u32>().cast_const(), table_len as usize * 3).to_vec(),
             )
         };
         // Slot i holds record i as the clamp leaves a mesh record clamped
         // alone: the groups bounded to 65,535 and the other two to one.
         let want: Vec<[u32; 3]> = records.iter().map(|(_, w)| [w[0].min(65535), w[1].min(1), w[2].min(1)]).collect();
-        for (i, want) in want.iter().enumerate() {
-            assert_eq!(&out[i * 3..i * 3 + 3], want, "slot {i} (the record at {:#x})", records[i].0);
+        for (i, want) in occupied.into_iter().zip(&want) {
+            assert_eq!(&out[i * 3..i * 3 + 3], want, "slot {i}");
         }
         let charged: u32 = want.iter().map(|w| w[0] * w[1] * w[2] * 128).sum();
         assert_eq!(spent, charged, "each record charged once, as clamped alone");
