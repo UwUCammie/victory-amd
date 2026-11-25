@@ -7344,7 +7344,7 @@ fn refresh_group_limit() -> usize {
         Ok(value) => value.parse::<usize>().unwrap_or(1).clamp(1, 64),
         _ => 1,
     }) {
-        0 if now_ms() / 15000 % 2 == 1 => 32,
+        0 if now_ms() / 30000 % 2 == 1 => 32,
         0 => 1,
         width => width,
     }

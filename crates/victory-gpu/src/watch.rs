@@ -1623,6 +1623,48 @@ mod tests {
     }
 
     #[test]
+    fn clean_views_keep_history_and_later_writes_advance_it() {
+        use windows_sys::Win32::Foundation::CloseHandle;
+        use windows_sys::Win32::System::Memory::{CreateFileMappingW, FILE_MAP_WRITE, MapViewOfFile, UnmapViewOfFile};
+        // SAFETY: make and map one private pagefile-backed section for this test.
+        let mapping = unsafe {
+            let section = CreateFileMappingW(-1isize as _, std::ptr::null(), PAGE_READWRITE, 0, BLOCK as u32, std::ptr::null());
+            assert!(!section.is_null());
+            let view = MapViewOfFile(section, FILE_MAP_WRITE, 0, 0, BLOCK);
+            CloseHandle(section);
+            view
+        };
+        let at = mapping.Value as usize;
+        assert_ne!(at, 0);
+        // Other tests can later receive this same address from the OS.
+        let prior = JOURNAL.write().unwrap().written.remove(&(at / PAGE));
+        title_memory_remapped(at, BLOCK);
+        let (first, initial) = writes(at, at + BLOCK, true).unwrap();
+        let (second, unchanged) = writes(at, at + BLOCK, true).unwrap();
+        assert_eq!(unchanged, initial);
+        assert!(second > first);
+        writing(at, 1);
+        // SAFETY: we opened our mapped view for the write.
+        unsafe { (mapping.Value as *mut u8).write_volatile(42) };
+        let (third, changed) = writes(at, at + BLOCK, true).unwrap();
+        assert!(third > second);
+        assert_eq!(changed, vec![(at / PAGE, third)]);
+        let (fourth, again) = writes(at, at + BLOCK, true).unwrap();
+        assert!(fourth > third);
+        assert_eq!(again, changed);
+        {
+            let mut j = JOURNAL.write().unwrap();
+            j.written.remove(&(at / PAGE));
+            if let Some(previous) = prior {
+                j.written.insert(at / PAGE, previous);
+            }
+        }
+        // SAFETY: release the test's view.
+        unsafe { UnmapViewOfFile(mapping) };
+        title_memory_remapped(at, BLOCK);
+    }
+
+    #[test]
     fn writes_in_partly_committed_view_blocks_are_reported() {
         use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
         use windows_sys::Win32::System::Memory::{
