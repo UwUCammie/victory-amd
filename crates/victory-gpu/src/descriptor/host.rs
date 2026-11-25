@@ -2629,6 +2629,7 @@ impl HostHeap {
         use std::sync::atomic::Ordering::Relaxed;
         let copied = self.copied_prints();
         let mut looked = 0u64;
+        let mut tabled = 0u64;
         for index in slots {
             let handle = start + index * step;
             // A record that straddles the range's ends is left to the
@@ -2660,7 +2661,7 @@ impl HostHeap {
             // A table's slot lately: left to its draws, and looked at
             // again next time.
             if !tables && self.tabled_lately(index as u32, frame) {
-                COPIED_TABLED.fetch_add(1, Relaxed);
+                tabled += 1;
                 continue;
             }
             slot_print.store(print, Relaxed);
@@ -2686,6 +2687,9 @@ impl HostHeap {
                 continue;
             }
             due.push((index as u32, handle, tag, i, generation));
+        }
+        if tabled != 0 {
+            COPIED_TABLED.fetch_add(tabled, Relaxed);
         }
         looked
     }
