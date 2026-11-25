@@ -1,12 +1,26 @@
 //! CPU-side relay merge. Keep the reference snapshot separate from
 //! current title memory: CPU-only writes must not enter the snapshot.
 
+/// Benchmark controls. A single process can compare the two paths on live frames.
+pub(crate) fn enabled() -> bool {
+    use std::sync::OnceLock;
+    static MODE: OnceLock<u8> = OnceLock::new();
+    match *MODE.get_or_init(|| match std::env::var("VICTORY_RELAY_AVX2").as_deref() {
+        Ok("alt") => 2,
+        Ok("0") => 0,
+        _ => 1,
+    }) {
+        2 => crate::host::now_ms() / 20000 % 2 == 1,
+        n => n == 1,
+    }
+}
+
 pub(super) fn merge(now: &[u8], held: &mut [u8], title: &mut [u8]) -> bool {
     // Preserve the original zip semantics for differently sized slices.
     let len = now.len().min(held.len()).min(title.len());
     let (now, held, title) = (&now[..len], &mut held[..len], &mut title[..len]);
     #[cfg(target_arch = "x86_64")]
-    if len >= 32 && std::arch::is_x86_feature_detected!("avx2") {
+    if len >= 32 && enabled() && std::arch::is_x86_feature_detected!("avx2") {
         // SAFETY: runtime AVX2 detection; all slices have equal length.
         return unsafe { avx2(now, held, title) };
     }

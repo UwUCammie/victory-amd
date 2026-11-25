@@ -906,7 +906,7 @@ fn merge_piece(now: &[u8], held: &mut [u8], title: &mut [u8]) -> bool {
     relay_merge_simd::merge(now, held, title)
 }
 
-mod relay_merge_simd;
+pub(crate) mod relay_merge_simd;
 
 /// `[from, to)` without the ranges of `skip`, in order.
 pub(crate) fn outside(from: usize, to: usize, mut skip: Vec<(usize, usize)>) -> Vec<(usize, usize)> {
