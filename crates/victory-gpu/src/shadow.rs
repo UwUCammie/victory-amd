@@ -4054,15 +4054,55 @@ struct Entry {
 const SHORT_BUFFER: u64 = PAGE as u64;
 
 struct BufferMap {
+    epoch: u64,
     entries: BTreeMap<(u64, usize), Entry>,
     long_ends: BTreeMap<(u64, usize), u64>,
     // Releasing a buffer can leave this bound larger than necessary.
     longest: u64,
 }
 
+// The cache holds registration keys, never resources. Each answer is checked
+// under the map's read lock so a first-use allocation or remap stays visible.
+#[derive(Clone, Copy)]
+struct RegistrationQuery {
+    epoch: u64,
+    address: u64,
+    end: u64,
+    key: Option<(u64, usize)>,
+}
+
+type RegistrationCache = [Option<RegistrationQuery>; 256];
+
+fn cached_registration<'a>(
+    map: &'a BufferMap, address: u64, end: u64, cache: &mut RegistrationCache,
+) -> Option<(&'a (u64, usize), &'a Entry)> {
+    let mixed = (address >> 6) ^ (address >> 20) ^ (end - address).wrapping_mul(0x9e3779b97f4a7c15);
+    let slot = &mut cache[mixed as u8 as usize];
+    if let Some(query) = slot
+        && query.epoch == map.epoch && query.address == address && query.end == end
+    {
+        return query.key.and_then(|key| map.entries.get_key_value(&key));
+    }
+    let found = map.containing(address, end);
+    *slot = Some(RegistrationQuery { epoch: map.epoch, address, end, key: found.map(|(key, _)| *key) });
+    found
+}
+
+fn registered_entry(map: &BufferMap, address: u64, end: u64) -> Option<(&(u64, usize), &Entry)> {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    if !*ENABLED.get_or_init(|| std::env::var_os("VICTORY_REGISTERED_LOOKUP_CACHE").is_some_and(|v| v == "1")) {
+        return map.containing(address, end);
+    }
+    thread_local! {
+        static CACHE: std::cell::RefCell<RegistrationCache> = const { std::cell::RefCell::new([None; 256]) };
+    }
+    CACHE.with_borrow_mut(|cache| cached_registration(map, address, end, cache))
+}
+
 impl BufferMap {
     const fn new() -> Self {
         Self {
+            epoch: 0,
             entries: BTreeMap::new(),
             long_ends: BTreeMap::new(),
             longest: 0,
@@ -4070,6 +4110,7 @@ impl BufferMap {
     }
 
     fn register(&mut self, resource: usize, start: u64, len: u64) {
+        self.epoch = self.epoch.wrapping_add(1);
         let key = (start, resource);
         let end = start.saturating_add(len);
         self.longest = self.longest.max(len);
@@ -4082,6 +4123,7 @@ impl BufferMap {
     }
 
     fn unregister(&mut self, resource: usize, start: u64) {
+        self.epoch = self.epoch.wrapping_add(1);
         let key = (start, resource);
         self.entries.remove(&key);
         self.long_ends.remove(&key);
@@ -4120,6 +4162,23 @@ impl BufferMap {
 mod buffer_map_tests {
     use super::{BufferMap, WINDOW, overlapping_windows};
     use std::collections::BTreeMap;
+
+    #[test]
+    fn a_cached_registration_observes_new_overlaps_and_replacements() {
+        let mut map = BufferMap::new();
+        let mut cache = [None; 256];
+        let mut query = |map: &BufferMap, from, end| super::cached_registration(map, from, end, &mut cache).map(|(k, _)| *k);
+        assert_eq!(query(&map, 400, 420), None);
+        map.register(1, 0, 1024);
+        assert_eq!(query(&map, 400, 420), Some((0, 1)));
+        map.register(2, 350, 100);
+        assert_eq!(query(&map, 400, 420), Some((350, 2)));
+        assert_eq!(query(&map, 400, 550), Some((0, 1)));
+        map.register(2, 350, 1);
+        assert_eq!(query(&map, 400, 420), Some((0, 1)));
+        map.unregister(1, 0);
+        assert_eq!(query(&map, 400, 420), None);
+    }
 
     #[test]
     fn a_long_buffer_still_covers_the_query_after_many_shorter_buffers() {
@@ -4292,7 +4351,7 @@ fn lookup(address: u64, len: u64, any: bool) -> Option<Arc<Shadow>> {
         // ask for a buffer), so the ask only needs the read lock.
         let pending = {
             let map = buffers_read();
-            match map.containing(address, end) {
+            match registered_entry(&map, address, end) {
                 Some((&key, entry)) => match &entry.shadow {
                     Some(shadow) => return Some(shadow.clone()),
                     // The entry exists but its copy is not made yet: drop the
