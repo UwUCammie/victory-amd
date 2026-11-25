@@ -403,7 +403,10 @@ fn bench_indirect_draw_barriers() {
                     clamp,
                     &list,
                     (&scratch, state),
-                    if card { card_budget_gpu } else { budget_gpu },
+                    (
+                        if card { card_budget_gpu } else { budget_gpu },
+                        Some(if card { &card_budget } else { &budget }),
+                    ),
                     (&src, u64::from(first * STEP)),
                     None,
                     (0, STEP, records),

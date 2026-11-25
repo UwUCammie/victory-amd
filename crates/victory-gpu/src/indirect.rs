@@ -17,6 +17,12 @@
 //! execution was followed by a move of the scratch buffer back to the
 //! common state, which drivers may treat as a full wait.
 //!
+//! A clamp's waits are UAV barriers on the buffers it touches (`src`, the
+//! count buffer, the budget, `dst`), not the global `UAV(None)` drain that
+//! waits for every unordered access on the card: thousands of clamps and
+//! gathers a frame used to empty the GPU of unrelated work before each one.
+//! `VICTORY_SCOPED_CLAMP_BARRIERS=0` restores the global drains.
+//!
 //! When a count buffer is given, threads at or past `min(max, count)` do
 //! not charge the list's budget or read uninitialized tail slots. Each list
 //! has a budget (2^27 vertex instances or threads, groups counted as 64
@@ -649,7 +655,12 @@ pub(crate) fn bound(
 ) -> Option<Bounded> {
     let args_bytes = validate_layout(spec, src.1, count.map(|(_, off)| off))?;
     let layout = scratch_layout(args_bytes, spec.2, false);
-    let (c, budget, dst) = (clamp()?, list.budget()?, list.indirect_scratch(layout.total_bytes)?);
+    let (c, budget, dst) = (
+        clamp()?,
+        list.budget_with_resource()?,
+        list.indirect_scratch(layout.total_bytes)?,
+    );
+    let budget = (budget.0, Some(budget.1));
     clamp_into(list, c, &dst, budget, src, count, spec, 0, &layout).then_some(Bounded {
         buffer: dst,
         count: layout.count_offset,
@@ -676,7 +687,12 @@ pub(crate) fn bound_ahead(
 ) -> Option<ID3D12Resource> {
     let args_bytes = validate_layout(spec, src.1, None)?;
     let layout = scratch_layout(args_bytes, spec.2, true);
-    let (c, budget, dst) = (clamp()?, list.budget()?, list.indirect_scratch(layout.total_bytes)?);
+    let (c, budget, dst) = (
+        clamp()?,
+        list.budget_with_resource()?,
+        list.indirect_scratch(layout.total_bytes)?,
+    );
+    let budget = (budget.0, Some(budget.1));
     clamp_into(list, c, &dst, budget, src, None, spec, AHEAD, &layout).then_some(dst)
 }
 
@@ -708,7 +724,12 @@ pub(crate) fn bound_split(
         levels: Vec::new(),
     };
     debug_assert_eq!(args_bytes, PART_BYTES);
-    let (c, budget, dst) = (clamp()?, list.budget()?, list.indirect_scratch(layout.total_bytes)?);
+    let (c, budget, dst) = (
+        clamp()?,
+        list.budget_with_resource()?,
+        list.indirect_scratch(layout.total_bytes)?,
+    );
+    let budget = (budget.0, Some(budget.1));
     clamp_into(list, c, &dst, budget, src, None, spec, IN_PARTS, &layout).then_some(dst)
 }
 
@@ -727,7 +748,7 @@ fn clamp_into(
     list: &HostList,
     c: &Clamp,
     dst: &ID3D12Resource,
-    budget: u64,
+    budget: (u64, Option<&ID3D12Resource>),
     src: (&ID3D12Resource, u64),
     count: Option<(&ID3D12Resource, u64)>,
     spec: (u32, u32, u32),
@@ -753,7 +774,7 @@ fn record_clamp_as(
     c: &Clamp,
     l: &ID3D12GraphicsCommandList,
     dst: (&ID3D12Resource, D3D12_RESOURCE_STATES),
-    budget: u64,
+    budget: (u64, Option<&ID3D12Resource>),
     src: (&ID3D12Resource, u64),
     count: Option<(&ID3D12Resource, u64)>,
     spec: (u32, u32, u32),
@@ -778,7 +799,7 @@ fn record_clamp_how(
     c: &Clamp,
     l: &ID3D12GraphicsCommandList,
     dst: (&ID3D12Resource, D3D12_RESOURCE_STATES),
-    budget: u64,
+    budget: (u64, Option<&ID3D12Resource>),
     src: (&ID3D12Resource, u64),
     count: Option<(&ID3D12Resource, u64)>,
     spec: (u32, u32, u32),
@@ -814,7 +835,7 @@ fn record_clamp_with(
     c: &Clamp,
     l: &ID3D12GraphicsCommandList,
     (dst, before): (&ID3D12Resource, D3D12_RESOURCE_STATES),
-    budget: u64,
+    budget: (u64, Option<&ID3D12Resource>),
     (src, src_offset): (&ID3D12Resource, u64),
     count: Option<(&ID3D12Resource, u64)>,
     (kind, stride, records): (u32, u32, u32),
@@ -828,9 +849,10 @@ fn record_clamp_with(
     ) else {
         return false;
     };
+    let (budget_at, budget_res) = budget;
     // SAFETY: live D3D12 buffer resources.
     let (src_base, dst_gpu) = unsafe { (src.GetGPUVirtualAddress(), dst.GetGPUVirtualAddress()) };
-    if !src_base.is_multiple_of(4) || !dst_gpu.is_multiple_of(4) || !budget.is_multiple_of(4) {
+    if !src_base.is_multiple_of(4) || !dst_gpu.is_multiple_of(4) || !budget_at.is_multiple_of(4) {
         return false;
     }
     let (src_gpu, args_offset) = match src_offset
@@ -890,29 +912,81 @@ fn record_clamp_with(
     let waits = crate::copystat::barrier_test() & 2 == 0;
     #[cfg(not(feature = "diagnostics"))]
     let waits = true;
-    let first = [
-        uav_barrier(),
-        transition(dst, before, D3D12_RESOURCE_STATE_UNORDERED_ACCESS),
-    ];
-    let second = [
-        uav_barrier(),
-        transition(
-            dst,
-            D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-            D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT,
-        ),
-    ];
-    let skip = usize::from(!waits);
+    // Scoped: the wait before the clamp orders the earlier shader writes of
+    // these buffers only, instead of draining every UAV write on the card.
+    let scoped = scoped_barriers();
+    let (first, first_len) = if scoped {
+        let mut first = [uav_barrier(), uav_barrier(), uav_barrier(), uav_barrier()];
+        first[0] = transition(dst, before, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        let mut len = 1;
+        if waits {
+            first[len] = uav_barrier_on(src);
+            len += 1;
+            if let Some((count_res, _)) = count {
+                if !same_resource(count_res, src) {
+                    first[len] = uav_barrier_on(count_res);
+                    len += 1;
+                }
+            }
+            match budget_res {
+                Some(budget_res)
+                    if !same_resource(budget_res, src)
+                        && count.is_none_or(|(count_res, _)| !same_resource(count_res, budget_res)) =>
+                {
+                    first[len] = uav_barrier_on(budget_res);
+                    len += 1;
+                }
+                Some(_) => {}
+                None => {
+                    first[len] = uav_barrier();
+                    len += 1;
+                }
+            }
+        }
+        (first, len)
+    } else if waits {
+        let first = [
+            uav_barrier(),
+            transition(dst, before, D3D12_RESOURCE_STATE_UNORDERED_ACCESS),
+            uav_barrier(),
+            uav_barrier(),
+        ];
+        (first, 2)
+    } else {
+        let first = [
+            transition(dst, before, D3D12_RESOURCE_STATE_UNORDERED_ACCESS),
+            uav_barrier(),
+            uav_barrier(),
+            uav_barrier(),
+        ];
+        (first, 1)
+    };
+    // Scoped: the transition alone puts `dst`'s writes before the list's
+    // executions, and the next clamp into it (or a gather) waits on it
+    // again; no global drain is needed after it.
+    let (second, second_len) = if scoped || !waits {
+        let second = [
+            transition(dst, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT),
+            uav_barrier(),
+        ];
+        (second, 1)
+    } else {
+        let second = [
+            uav_barrier(),
+            transition(dst, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT),
+        ];
+        (second, 2)
+    };
     let constants_count = if compact_psos.is_some() { 8 } else { 6 };
     unsafe {
         // Earlier shader writes (the title's argument and count passes) first.
-        l.ResourceBarrier(&first[skip..]);
+        l.ResourceBarrier(&first[..first_len]);
         if records > 0 {
             l.SetComputeRootSignature(&c.root);
             l.SetComputeRootShaderResourceView(1, src_gpu);
             l.SetComputeRootShaderResourceView(2, count_gpu);
             l.SetComputeRootUnorderedAccessView(3, dst_gpu);
-            l.SetComputeRootUnorderedAccessView(4, budget);
+            l.SetComputeRootUnorderedAccessView(4, budget_at);
             match use_compact {
                 None => {
                     let constants = [kind, stride, records, args_offset, flags, count_offset, 0, 0];
@@ -955,7 +1029,7 @@ fn record_clamp_with(
                     l.SetPipelineState(compact_pass1);
                     l.SetComputeRoot32BitConstants(0, 8, pass1_constants.as_ptr().cast(), 0);
                     dispatch_groups(l, tiles);
-                    l.ResourceBarrier(&[uav_barrier()]);
+                    l.ResourceBarrier(&[if scoped { uav_barrier_on(dst) } else { uav_barrier() }]);
 
                     let last = layout.levels.len() - 1;
                     l.SetPipelineState(scan_tiles);
@@ -968,7 +1042,7 @@ fn record_clamp_with(
                         let scan_constants = [in_off, n, out_off, 0, 0, 0, 0, 0];
                         l.SetComputeRoot32BitConstants(0, 8, scan_constants.as_ptr().cast(), 0);
                         dispatch_groups(l, n.div_ceil(TILE));
-                        l.ResourceBarrier(&[uav_barrier()]);
+                        l.ResourceBarrier(&[if scoped { uav_barrier_on(dst) } else { uav_barrier() }]);
                     }
 
                     if last > 0 {
@@ -979,7 +1053,7 @@ fn record_clamp_with(
                             let add_constants = [target_off, n, block_off, 0, 0, 0, 0, 0];
                             l.SetComputeRoot32BitConstants(0, 8, add_constants.as_ptr().cast(), 0);
                             dispatch_groups(l, n.div_ceil(TILE));
-                            l.ResourceBarrier(&[uav_barrier()]);
+                            l.ResourceBarrier(&[if scoped { uav_barrier_on(dst) } else { uav_barrier() }]);
                         }
                     }
 
@@ -999,7 +1073,7 @@ fn record_clamp_with(
                 }
             }
         }
-        l.ResourceBarrier(&second[skip..]);
+        l.ResourceBarrier(&second[..second_len]);
     }
     true
 }
@@ -1112,50 +1186,86 @@ pub(crate) static GATHER_NONE: [std::sync::atomic::AtomicU64; 5] = [const { std:
 /// state `before`, and leaves `dst` in `INDIRECT_ARGUMENT`: record `i` is
 /// read at the offset word `i` of the table at `table_gpu` names, in the
 /// buffer `src`, and stored clamped at `i * stride`. Charged to the budget
-/// word at `budget` as records clamped one by one are. False, with nothing
+/// buffer `budget` as records clamped one by one are. False, with nothing
 /// recorded, if the layout or the addresses do not fit the clamp.
 fn record_gather_as(
     c: &Clamp,
     l: &ID3D12GraphicsCommandList,
     (dst, before): (&ID3D12Resource, D3D12_RESOURCE_STATES),
-    budget: u64,
+    budget: &ID3D12Resource,
     src: &ID3D12Resource,
     table_gpu: u64,
     (kind, stride, records): (u32, u32, u32),
 ) -> bool {
     // SAFETY: live D3D12 buffer resources.
-    let (src_gpu, dst_gpu) = unsafe { (src.GetGPUVirtualAddress(), dst.GetGPUVirtualAddress()) };
+    let (src_gpu, dst_gpu, budget_gpu) = unsafe {
+        (
+            src.GetGPUVirtualAddress(),
+            dst.GetGPUVirtualAddress(),
+            budget.GetGPUVirtualAddress(),
+        )
+    };
     if gatherable(src_gpu, 0, (kind, stride)).is_none()
         || records == 0
         || records > GATHER_MOST
         || !dst_gpu.is_multiple_of(4)
-        || !budget.is_multiple_of(4)
+        || !budget_gpu.is_multiple_of(4)
         || !table_gpu.is_multiple_of(4)
     {
         return false;
     }
     let constants = [kind, stride, records, 0u32, GATHER, 0u32, 0u32, 0u32];
-    let first = [uav_barrier(), transition(dst, before, D3D12_RESOURCE_STATE_UNORDERED_ACCESS)];
-    let second = [
-        uav_barrier(),
-        transition(dst, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT),
-    ];
+    let scoped = scoped_barriers();
+    let (first, first_len) = if scoped {
+        let mut first = [
+            transition(dst, before, D3D12_RESOURCE_STATE_UNORDERED_ACCESS),
+            uav_barrier_on(src),
+            uav_barrier(),
+        ];
+        let both = !same_resource(budget, src);
+        if both {
+            first[2] = uav_barrier_on(budget);
+        }
+        (first, if both { 3 } else { 2 })
+    } else {
+        (
+            [
+                uav_barrier(),
+                transition(dst, before, D3D12_RESOURCE_STATE_UNORDERED_ACCESS),
+                uav_barrier(),
+            ],
+            2,
+        )
+    };
+    let (second, second_len) = if scoped {
+        let second = [
+            transition(dst, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT),
+            uav_barrier(),
+        ];
+        (second, 1)
+    } else {
+        let second = [
+            uav_barrier(),
+            transition(dst, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT),
+        ];
+        (second, 2)
+    };
     // SAFETY: an open list; our root signature and pipeline; live source,
     // table, scratch destination and budget buffers. The first wait puts
-    // the pass behind every earlier shader write (the title's argument
-    // passes of the lists before); the second puts the list's draws behind
-    // the pass.
+    // the pass behind the earlier shader writes of these buffers (the
+    // title's argument passes of the lists before); the second puts the
+    // list's draws behind the pass.
     unsafe {
-        l.ResourceBarrier(&first);
+        l.ResourceBarrier(&first[..first_len]);
         l.SetComputeRootSignature(&c.root);
         l.SetPipelineState(&c.pso);
         l.SetComputeRoot32BitConstants(0, 8, constants.as_ptr().cast(), 0);
         l.SetComputeRootShaderResourceView(1, src_gpu);
         l.SetComputeRootShaderResourceView(2, table_gpu);
         l.SetComputeRootUnorderedAccessView(3, dst_gpu);
-        l.SetComputeRootUnorderedAccessView(4, budget);
+        l.SetComputeRootUnorderedAccessView(4, budget_gpu);
         l.Dispatch(records.div_ceil(64), 1, 1);
-        l.ResourceBarrier(&second);
+        l.ResourceBarrier(&second[..second_len]);
     }
     true
 }
@@ -1183,7 +1293,7 @@ pub(crate) fn record_gathers(l: &ID3D12GraphicsCommandList, sets: &[GatherSet], 
     }
     let mut all = true;
     for set in sets.iter().filter(|s| s.records() > 0) {
-        all &= record_gather_as(c, l, (&set.scratch, D3D12_RESOURCE_STATE_COMMON), at, &set.src, set.table_gpu, (set.kind, set.stride, set.records()));
+        all &= record_gather_as(c, l, (&set.scratch, D3D12_RESOURCE_STATE_COMMON), budget, &set.src, set.table_gpu, (set.kind, set.stride, set.records()));
     }
     // SAFETY: as above.
     unsafe {
@@ -1378,7 +1488,7 @@ pub(crate) fn check_hit(
     // (common before and after every check).
     let common = D3D12_RESOURCE_STATE_COMMON;
     let spec = (kind, step, 1);
-    if !record_clamp_as(c, &list.list, (&check.args, common), budget, src, None, spec, true) {
+    if !record_clamp_as(c, &list.list, (&check.args, common), (budget, Some(&check.budget)), src, None, spec, true) {
         return false;
     }
     let args = D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT;
@@ -1418,6 +1528,36 @@ fn uav_barrier() -> D3D12_RESOURCE_BARRIER {
             }),
         },
     }
+}
+
+/// Resource-scoped UAV barrier (does not drain unrelated GPU UAV work).
+fn uav_barrier_on(resource: &ID3D12Resource) -> D3D12_RESOURCE_BARRIER {
+    D3D12_RESOURCE_BARRIER {
+        Type: D3D12_RESOURCE_BARRIER_TYPE_UAV,
+        Flags: D3D12_RESOURCE_BARRIER_FLAG_NONE,
+        Anonymous: D3D12_RESOURCE_BARRIER_0 {
+            UAV: std::mem::ManuallyDrop::new(D3D12_RESOURCE_UAV_BARRIER {
+                // SAFETY: a borrowed pointer; the barrier never releases it
+                // (as `transition` builds one).
+                pResource: unsafe { std::mem::transmute_copy(resource) },
+            }),
+        },
+    }
+}
+
+/// Whether `a` and `b` are the same resource (the same COM object): one
+/// barrier suffices for the two, and a barrier after a transition of it.
+fn same_resource(a: &ID3D12Resource, b: &ID3D12Resource) -> bool {
+    use windows::core::Interface;
+    a.as_raw() == b.as_raw()
+}
+
+/// Whether indirect clamps use resource-scoped UAV barriers (`src`, `count`,
+/// `budget`, `dst`) instead of global `UAV(None)` drains
+/// (`VICTORY_SCOPED_CLAMP_BARRIERS=0`: global drains, as before).
+fn scoped_barriers() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("VICTORY_SCOPED_CLAMP_BARRIERS").is_none_or(|v| v != "0"))
 }
 
 #[cfg(test)]
@@ -2160,7 +2300,7 @@ void main() {
         let src_bytes = ARGS_OFFSET + (STRIDE as usize) * (MAX as usize) + 64;
         let (src_buf, src_ptr, _) = warp.shared_buffer(src_bytes as u64);
         let (count_buf, count_ptr, _) = warp.shared_buffer(512);
-        let (_budget_buf, budget_ptr, budget_gpu) = warp.shared_buffer(256);
+        let (budget_buf, budget_ptr, budget_gpu) = warp.shared_buffer(256);
         let (_hits_buf, hits_ptr, hits_gpu) = warp.shared_buffer(256);
         let (readback_buf, readback_ptr, _) = warp.shared_buffer((STRIDE * 8 + 16) as u64);
         let dst_buf = warp.default_uav(layout.total_bytes);
@@ -2222,7 +2362,7 @@ void main() {
             &warp.clamp,
             &warp.list,
             (&dst_buf, D3D12_RESOURCE_STATE_COMMON),
-            budget_gpu,
+            (budget_gpu, Some(&budget_buf)),
             (&src_buf, ARGS_OFFSET as u64),
             Some((&count_buf, COUNT_OFFSET_1 as u64)),
             (KIND_DISPATCH, STRIDE, MAX),
@@ -2262,7 +2402,7 @@ void main() {
             &warp.clamp,
             &warp.list,
             (&dst_buf, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT),
-            budget_gpu,
+            (budget_gpu, Some(&budget_buf)),
             (&src_buf, ARGS_OFFSET as u64),
             Some((&count_buf, COUNT_OFFSET_2 as u64)),
             (KIND_DISPATCH, STRIDE, MAX),
@@ -2362,7 +2502,7 @@ void main() {
         ];
         for (asked, parts) in cases {
             let (src_buf, src_ptr, _) = warp.shared_buffer(16);
-            let (_budget_buf, budget_ptr, budget_gpu) = warp.shared_buffer(256);
+            let (budget_buf, budget_ptr, budget_gpu) = warp.shared_buffer(256);
             let (readback_buf, readback_ptr, _) = warp.shared_buffer(64);
             let dst_buf = warp.default_uav(u64::from(SPLIT) * PART_BYTES);
             // SAFETY: mapped buffers of these sizes.
@@ -2375,7 +2515,7 @@ void main() {
                 &warp.clamp,
                 &warp.list,
                 (&dst_buf, D3D12_RESOURCE_STATE_COMMON),
-                budget_gpu,
+                (budget_gpu, Some(&budget_buf)),
                 (&src_buf, 0),
                 None,
                 (2, 12, 1),
@@ -2438,7 +2578,7 @@ void main() {
         let slots = (GATHER_MOST * STRIDE) as u64;
         let (src_buf, src_ptr, _) = warp.shared_buffer(total as u64);
         let (_table_buf, table_ptr, table_gpu) = warp.shared_buffer(u64::from(GATHER_MOST) * 4);
-        let (_budget_buf, budget_ptr, budget_gpu) = warp.shared_buffer(256);
+        let (budget_buf, budget_ptr, budget_gpu) = warp.shared_buffer(256);
         let (readback_buf, readback_ptr, _) = warp.shared_buffer(slots);
         let dst_buf = warp.default_uav(slots);
         // SAFETY: mapped buffers of these sizes.
@@ -2455,7 +2595,7 @@ void main() {
             &warp.clamp,
             &warp.list,
             (&dst_buf, D3D12_RESOURCE_STATE_COMMON),
-            budget_gpu,
+            &budget_buf,
             &src_buf,
             table_gpu,
             (KIND_MESH, STRIDE, records.len() as u32),
@@ -2512,7 +2652,7 @@ void main() {
         for ahead in [true, false] {
             let layout = scratch_layout(total as u64, RECORDS, ahead);
             let (src_buf, src_ptr, _) = warp.shared_buffer(total as u64);
-            let (_budget_buf, budget_ptr, budget_gpu) = warp.shared_buffer(256);
+            let (budget_buf, budget_ptr, budget_gpu) = warp.shared_buffer(256);
             let (readback_buf, readback_ptr, _) = warp.shared_buffer(layout.total_bytes);
             let dst_buf = warp.default_uav(layout.total_bytes);
             // SAFETY: mapped buffers of these sizes.
@@ -2525,7 +2665,7 @@ void main() {
                 &warp.clamp,
                 &warp.list,
                 (&dst_buf, D3D12_RESOURCE_STATE_COMMON),
-                budget_gpu,
+                (budget_gpu, Some(&budget_buf)),
                 (&src_buf, 0),
                 None,
                 (KIND_MESH, STRIDE, RECORDS),
@@ -2588,7 +2728,7 @@ void main() {
         let layout = scratch_layout(total_bytes as u64, RECORDS, false);
         let count_off = layout.count_offset.unwrap();
         let (src_buf, src_ptr, _) = warp.shared_buffer(total_bytes as u64);
-        let (_budget_buf, budget_ptr, budget_gpu) = warp.shared_buffer(256);
+        let (budget_buf, budget_ptr, budget_gpu) = warp.shared_buffer(256);
         let (readback_buf, readback_ptr, _) = warp.shared_buffer(layout.total_bytes);
         let dst_buf = warp.default_uav(layout.total_bytes);
 
@@ -2621,7 +2761,7 @@ void main() {
             &warp.clamp,
             &warp.list,
             (&dst_buf, D3D12_RESOURCE_STATE_COMMON),
-            budget_gpu,
+            (budget_gpu, Some(&budget_buf)),
             (&src_buf, 0),
             None,
             (KIND_INDEXED, STRIDE, RECORDS),
@@ -2680,7 +2820,7 @@ void main() {
             let layout = scratch_layout(args_bytes, records, false);
             let count_off = layout.count_offset.unwrap();
             let (src_buf, src_ptr, _) = warp.shared_buffer(args_bytes);
-            let (_budget_buf, budget_ptr, budget_gpu) = warp.shared_buffer(256);
+            let (budget_buf, budget_ptr, budget_gpu) = warp.shared_buffer(256);
             let (_hits_buf, hits_ptr, hits_gpu) = warp.shared_buffer(256);
             let (readback_buf, readback_ptr, _) = warp.shared_buffer(args_bytes + 4);
             let dst_buf = warp.default_uav(layout.total_bytes);
@@ -2727,7 +2867,7 @@ void main() {
                 &warp.clamp,
                 &warp.list,
                 (&dst_buf, D3D12_RESOURCE_STATE_COMMON),
-                budget_gpu,
+                (budget_gpu, Some(&budget_buf)),
                 (&src_buf, 0),
                 None,
                 (KIND_DISPATCH, STRIDE, records),
@@ -2791,7 +2931,7 @@ void main() {
             let layout = scratch_layout(args_bytes, records, false);
             let count_off = layout.count_offset.unwrap();
             let (src_buf, src_ptr, _) = warp.shared_buffer(args_bytes);
-            let (_budget_buf, budget_ptr, budget_gpu) = warp.shared_buffer(256);
+            let (budget_buf, budget_ptr, budget_gpu) = warp.shared_buffer(256);
             let (readback_buf, readback_ptr, _) = warp.shared_buffer(args_bytes + 4);
             let dst_buf = warp.default_uav(layout.total_bytes);
             let dwords = (stride / 4) as usize;
@@ -2838,7 +2978,7 @@ void main() {
                 &warp.clamp,
                 &warp.list,
                 (&dst_buf, D3D12_RESOURCE_STATE_COMMON),
-                budget_gpu,
+                (budget_gpu, Some(&budget_buf)),
                 (&src_buf, 0),
                 None,
                 (kind, stride, records),
@@ -2905,7 +3045,7 @@ void main() {
             let layout = scratch_layout(args_bytes, RECORDS, false);
             let count_off = layout.count_offset.unwrap();
             let (src_buf, src_ptr, _) = warp.shared_buffer(args_bytes);
-            let (_budget_buf, budget_ptr, budget_gpu) = warp.shared_buffer(256);
+            let (budget_buf, budget_ptr, budget_gpu) = warp.shared_buffer(256);
             let (_hits_buf, hits_ptr, hits_gpu) = warp.shared_buffer(256);
             let (readback_buf, readback_ptr, _) = warp.shared_buffer(16);
             let dst_buf = warp.default_uav(layout.total_bytes);
@@ -2927,7 +3067,7 @@ void main() {
                 &warp.clamp,
                 &warp.list,
                 (&dst_buf, D3D12_RESOURCE_STATE_COMMON),
-                budget_gpu,
+                (budget_gpu, Some(&budget_buf)),
                 (&src_buf, 0),
                 None,
                 (kind, STRIDE, RECORDS),
@@ -2973,7 +3113,7 @@ void main() {
         let count_off = layout.count_offset.unwrap();
         let (src_buf, src_ptr, _) = warp.shared_buffer(args_bytes);
         let (count_buf, count_ptr, _) = warp.shared_buffer(64);
-        let (_budget_buf, budget_ptr, budget_gpu) = warp.shared_buffer(256);
+        let (budget_buf, budget_ptr, budget_gpu) = warp.shared_buffer(256);
         let (_hits_buf, hits_ptr, hits_gpu) = warp.shared_buffer(256);
         let (readback_buf, readback_ptr, _) = warp.shared_buffer(args_bytes + 4);
         let dst_buf = warp.default_uav(layout.total_bytes);
@@ -3016,7 +3156,7 @@ void main() {
             &warp.clamp,
             &warp.list,
             (&dst_buf, D3D12_RESOURCE_STATE_COMMON),
-            budget_gpu,
+            (budget_gpu, Some(&budget_buf)),
             (&src_buf, 0),
             Some((&count_buf, 0)),
             (KIND_DISPATCH, STRIDE, RECORDS),
@@ -3055,7 +3195,7 @@ void main() {
             &warp.clamp,
             &warp.list,
             (&dst_buf, D3D12_RESOURCE_STATE_COMMON),
-            budget_gpu,
+            (budget_gpu, Some(&budget_buf)),
             (&src_buf, 0),
             Some((&count_buf, 4)),
             (KIND_DISPATCH, STRIDE, RECORDS),
@@ -3097,7 +3237,7 @@ void main() {
             &warp.clamp,
             &warp.list,
             (&dst_buf, D3D12_RESOURCE_STATE_COMMON),
-            budget_gpu,
+            (budget_gpu, Some(&budget_buf)),
             (&src_buf, 0),
             None,
             (KIND_DISPATCH, STRIDE, 0),
@@ -3107,7 +3247,7 @@ void main() {
             &warp.clamp,
             &warp.list,
             (&dst_buf, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT),
-            budget_gpu,
+            (budget_gpu, Some(&budget_buf)),
             (&src_buf, 0),
             None,
             (KIND_DISPATCH, STRIDE, 1),
@@ -3130,7 +3270,7 @@ void main() {
         let layout = scratch_layout(args_bytes, RECORDS, false);
         let count_off = layout.count_offset.unwrap();
         let (src_buf, src_ptr, _) = warp.shared_buffer(args_bytes);
-        let (_budget_buf, budget_ptr, budget_gpu) = warp.shared_buffer(256);
+        let (budget_buf, budget_ptr, budget_gpu) = warp.shared_buffer(256);
         let (_hits_buf, hits_ptr, hits_gpu) = warp.shared_buffer(256);
         let (readback_buf, readback_ptr, _) = warp.shared_buffer(args_bytes + 4);
         let dst_buf = warp.default_uav(layout.total_bytes);
@@ -3160,7 +3300,7 @@ void main() {
             &warp.clamp,
             &warp.list,
             (&dst_buf, D3D12_RESOURCE_STATE_COMMON),
-            budget_gpu,
+            (budget_gpu, Some(&budget_buf)),
             (&src_buf, 0),
             None,
             (KIND_DISPATCH, STRIDE, RECORDS),
@@ -3419,7 +3559,7 @@ void main() {
         for ahead in [true, false] {
             let layout = scratch_layout(total as u64, counts.len() as u32, ahead);
             let (src_buf, src_ptr, _) = warp.shared_buffer(total as u64);
-            let (_budget_buf, budget_ptr, budget_gpu) = warp.shared_buffer(256);
+            let (budget_buf, budget_ptr, budget_gpu) = warp.shared_buffer(256);
             let (readback_buf, readback_ptr, _) = warp.shared_buffer(layout.total_bytes);
             let dst_buf = warp.default_uav(layout.total_bytes);
             // SAFETY: mapped buffers of these sizes.
@@ -3439,7 +3579,7 @@ void main() {
                 &warp.clamp,
                 &warp.list,
                 (&dst_buf, D3D12_RESOURCE_STATE_COMMON),
-                budget_gpu,
+                (budget_gpu, Some(&budget_buf)),
                 (&src_buf, 0),
                 None,
                 (KIND_DRAW, STRIDE, counts.len() as u32),
@@ -3667,7 +3807,7 @@ void main() {
         let windows: [&[u32]; 2] = [&[1, 2, 3, 4], &[10, 11, 12, 13]];
         let sources: Vec<ID3D12Resource> =
             windows.iter().map(|g| dispatch_records(&warp, g, STEP)).collect();
-        let (_budget_buf, budget_ptr, budget_gpu) = warp.shared_buffer(256);
+        let (budget_buf, budget_ptr, budget_gpu) = warp.shared_buffer(256);
         let (_hits_buf, hits_ptr, hits_gpu) = warp.shared_buffer(256);
         let dst_buf = warp.default_uav(u64::from(STEP) * 4);
         let sig = warp.signature(KIND_DISPATCH, STRIDE);
@@ -3682,7 +3822,7 @@ void main() {
                 &warp.clamp,
                 &warp.list,
                 (&dst_buf, state),
-                budget_gpu,
+                (budget_gpu, Some(&budget_buf)),
                 (src, 0),
                 None,
                 (KIND_DISPATCH, STEP, groups.len() as u32),

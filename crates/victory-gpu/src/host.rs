@@ -6976,9 +6976,12 @@ impl HostList {
         scratch.chunks.iter().map(|c| c.1).sum()
     }
 
-    /// The host address of the list's indirect-work budget, zeroed at each
-    /// submission of the list from the first use after a reset on.
-    pub(crate) fn budget(&self) -> Option<u64> {
+    /// The host address of the list's indirect-work budget (zeroed at each
+    /// submission of the list from the first use after a reset on), and the
+    /// buffer it is in (the card's copy when the list zeroes its own
+    /// budget): the clamps pass the buffer to the resource-scoped UAV
+    /// barriers that order them one behind the other.
+    pub(crate) fn budget_with_resource(&self) -> Option<(u64, &ID3D12Resource)> {
         let (buffer, data) = self
             .budget
             .get_or_init(|| {
@@ -7011,7 +7014,8 @@ impl HostList {
             }
         }
         // SAFETY: a live buffer.
-        Some(unsafe { card.unwrap_or(buffer).GetGPUVirtualAddress() })
+        let resource = card.unwrap_or(buffer);
+        Some((unsafe { resource.GetGPUVirtualAddress() }, resource))
     }
 
     /// The budget's words in the card's own memory ([`card_budget`]), if
