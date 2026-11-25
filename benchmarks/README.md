@@ -54,6 +54,8 @@ Eight paired trials on the 9700X gave median times of 21.40 and 11.15 ms for two
 
 The [renderer trial sources](https://github.com/UwUCammie/victory-amd/tree/bench/radv-renderer-trials) include the optional registered-range cache, the adjacent GPU readback command trial and a CPU benchmark of descriptor bookkeeping. The [sparse indirect draw test](https://github.com/UwUCammie/victory-amd/commit/2ba2d770080da9ff507701a09b1103553ccfbfbb) runs on the head of [PR #1171](https://github.com/fxceless/victory-fork/pull/1171). The consecutive and sparse cases both passed on the physical RX 7900 XT.
 
+The combined gather, copy-worker and registration-cache build averaged 674 accepted presents in 73.42 s (9.18 FPS, 4,858 draws/frame). The first room and character were visible at 175 s. A separate [descriptor-table integration](https://github.com/UwUCammie/victory-amd/tree/test/1192-half-views) initially ran at 30 FPS on the account picker with about 14 draws/frame. Its release build omitted the scripted-input feature. That run is excluded from the gameplay comparison.
+
 ## Descriptor slot bookkeeping
 
 The native Rust benchmark compares the original B-tree and hash set with the bitset implementation from a Git revision. It starts with 83,000 live buffer descriptors in a 1.2-million-slot heap, checks a checksum of both sets, and alternates order over eight timed pairs. Each line gives the writes per frame, pair number, whether the bitset was used, and elapsed microseconds.
