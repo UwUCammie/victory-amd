@@ -10,7 +10,7 @@ use std::sync::Mutex;
 use windows::Win32::Graphics::Direct3D12::*;
 use windows::Win32::Graphics::Dxgi::Common::*;
 
-use super::{VIEW_TAG, View, view_at};
+use super::{VIEW_TAG, View, view_at, view_at_in, with_views};
 use crate::host::host;
 
 /// [`HostHeap::slot_flags`]: title slot `index` is in the texture queue
@@ -2274,7 +2274,6 @@ impl HostHeap {
             COPIED_TABLED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             return false;
         }
-        let n = record.len();
         // Never 0, which is "never looked at". (A multiply-and-fold over
         // the record's words: BLAKE3 here was most of the 35 to 42 ms a
         // frame this pass took over some 250,000 to 300,000 records, run
@@ -2289,7 +2288,7 @@ impl HostHeap {
                 return false;
             };
             // A slot never looked at that holds nothing: as it was.
-            if *last == print || (*last == 0 && record[..n].iter().all(|&b| b == 0)) {
+            if *last == print || (*last == 0 && record_is_zero(record)) {
                 return false;
             }
             *last = print;
@@ -2348,11 +2347,16 @@ impl HostHeap {
                 let Some(last) = copied.get_mut(index as usize) else {
                     continue;
                 };
+                // A slot never looked at that holds nothing: as it was, and
+                // the fingerprint is not computed for it (nearly all of the
+                // page's slots are empty ones).
+                if *last == 0 && record_is_zero(record) {
+                    continue;
+                }
                 // Never 0, which is "never looked at".
                 let print = record_print(record) | 1;
-                // The record last seen, or a slot never looked at that
-                // holds nothing: as it was.
-                if *last == print || (*last == 0 && record.iter().all(|&b| b == 0)) {
+                // The record last seen: as it was.
+                if *last == print {
                     continue;
                 }
                 // A table's slot lately: left to its draws, and looked at
@@ -2366,17 +2370,35 @@ impl HostHeap {
             }
         }
         if !due.is_empty() {
-            // The records' lock once for the page, and the buffer changes'
-            // once, not once for each record mirrored (some 270 a page,
-            // 42,000 a frame): `note_buffer_into` pushed the slots whose buffer
-            // membership changed into `changed` under the records' lock
-            // before.
+            // The views' lock once for the page, not once for each record
+            // (`view_at` took it some 42,000 times a frame here), and the
+            // records' lock once, and the buffer changes' once, not once for
+            // each record mirrored (some 270 a page, 42,000 a frame):
+            // `note_buffer_into` pushed the slots whose buffer membership
+            // changed into `changed` under the records' lock before.
+            let mut resolved = Vec::with_capacity(due.len());
+            with_views(|views| {
+                for &(index, handle) in due.iter() {
+                    // SAFETY: the handle is a descriptor slot in title
+                    // memory.
+                    let [tag, i, generation] =
+                        unsafe { (handle as *const [u32; 3]).read_unaligned() };
+                    // Generations start at 1, so a made slot's key is never 0.
+                    let key = u64::from(generation) << 32 | u64::from(i);
+                    let view = (tag == VIEW_TAG)
+                        .then(|| view_at_in(views, i, generation))
+                        .flatten();
+                    resolved.push((index, handle, key, view));
+                }
+            });
             let mut changed = Vec::new();
             {
                 let mut made = self.made.lock().unwrap_or_else(|e| e.into_inner());
-                for &(index, handle) in due.iter() {
+                for (index, handle, key, view) in resolved {
                     let batch = Some(&mut changed);
-                    self.mirror_with_made(&mut made, index, handle, false, false, true, batch);
+                    self.mirror_resolved(
+                        &mut made, index, handle, key, view, false, false, true, batch,
+                    );
                 }
             }
             if !changed.is_empty() {
@@ -2498,15 +2520,42 @@ impl HostHeap {
         self.mirror_with_made(&mut made, index, handle, for_draw, required, record_change, None)
     }
 
-    /// [`HostHeap::mirror_inner`] with the records already locked, for a
-    /// whole page of them (`mirror_copied_page`): `batch`, when given, takes
-    /// the buffer slots whose membership changed instead of each locking
-    /// [`HostHeap::changed`].
+    /// [`HostHeap::mirror_inner`] with the records already locked, from the
+    /// record read at `handle` ([`HostHeap::mirror_resolved`] does the work).
     fn mirror_with_made(
         &self,
         made: &mut [u64],
         index: u32,
         handle: u64,
+        for_draw: bool,
+        required: bool,
+        record_change: bool,
+        batch: Option<&mut Vec<u32>>,
+    ) -> Option<(View, Option<BufferCopy>)> {
+        // SAFETY: the handle is a descriptor slot in title memory.
+        let [tag, i, generation] = unsafe { (handle as *const [u32; 3]).read_unaligned() };
+        // Generations start at 1, so a made slot's key is never 0.
+        let key = u64::from(generation) << 32 | u64::from(i);
+        let view = (tag == VIEW_TAG).then(|| view_at(i, generation)).flatten();
+        self.mirror_resolved(
+            made, index, handle, key, view, for_draw, required, record_change, batch,
+        )
+    }
+
+    /// [`HostHeap::mirror_with_made`] from the record already read and
+    /// resolved ([`HostHeap::mirror_copied_page`], which reads the table
+    /// once for a page): `key`, the slot's record as one 64-bit word, and
+    /// the view there, if it is one of ours. `batch`, when given, takes the
+    /// buffer slots whose membership changed instead of each locking
+    /// [`HostHeap::changed`].
+    #[allow(clippy::too_many_arguments)]
+    fn mirror_resolved(
+        &self,
+        made: &mut [u64],
+        index: u32,
+        handle: u64,
+        key: u64,
+        view: Option<View>,
         for_draw: bool,
         required: bool,
         record_change: bool,
@@ -2526,11 +2575,6 @@ impl HostHeap {
             }
             return None;
         }
-        // SAFETY: the handle is a descriptor slot in title memory.
-        let [tag, i, generation] = unsafe { (handle as *const [u32; 3]).read_unaligned() };
-        // Generations start at 1, so a made slot's key is never 0.
-        let key = u64::from(generation) << 32 | u64::from(i);
-        let view = (tag == VIEW_TAG).then(|| view_at(i, generation)).flatten();
         let Some(view) = view else {
             // Not a view of ours (never written, or of a resource the
             // title released): nothing to read.
@@ -2942,6 +2986,21 @@ fn sync_tables() -> bool {
 /// Since the last frame line: slots on changed heap pages that
 /// [`HostHeap::mirror_copied`] left to their draws (tables' slots).
 pub(crate) static COPIED_TABLED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Whether a descriptor record's bytes are all 0: a slot the title has not
+/// written. Folded words compared, not a byte at a time, and no fingerprint
+/// computed for the empty slots of a page (nearly all of them).
+fn record_is_zero(record: &[u8]) -> bool {
+    let mut any = 0u64;
+    let mut words = record.chunks_exact(8);
+    for word in &mut words {
+        any |= u64::from_le_bytes(word.try_into().unwrap_or([0; 8]));
+    }
+    for &b in words.remainder() {
+        any |= u64::from(b);
+    }
+    any == 0
+}
 
 /// A 64-bit fingerprint of a descriptor record's bytes (16 or 32 of them):
 /// equal records give equal prints, and two different records the same

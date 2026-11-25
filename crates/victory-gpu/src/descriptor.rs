@@ -534,7 +534,7 @@ impl View {
 /// without the address: as many as the title has kinds of textures and
 /// buffers, however often it moves them).
 /// `VICTORY_VIEW_INLINE=0`: every view is an entry, as before.
-struct Views {
+pub(crate) struct Views {
     /// Each entry's view and generation.
     list: Vec<(View, u32)>,
     index: std::collections::BTreeMap<View, u32>,
@@ -937,16 +937,31 @@ pub(crate) fn forget(resource: usize) {
 /// The view the record words `i` and `generation` name: the one they hold
 /// whole, or the view of entry `i` if `generation` is still its own.
 fn view_at(i: u32, generation: u32) -> Option<View> {
+    // A constant buffer view is held whole in its record.
+    if generation >> KIND_SHIFT == CONSTANT {
+        return Some(constant_of(i, generation));
+    }
+    view_at_in(&views_read(), i, generation)
+}
+
+/// [`view_at`] for a caller that looks at many records with one read of the
+/// table ([`with_views`]): the same view, from the lock it already holds.
+pub(crate) fn view_at_in(views: &Views, i: u32, generation: u32) -> Option<View> {
     match generation >> KIND_SHIFT {
         0 => {
-            let views = views_read();
             let (view, current) = views.list.get(i as usize)?;
             (*current == generation).then(|| view.clone())
         }
         CONSTANT => Some(constant_of(i, generation)),
-        PLACED => views_read().placed_of(i, generation),
+        PLACED => views.placed_of(i, generation),
         _ => None,
     }
+}
+
+/// Runs `f` with the table read-locked once: a page of records resolved
+/// together takes it once, not once for each of them.
+pub(crate) fn with_views<R>(f: impl FnOnce(&Views) -> R) -> R {
+    f(&views_read())
 }
 
 /// The view recorded at `handle`, if one is (and its resource is alive).
