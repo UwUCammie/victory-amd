@@ -3865,29 +3865,60 @@ struct Entry {
     shadow: Option<Arc<Shadow>>,
 }
 
+// Small buffers are common. Once a backward search is a page away from
+// the requested end, only entries in the long-buffer index can reach it.
+const SHORT_BUFFER: u64 = PAGE as u64;
+
 struct BufferMap {
     entries: BTreeMap<(u64, usize), Entry>,
+    long_ends: BTreeMap<(u64, usize), u64>,
     // Releasing a buffer can leave this bound larger than necessary.
     longest: u64,
 }
 
 impl BufferMap {
     const fn new() -> Self {
-        Self { entries: BTreeMap::new(), longest: 0 }
+        Self {
+            entries: BTreeMap::new(),
+            long_ends: BTreeMap::new(),
+            longest: 0,
+        }
     }
 
     fn register(&mut self, resource: usize, start: u64, len: u64) {
+        let key = (start, resource);
+        let end = start.saturating_add(len);
         self.longest = self.longest.max(len);
-        self.entries.insert((start, resource), Entry { end: start.saturating_add(len), shadow: None });
+        let previous = self.entries.insert(key, Entry { end, shadow: None });
+        if len > SHORT_BUFFER {
+            self.long_ends.insert(key, end);
+        } else if previous.is_some() {
+            self.long_ends.remove(&key);
+        }
+    }
+
+    fn unregister(&mut self, resource: usize, start: u64) {
+        let key = (start, resource);
+        self.entries.remove(&key);
+        self.long_ends.remove(&key);
     }
 
     fn containing(&self, address: u64, end: u64) -> Option<(&(u64, usize), &Entry)> {
+        let last = (address, usize::MAX);
+        let mut earlier = self.entries.range(..=last).rev();
+        let nearest = earlier.next()?;
+        if nearest.1.end >= end {
+            return Some(nearest);
+        }
+        let nearby = end.saturating_sub(SHORT_BUFFER);
+        if let Some(hit) = earlier.take_while(|(key, _)| key.0 >= nearby).find(|(_, entry)| entry.end >= end) {
+            return Some(hit);
+        }
         let earliest = end.saturating_sub(self.longest);
-        self.entries
-            .range(..=(address, usize::MAX))
-            .rev()
+        let (key, _) = self.long_ends.range(..=last).rev()
             .take_while(|(key, _)| key.0 >= earliest)
-            .find(|(_, entry)| entry.end >= end)
+            .find(|(_, limit)| **limit >= end)?;
+        self.entries.get_key_value(key)
     }
 
     fn overlapping(&mut self, at: u64, end: u64) -> impl Iterator<Item = &mut Entry> {
@@ -3919,8 +3950,27 @@ mod buffer_map_tests {
         assert_eq!(map.overlapping(301, 302).count(), 1);
         assert_eq!(map.overlapping(300, 300).count(), 0);
         assert!(map.containing(4096, 4097).is_none());
-        map.entries.remove(&(0, 0));
+        map.unregister(0, 0);
         assert!(map.containing(300, 302).is_none());
+    }
+
+    #[test]
+    fn the_long_buffer_index_tracks_replacement_and_removal() {
+        use super::SHORT_BUFFER;
+        let mut map = BufferMap::new();
+        map.register(1, 0, 8 * SHORT_BUFFER);
+        map.register(2, SHORT_BUFFER, 4 * SHORT_BUFFER);
+        for i in 0..300 {
+            map.register(3, 2 * SHORT_BUFFER + i, 1);
+        }
+        let query = |m: &BufferMap| m.containing(3 * SHORT_BUFFER, 3 * SHORT_BUFFER + 1).map(|(key, _)| *key);
+        assert_eq!(query(&map), Some((SHORT_BUFFER, 2)));
+        map.register(2, SHORT_BUFFER, 1);
+        assert_eq!(query(&map), Some((0, 1)));
+        map.unregister(1, 0);
+        assert_eq!(query(&map), None);
+        map.register(2, SHORT_BUFFER, 4 * SHORT_BUFFER);
+        assert_eq!(query(&map), Some((SHORT_BUFFER, 2)));
     }
 
     #[test]
@@ -3955,7 +4005,7 @@ pub(crate) fn register(resource: usize, start: u64, len: u64) {
 
 /// The title released it; lists that still hold its copy keep it alive.
 pub(crate) fn unregister(resource: usize, start: u64) {
-    buffers_write().entries.remove(&(start, resource));
+    buffers_write().unregister(resource, start);
 }
 
 /// The title buffer holding `address`, as (start, length), without making
