@@ -485,6 +485,45 @@ fn root_view(list: &HostList, address: u64, srv: bool) -> Option<u64> {
     Some(gpu)
 }
 
+/// Root views whose address the card could not have read, since the start:
+/// bound at no address (below 64 KiB), and left unbound because nothing
+/// could be bound.
+pub(crate) static NO_ADDRESS: [AtomicU64; 2] = [const { AtomicU64::new(0) }; 2];
+
+/// Whether `gpu` is no address a root view can be bound at. A root view is
+/// a bare address for the host (vkd3d-proton hands a root SRV's or UAV's to
+/// the shader as a pointer): at 0 the shader's reads are page faults at its
+/// offsets, which hang the card on an AMD card under Linux (12:13 and 12:44
+/// on 2026-11-25: faults at 0x0, 0x3f000-0xbf000 from "SQC (data)", the ring
+/// reset 2 s later). Noted in the trail, which the device's loss prints.
+/// `left`: nothing was bound at all (the parameter keeps what it had).
+fn no_address(gpu: u64, what: &str, slot: u8, compute: bool, pipeline: usize, left: bool) -> bool {
+    if !left && gpu >= 1 << 16 {
+        return false;
+    }
+    let n = NO_ADDRESS[usize::from(left)].fetch_add(1, Ordering::Relaxed) + 1;
+    // The first of each kind and then every 64th: one bad binding repeats
+    // with its draw.
+    if n == 1 || n % 64 == 0 {
+        let line = format!(
+            "root view {}: {what}, slot {slot}, address {gpu:#x}, {} pipeline {pipeline:#x} ({n} so far)",
+            if left { "left unbound" } else { "at no address" },
+            if compute { "compute" } else { "graphics" },
+        );
+        tracing::warn!("{line}");
+        crate::host::trail(|| line);
+    }
+    true
+}
+
+/// Whether a draw whose root view has no address is dropped (the default)
+/// and not sent to the card with it; `VICTORY_ROOT_NO_ADDRESS=keep` sends
+/// it, as before.
+fn drop_no_address() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("VICTORY_ROOT_NO_ADDRESS").is_none_or(|v| v != "keep"))
+}
+
 macro_rules! once {
     ($($arg:tt)*) => {{
         static ONCE: std::sync::Once = std::sync::Once::new();
@@ -1054,6 +1093,11 @@ impl State {
                     if srv && slot == victory_shader::emit::SLOT_MEMORY {
                         // Ours: the directory of title memory by address.
                         if let Some(m) = &memory {
+                            if no_address(m.directory, "the directory of title memory", slot, compute, self.pipeline, false)
+                                && drop_no_address()
+                            {
+                                return false;
+                            }
                             // SAFETY: an open list; the directory lives as
                             // long as the process and the list holds it.
                             unsafe {
@@ -1070,16 +1114,30 @@ impl State {
                         // Ours, not the title's: the shader picks buffers
                         // from the view heap by an index it computes.
                         match self.heap_buffers(list) {
-                            // SAFETY: an open list; the table lives as long
-                            // as the heap the list holds.
-                            Some(gpu) => unsafe {
-                                if compute {
-                                    l.SetComputeRootShaderResourceView(param, gpu);
-                                } else {
-                                    l.SetGraphicsRootShaderResourceView(param, gpu);
+                            Some(gpu) => {
+                                if no_address(gpu, "the view heap's table of strides", slot, compute, self.pipeline, false)
+                                    && drop_no_address()
+                                {
+                                    return false;
                                 }
-                            },
-                            None => once!("a shader picks buffers from a view heap that is not set"),
+                                // SAFETY: an open list; the table lives as
+                                // long as the heap the list holds.
+                                unsafe {
+                                    if compute {
+                                        l.SetComputeRootShaderResourceView(param, gpu);
+                                    } else {
+                                        l.SetGraphicsRootShaderResourceView(param, gpu);
+                                    }
+                                }
+                            }
+                            None => {
+                                once!("a shader picks buffers from a view heap that is not set");
+                                if no_address(0, "the view heap's table of strides", slot, compute, self.pipeline, true)
+                                    && drop_no_address()
+                                {
+                                    return false;
+                                }
+                            }
                         }
                         continue;
                     }
@@ -1106,6 +1164,15 @@ impl State {
                         continue;
                     }
                     let Some(mut gpu) = root_view(list, address, srv) else {
+                        // A root SRV is a pointer for the shader; a root
+                        // constant buffer is a view with a size, and one
+                        // left unbound reads what was bound before.
+                        if no_address(address, if srv { "a root SRV" } else { "a root constant buffer" }, slot, compute, self.pipeline, true)
+                            && srv
+                            && drop_no_address()
+                        {
+                            return false;
+                        }
                         continue;
                     };
                     if biased {
@@ -1116,6 +1183,11 @@ impl State {
                             0,
                             None,
                         ));
+                    }
+                    if no_address(gpu, if srv { "a root SRV" } else { "a root constant buffer" }, slot, compute, self.pipeline, false)
+                        && drop_no_address()
+                    {
+                        return false;
                     }
                     // SAFETY: an open list; the address is in live memory.
                     unsafe {
@@ -1132,6 +1204,11 @@ impl State {
                 if slot == victory_shader::emit::SLOT_FAULTS {
                     // Ours: where shaders note the pages they found empty.
                     if let Some(m) = &memory {
+                        if no_address(m.faults, "the pages shaders found empty", slot, compute, self.pipeline, false)
+                            && drop_no_address()
+                        {
+                            return false;
+                        }
                         // SAFETY: an open list; the buffer lives as long as
                         // the process and the list holds it.
                         unsafe {
