@@ -87,7 +87,15 @@ pub(crate) fn probe_level() -> u8 {
 /// call before such a call once it takes them over.
 pub(crate) fn level() -> u8 {
     static LEVEL: std::sync::OnceLock<u8> = std::sync::OnceLock::new();
-    *LEVEL.get_or_init(|| std::env::var("VICTORY_INPLACE").ok().and_then(|v| v.trim().parse().ok()).unwrap_or(0))
+    *LEVEL.get_or_init(|| {
+        let requested = std::env::var("VICTORY_INPLACE").ok().and_then(|v| v.trim().parse().ok()).unwrap_or(0);
+        if requested > 0 && crate::host::late() {
+            tracing::warn!("placed buffers and windows require synchronous submissions; using host copies");
+            0
+        } else {
+            requested
+        }
+    })
 }
 
 /// The most title memory in place at once, in bytes
