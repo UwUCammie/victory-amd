@@ -1252,6 +1252,28 @@ fn null_sampler(at: D3D12_CPU_DESCRIPTOR_HANDLE) {
     unsafe { host.device.CreateSampler(&desc, at) };
 }
 
+/// A slot's texture-queue change collected in a [`NoteBatch`]:
+/// [`HostHeap::queue_texture`]'s words, replayed under one lock hold.
+struct TextureNote {
+    index: u32,
+    /// `Some((frame, due, seen))`: written into the queue; `None`: taken
+    /// out of it.
+    enqueue: Option<(u64, u64, bool)>,
+}
+
+/// The sets a page of mirrored slots changes, collected so that each lock
+/// is taken once for the page instead of once a slot
+/// ([`HostHeap::apply_note_batch`]).
+struct NoteBatch {
+    /// The slots whose buffer membership changed
+    /// ([`HostHeap::buffer_changes`]).
+    changed: Vec<u32>,
+    /// Slots to put in (`true`) or take out of (`false`) the buffer set.
+    buffers: Vec<(u32, bool)>,
+    /// The texture queue's changes, in the order the slots were noted.
+    textures: Vec<TextureNote>,
+}
+
 impl HostHeap {
     /// `n` consecutive free dynamic slots (view heaps only), taken until
     /// [`HostHeap::release`]: the first's index.
@@ -1916,6 +1938,34 @@ impl HostHeap {
         }
     }
 
+    /// The queue's words for a write of title slot `index` in `frame`:
+    /// whether it is one the queue is up to date with already (a draw of this
+    /// frame read it through a table, so the view the slot was made from is
+    /// what its texture's upload covers), and whether it is a table's slot
+    /// written lately (its write waits [`TABLED_GRACE`] frames for that
+    /// draw). `seen` as for [`HostHeap::note_buffer_into`].
+    fn texture_words(&self, index: u32, seen: bool, frame: u64) -> (bool, bool) {
+        let stamp = if tabled_out() { self.tabled_stamp(index) } else { 0 };
+        let now = (frame as u32).wrapping_add(1) & !TABLED_READ;
+        // A table's slot lately: the draw that reads it uploads its
+        // texture, so its write waits for that draw.
+        let lately = stamp != 0 && u64::from(now.wrapping_sub(stamp & !TABLED_READ)) <= TABLED_FRAMES;
+        let read_now = seen && stamp == now | TABLED_READ;
+        (read_now, lately)
+    }
+
+    /// The frame [`TextureQueue::written`] gives a write in `frame`: on, for
+    /// a table's slot written lately, [`TABLED_GRACE`] frames for the draw
+    /// that reads it, which uploads its texture.
+    fn texture_due(lately: bool, frame: u64) -> u64 {
+        if lately {
+            TABLED_WRITES[0].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            frame + TABLED_GRACE
+        } else {
+            0
+        }
+    }
+
     /// The queue's part of a write of title slot `index` in `frame`:
     /// `texture`, whether it now holds a view of a texture the title may
     /// fill; `seen` as for [`HostHeap::note_buffer_into`].
@@ -1923,25 +1973,13 @@ impl HostHeap {
         if PUBLISHING.get() {
             return;
         }
-        let stamp = if tabled_out() { self.tabled_stamp(index) } else { 0 };
-        let now = (frame as u32).wrapping_add(1) & !TABLED_READ;
-        // A table's slot lately: the draw that reads it uploads its
-        // texture, so its write waits for that draw.
-        let lately = stamp != 0 && u64::from(now.wrapping_sub(stamp & !TABLED_READ)) <= TABLED_FRAMES;
-        // Made now by a draw of this frame that read it through a table:
-        // up to date.
-        let read_now = seen && stamp == now | TABLED_READ;
+        let (read_now, lately) = self.texture_words(index, seen, frame);
         if texture && !read_now {
             self.note_slot(index, SLOT_IN_TEXTURES, true);
         }
         let mut textures = self.textures.lock().unwrap_or_else(|e| e.into_inner());
         if texture && !read_now {
-            let due = if lately && !seen {
-                TABLED_WRITES[0].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                frame + TABLED_GRACE
-            } else {
-                0
-            };
+            let due = Self::texture_due(lately && !seen, frame);
             textures.written(index, frame, due, seen);
         } else {
             textures.remove(index);
@@ -1970,6 +2008,42 @@ impl HostHeap {
         self.note_buffer_into(index, view, seen, record_change, None)
     }
 
+    /// Replays the buffer set and the texture queue a page of writes changed,
+    /// each lock taken once (the `made` lock is held, as each write held it).
+    fn apply_note_batch(&self, batch: &NoteBatch) {
+        if !batch.buffers.is_empty() {
+            let mut buffers = self.buffers.lock().unwrap_or_else(|e| e.into_inner());
+            for &(index, insert) in &batch.buffers {
+                if insert {
+                    buffers.insert(index);
+                } else {
+                    buffers.remove(&index);
+                }
+            }
+        }
+        if !batch.textures.is_empty() {
+            let mut textures = self.textures.lock().unwrap_or_else(|e| e.into_inner());
+            for note in &batch.textures {
+                match note.enqueue {
+                    Some((frame, due, seen)) => textures.written(note.index, frame, due, seen),
+                    None => textures.remove(note.index),
+                }
+            }
+        }
+    }
+
+    /// Hands the slots whose buffer membership changed to
+    /// [`HostHeap::buffer_changes`] under one lock (after the `made` lock
+    /// dropped, as each write did).
+    fn apply_note_changes(&self, batch: &mut NoteBatch) {
+        if !batch.changed.is_empty() {
+            self.changed
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .extend(batch.changed.drain(..));
+        }
+    }
+
     /// Records what title slot `index` now holds for shaders that pick
     /// buffers from the heap: its element stride in the table, and whether
     /// it is a buffer view at all.
@@ -1988,7 +2062,7 @@ impl HostHeap {
         view: Option<&View>,
         seen: bool,
         record_change: bool,
-        batch: Option<&mut Vec<u32>>,
+        mut batch: Option<&mut NoteBatch>,
     ) -> Vec<u32> {
         if self.sampler {
             return Vec::new();
@@ -2008,12 +2082,37 @@ impl HostHeap {
             }
             _ => false,
         };
+        let frame = crate::frame::current();
         // A slot taking a view out of the queue is nearly always one that is
         // not in it: asked of the slot's flags first, so that the queue's
-        // lock is taken only to take something out.
+        // lock is taken only to take something out. A write the queue is up
+        // to date with already, of a slot whose flags say it is out of it,
+        // changes nothing at all and takes no lock.
         if texture || self.slot_may(index, SLOT_IN_TEXTURES) {
-            self.note_slot(index, SLOT_IN_TEXTURES, texture);
-            self.queue_texture(index, texture, seen, crate::frame::current());
+            // Made now by a draw of this frame that read it through a table:
+            // up to date. (`queue_texture` leaves the queue and its flags as
+            // it finds them while publishing: such a write is not one the
+            // queue is up to date with.)
+            let (read_now, lately) = if texture && !PUBLISHING.get() {
+                self.texture_words(index, seen, frame)
+            } else {
+                (false, false)
+            };
+            let enqueue = texture && !read_now;
+            if enqueue || self.slot_may(index, SLOT_IN_TEXTURES) {
+                self.note_slot(index, SLOT_IN_TEXTURES, enqueue);
+                match batch.as_deref_mut() {
+                    Some(_) if PUBLISHING.get() => {}
+                    Some(batch) => {
+                        let enqueue = enqueue
+                            .then(|| (frame, Self::texture_due(lately && !seen, frame), seen));
+                        batch.textures.push(TextureNote { index, enqueue });
+                    }
+                    None => {
+                        self.queue_texture(index, texture, seen, frame);
+                    }
+                }
+            }
         }
         // The memory a placed texture view describes. Not for a slot
         // tables read (thousands of writes a frame, each read by its
@@ -2021,7 +2120,7 @@ impl HostHeap {
         // slot shaders pick by index says what it says.
         let placed_view = match view {
             Some(View::Placed(false, resource, desc))
-                if resource[0] != 1 && !self.tabled_lately(index, crate::frame::current()) =>
+                if resource[0] != 1 && !self.tabled_lately(index, frame) =>
             {
                 // (And the level the view starts at: word 4 of a texture
                 // view's description, after format, dimension, mapping
@@ -2059,10 +2158,20 @@ impl HostHeap {
         };
         if !stale.is_empty() {
             STALE[0].fetch_add(stale.len() as u64, std::sync::atomic::Ordering::Relaxed);
-            let mut textures = self.textures.lock().unwrap_or_else(|e| e.into_inner());
-            for &slot in &stale {
-                textures.remove(slot);
-                self.note_slot(slot, SLOT_IN_TEXTURES, false);
+            match batch.as_deref_mut() {
+                Some(batch) => {
+                    for &slot in &stale {
+                        self.note_slot(slot, SLOT_IN_TEXTURES, false);
+                        batch.textures.push(TextureNote { index: slot, enqueue: None });
+                    }
+                }
+                None => {
+                    let mut textures = self.textures.lock().unwrap_or_else(|e| e.into_inner());
+                    for &slot in &stale {
+                        textures.remove(slot);
+                        self.note_slot(slot, SLOT_IN_TEXTURES, false);
+                    }
+                }
             }
         }
         let stride = view.and_then(view_stride);
@@ -2082,18 +2191,35 @@ impl HostHeap {
         let was = if stride.is_some() {
             if !in_buffers {
                 self.note_slot(index, SLOT_IN_BUFFERS, true);
-                self.buffers.lock().unwrap_or_else(|e| e.into_inner()).insert(index);
+                match batch.as_deref_mut() {
+                    Some(batch) => batch.buffers.push((index, true)),
+                    None => {
+                        self.buffers.lock().unwrap_or_else(|e| e.into_inner()).insert(index);
+                    }
+                }
             }
             true
-        } else if in_buffers || flagged.is_none() {
+        } else if in_buffers {
+            // A static slot the flags say is in the set: out of it.
+            self.note_slot(index, SLOT_IN_BUFFERS, false);
+            match batch.as_deref_mut() {
+                Some(batch) => batch.buffers.push((index, false)),
+                None => {
+                    self.buffers.lock().unwrap_or_else(|e| e.into_inner()).remove(&index);
+                }
+            }
+            true
+        } else if flagged.is_none() {
+            // A dynamic slot: no flags to say whether it is in the set, so
+            // the lock as before.
             self.note_slot(index, SLOT_IN_BUFFERS, false);
             self.buffers.lock().unwrap_or_else(|e| e.into_inner()).remove(&index)
         } else {
             false
         };
         if was && record_change {
-            match batch {
-                Some(changed) => changed.push(index),
+            match batch.as_deref_mut() {
+                Some(batch) => batch.changed.push(index),
                 None => {
                     self.changed
                         .lock()
@@ -2485,12 +2611,13 @@ impl HostHeap {
     }
 
     /// Mirrors the slots [`HostHeap::scan_copied_page`] left in `due`: the
-    /// views' lock once for the page and the made lock once, not one each
-    /// per record (`view_at` took the views' lock some 42,000 times a frame
-    /// here, and `note_buffer_into` pushed the slots whose buffer
-    /// membership changed into `changed` under the records' lock before),
-    /// and no `View` cloned nor made lock taken for a slot already made
-    /// from the record it shows. Returns the slots resolved.
+    /// views' lock once for the page, the made lock once, and the sets each
+    /// write changes (`buffers`, `textures`, `changed`) once for the page,
+    /// not one each per record (`view_at` took the views' lock some 42,000
+    /// times a frame here, and `note_buffer_into` took the sets' locks under
+    /// the records' lock before), and no `View` cloned nor made lock taken
+    /// for a slot already made from the record it shows. Returns the slots
+    /// resolved.
     fn apply_copied_due(&self, due: &[CopiedDue]) -> u64 {
         use std::sync::atomic::Ordering::Relaxed;
         if due.is_empty() {
@@ -2519,18 +2646,36 @@ impl HostHeap {
             return 0;
         }
         let count = resolved.len() as u64;
-        let mut changed = Vec::new();
+        let mut note_batch = NoteBatch {
+            changed: Vec::new(),
+            buffers: Vec::new(),
+            textures: Vec::new(),
+        };
         let mut kept: Vec<(u32, Kept)> = Vec::new();
         {
             let made = self.made_lock.lock().unwrap_or_else(|e| e.into_inner());
             for (index, handle, key, view) in resolved {
-                self.mirror_resolved(&made, index, handle, key, view, false, false, true, Some(&mut changed), Some(&mut kept));
+                self.mirror_resolved(
+                    &made,
+                    index,
+                    handle,
+                    key,
+                    view,
+                    false,
+                    false,
+                    true,
+                    Some(&mut note_batch),
+                    Some(&mut kept),
+                );
             }
             self.apply_kept(&mut kept);
+            // The sets each write changed, once for the page: the buffer set
+            // and the texture queue while the made lock is held, as each
+            // write took them.
+            self.apply_note_batch(&note_batch);
         }
-        if !changed.is_empty() {
-            self.changed.lock().unwrap_or_else(|e| e.into_inner()).extend(changed);
-        }
+        // The changed set after the made lock, as each write took it.
+        self.apply_note_changes(&mut note_batch);
         count
     }
 
@@ -2793,7 +2938,7 @@ impl HostHeap {
         for_draw: bool,
         required: bool,
         record_change: bool,
-        batch: Option<&mut Vec<u32>>,
+        batch: Option<&mut NoteBatch>,
     ) -> Option<(View, Option<BufferCopy>)> {
         let (key, view) = self.record(None, index, handle, for_draw)?;
         self.mirror_resolved(_made_lock, index, handle, key, view, for_draw, required, record_change, batch, None)
@@ -2838,8 +2983,10 @@ impl HostHeap {
 
     /// [`HostHeap::mirror_with_made`] with the record at `handle` already
     /// resolved (`key`, its key; `view`, the view it names) and, when given,
-    /// the slots' `kept` entries collected into `kept_batch` instead of each
-    /// taking the lock ([`HostHeap::apply_kept`]).
+    /// the sets the write changes collected into `batch`
+    /// ([`HostHeap::apply_note_batch`]) and the slots' `kept` entries into
+    /// `kept_batch` instead of each taking the lock
+    /// ([`HostHeap::apply_kept`]).
     #[allow(clippy::too_many_arguments)] // the record's own words, as read
     fn mirror_resolved(
         &self,
@@ -2851,7 +2998,7 @@ impl HostHeap {
         for_draw: bool,
         required: bool,
         record_change: bool,
-        mut batch: Option<&mut Vec<u32>>,
+        mut batch: Option<&mut NoteBatch>,
         mut kept_batch: Option<&mut Vec<(u32, Kept)>>,
     ) -> Option<(View, Option<BufferCopy>)> {
         use std::sync::atomic::Ordering::{Relaxed, Release};
@@ -2906,11 +3053,14 @@ impl HostHeap {
             // read as nothing for as long as it waited in the queue, every
             // time it got sharper. (A slot never made has no view at
             // `(0, 0)` to ask after: the ask took the views' lock for
-            // nothing, some 40,000 times a frame in `sync_heaps`.)
+            // nothing, some 40,000 times a frame in `sync_heaps`; and a view
+            // that is not a read-only placed one can never match the view
+            // the slot shows, so the ask is skipped for those too.)
             let shown = made.load(Relaxed);
             if later
                 && keep_views()
                 && shown != 0
+                && matches!(view, View::Placed(false, _, _))
                 && view_at(shown as u32, (shown >> 32) as u32)
                     .is_some_and(|old| same_placed_texture(&old, &view))
             {
