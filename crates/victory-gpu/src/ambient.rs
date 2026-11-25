@@ -325,11 +325,6 @@ pub(crate) fn replace(list: &HostList, light: This, depth: Option<This>) -> bool
         ONCE.call_once(|| tracing::warn!(format = d.Format.0, "no stand-in for indirect light (VICTORY_AMBIENT): its image has another format"));
         return false;
     }
-    ONCE.call_once(|| {
-        tracing::info!(level, width = d.Width, height = d.Height, "indirect light is replaced by a constant (VICTORY_AMBIENT)");
-    });
-    let slot = pass.next.fetch_add(1, Ordering::Relaxed) % SLOTS * 2;
-    list.keep(light);
     // The depth the resolve just read, in the state it read it in; of the
     // light's size, or the shading is left out.
     let depth = depth.and_then(|depth| crate::resource::host_resource(depth)).filter(|t| {
@@ -337,6 +332,17 @@ pub(crate) fn replace(list: &HostList, light: This, depth: Option<This>) -> bool
         let t = unsafe { t.GetDesc() };
         t.Format == DXGI_FORMAT_R32G8X24_TYPELESS && (t.Width, t.Height) == (d.Width, d.Height)
     });
+    ONCE.call_once(|| {
+        tracing::info!(
+            level,
+            width = d.Width,
+            height = d.Height,
+            shaded = depth.is_some(),
+            "indirect light is replaced by a constant (VICTORY_AMBIENT)"
+        );
+    });
+    let slot = pass.next.fetch_add(1, Ordering::Relaxed) % SLOTS * 2;
+    list.keep(light);
     if let Some(depth) = depth {
         list.keep(depth);
     }
