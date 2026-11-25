@@ -1104,6 +1104,10 @@ impl State {
     /// False if the draw or dispatch must not run: a root SRV it reads
     /// could not be given a view.
     pub(crate) fn bind(&mut self, list: &HostList, p: &HostPipeline, compute: bool) -> bool {
+        #[cfg(feature = "frame-sampling")]
+        if !compute && let Some(v) = self.viewports.first() {
+            crate::bench_reads::viewport(v.Width as u32, v.Height as u32);
+        }
         let l = &list.list;
         // Textures picked by index, before anything asks for them.
         self.early_textures(list, p, compute);

@@ -7442,7 +7442,10 @@ impl Batch {
 /// reports an unmapped page instead of faulting. Asking `VirtualQuery` first
 /// cost about 2 ms per copy in the title's big pools (it walks the page
 /// tables to the region's end), which made copies run at 100-200 MB/s.
+#[cfg_attr(feature = "frame-sampling", track_caller)]
 pub(crate) fn copy_mapped(dst: *mut u8, src: *const u8, len: usize, title_dst: bool) {
+    #[cfg(feature = "frame-sampling")]
+    let _sample = crate::bench_reads::read(len);
     #[cfg(feature = "diagnostics")]
     match crate::copystat::mode() {
         1 => {
@@ -7563,7 +7566,10 @@ fn read_pieces(src: *const u8, dst: *mut u8, len: usize) {
 
 /// Reads title memory at `src` into `dst`; false if a page of it is not
 /// readable.
+#[cfg_attr(feature = "frame-sampling", track_caller)]
 pub(crate) fn read_into(src: *const u8, dst: &mut [u8]) -> bool {
+    #[cfg(feature = "frame-sampling")]
+    let _sample = crate::bench_reads::read(dst.len());
     #[cfg(feature = "diagnostics")]
     crate::backreads::touched(src as usize, dst.len(), false);
     // In place first, if asked for (`crate::plaincopy`): the destination is
@@ -7840,6 +7846,11 @@ impl Meter {
         }
         let drawn = crate::draw::drawn();
         let frames = f64::from(self.frames);
+        #[cfg(feature = "frame-sampling")]
+        {
+            tracing::info!(target: "victory_bench", frames = self.frames, interval_us = elapsed.as_micros() as u64, draws = drawn - self.drawn, "presents");
+            crate::bench_reads::report();
+        }
         let fps = frames / elapsed.as_secs_f64();
         crate::fpsbox::set(fps);
         let ms = elapsed.as_secs_f64() * 1000.0 / frames;

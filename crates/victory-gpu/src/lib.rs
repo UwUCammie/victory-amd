@@ -19,6 +19,8 @@
 mod backreads;
 #[cfg(all(windows, feature = "diagnostics"))]
 mod capture;
+#[cfg(all(windows, feature = "frame-sampling"))]
+mod bench_reads;
 #[cfg(windows)]
 mod cardmeter;
 #[cfg(all(windows, feature = "diagnostics"))]
