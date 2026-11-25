@@ -52,6 +52,10 @@ fn build() -> &'static [u8; 32] {
                 "VICTORY_SHADER_LOOP_LIMIT: translated loops stop sooner"
             );
         }
+        // The view heap's null slot differs by host GPU and is part of the
+        // translation: asked before it is read below (a no-op when the
+        // caller did, as `pipeline::translate` does).
+        crate::descriptor::host::probe_view_limit();
         let mut hash = blake3::Hasher::new();
         for source in victory_shader::sources().iter().copied().chain([include_str!("shader_cache.rs")]) {
             hash.update(&(source.len() as u64).to_le_bytes());
