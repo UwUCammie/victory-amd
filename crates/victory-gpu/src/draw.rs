@@ -352,6 +352,19 @@ pub(crate) static HEAP_TEXTURES_WAITING: AtomicU64 = AtomicU64::new(0);
 /// Passes that made no texture because the card had no room
 /// (`crate::resource::room`), for the memory line.
 pub(crate) static HEAP_TEXTURES_FULL: AtomicU64 = AtomicU64::new(0);
+
+/// Looks at uploaded textures picked by index that found the memory as it
+/// was, that found it changed (uploaded again), since the start; and the
+/// slots that wait for such a look now.
+pub(crate) static HEAP_TEXTURES_RECHECKED: [AtomicU64; 3] = [const { AtomicU64::new(0) }; 3];
+
+/// Whether textures picked by index are looked at again after their upload
+/// (`VICTORY_HEAP_RECHECK=0`: no).
+fn heap_recheck() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("VICTORY_HEAP_RECHECK").is_none_or(|v| v != "0"))
+}
+
 /// Times a placed texture's slot was passed over because its memory is not
 /// mapped.
 pub(crate) static HEAP_TEXTURES_AWAY: AtomicU64 = AtomicU64::new(0);
@@ -1506,6 +1519,12 @@ impl State {
         // wrote since the last pass are due again.
         host.texture_slots_remapped(frame);
         host.texture_sweep(heap, frame);
+        if heap_recheck() {
+            let [same, changed, waiting] = host.texture_slots_rechecked(frame);
+            HEAP_TEXTURES_RECHECKED[0].fetch_add(same, Ordering::Relaxed);
+            HEAP_TEXTURES_RECHECKED[1].fetch_add(changed, Ordering::Relaxed);
+            HEAP_TEXTURES_RECHECKED[2].store(waiting, Ordering::Relaxed);
+        }
         let (due, census) = host.texture_slots_due(frame, 4096);
         HEAP_TEXTURES_WAITING.store(census[0], Ordering::Relaxed);
         for (count, now) in HEAP_TEXTURES_QUEUE.iter().zip(census) {
@@ -1667,11 +1686,20 @@ impl State {
             // yet, makes it anew. (Kept for those until now: every partly
             // streamed texture of the heap held a staging buffer of its full
             // size for good.)
+            let memory = if again.is_none() && heap_recheck() {
+                crate::texture::staged_memory(resource)
+            } else {
+                None
+            };
             crate::texture::unstage(resource);
             SPENT.fetch_add(bytes, Ordering::Relaxed);
             HEAP_TEXTURE_BYTES.fetch_add(bytes, Ordering::Relaxed);
             HEAP_TEXTURES.fetch_add(1, Ordering::Relaxed);
             host.texture_slot_done(index, write, again);
+            // Whole and uploaded: looked at again (`texture_slots_rechecked`).
+            if let Some((at, len)) = memory {
+                host.texture_slot_recheck(index, frame, (at, len), crate::texture::fingerprint(at, len));
+            }
         }
         catching_up(began.elapsed().saturating_sub(SPAN));
     }

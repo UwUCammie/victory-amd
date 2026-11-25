@@ -344,12 +344,36 @@ struct Waiting {
     mapped: u64,
 }
 
+/// A title slot whose texture was uploaded whole, and is looked at again:
+/// the title may fill the texture's memory only after it wrote the view.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Recheck {
+    /// The frame from which the next look is due.
+    due: u64,
+    /// Its memory: address and bytes.
+    pub(crate) at: (u64, u64),
+    /// The fingerprint of it at the upload (`crate::texture::fingerprint`).
+    pub(crate) print: u64,
+    /// Looks that found it unchanged.
+    pub(crate) looks: u8,
+    /// The frame of the upload.
+    pub(crate) uploaded: u64,
+}
+
+/// Frames after a whole upload of a texture picked by index at which its
+/// memory is looked at again, each counted from the look before.
+const RECHECK_FRAMES: [u64; 5] = [4, 12, 40, 120, 400];
+
 /// The queue of title slots whose texture view waits to be brought up to
 /// date for shaders that pick textures by index: which are due, and in
 /// which order (no host heap needed, so it is tested without one).
 #[derive(Default)]
 pub(crate) struct TextureQueue {
     slots: std::collections::BTreeMap<u32, Waiting>,
+    /// Slots out of the queue (uploaded whole) that are looked at again.
+    /// Kept apart: they wait for nothing, and a slot in here is not one
+    /// that will be brought up to date anyway.
+    rechecks: std::collections::BTreeMap<u32, Recheck>,
     writes: u64,
 }
 
@@ -364,11 +388,60 @@ impl TextureQueue {
         }
         self.writes += 1;
         let write = self.writes;
+        self.rechecks.remove(&index);
         self.slots.insert(index, Waiting { due, written: frame, write, looks: 0, mapped: 0 });
     }
 
     fn remove(&mut self, index: u32) {
         self.slots.remove(&index);
+        self.rechecks.remove(&index);
+    }
+
+    /// Slot `index` was uploaded whole in `frame` from memory `at`, whose
+    /// fingerprint is `print`: looked at again ([`RECHECK_FRAMES`]), unless
+    /// it was written again meanwhile and waits in the queue.
+    fn recheck(&mut self, index: u32, frame: u64, at: (u64, u64), print: u64) {
+        if !self.slots.contains_key(&index) {
+            let due = frame + RECHECK_FRAMES[0];
+            self.rechecks.insert(index, Recheck { due, at, print, looks: 0, uploaded: frame });
+        }
+    }
+
+    /// Up to `max` of the slots whose next look is due at `frame`, the ones
+    /// due longest first.
+    fn rechecks_due(&self, frame: u64, max: usize) -> Vec<(u32, Recheck)> {
+        let mut due: Vec<(u32, Recheck)> = self
+            .rechecks
+            .iter()
+            .filter(|(_, r)| r.due <= frame)
+            .map(|(&index, &r)| (index, r))
+            .collect();
+        due.sort_unstable_by_key(|&(index, r)| (r.due, index));
+        due.truncate(max);
+        due
+    }
+
+    /// What a look at slot `index` (as [`TextureQueue::rechecks_due`] gave
+    /// it) found: unchanged, and the next look is some frames on, or none;
+    /// changed, and the slot is due now as one written now. A slot written
+    /// or uploaded again since is left alone.
+    fn rechecked(&mut self, index: u32, seen: &Recheck, changed: bool, frame: u64) {
+        if self.rechecks.get(&index) != Some(seen) {
+            return;
+        }
+        if changed {
+            self.changed(index, frame, frame);
+            return;
+        }
+        match RECHECK_FRAMES.get(usize::from(seen.looks) + 1) {
+            Some(wait) => {
+                let next = Recheck { due: frame + wait, looks: seen.looks + 1, ..*seen };
+                self.rechecks.insert(index, next);
+            }
+            None => {
+                self.rechecks.remove(&index);
+            }
+        }
     }
 
     /// Up to `max` slots due at `frame`, each with its write number, in
@@ -443,6 +516,7 @@ impl TextureQueue {
         self.writes += 1;
         let write = self.writes;
         let due = self.slots.get(&index).map_or(due, |w| w.due.min(due));
+        self.rechecks.remove(&index);
         self.slots.insert(index, Waiting { due, written: frame, write, looks: 0, mapped: 0 });
     }
 
@@ -874,6 +948,55 @@ impl HostHeap {
         }
     }
 
+    /// Title slot `index` was uploaded whole: see [`TextureQueue::recheck`].
+    pub(crate) fn texture_slot_recheck(&self, index: u32, frame: u64, at: (u64, u64), print: u64) {
+        let mut textures = self.textures.lock().unwrap_or_else(|e| e.into_inner());
+        textures.recheck(index, frame, at, print);
+    }
+
+    /// Looks again at slots uploaded whole: the title writes a texture's
+    /// view, and may fill the texture's memory itself only afterwards, with
+    /// no descriptor write and nothing from the runtime to tell of it. The
+    /// host copy then kept what the memory held at the first look for the
+    /// rest of the run. A changed one goes back into the queue. Returns how
+    /// many were unchanged and changed, and how many wait for a look.
+    pub(crate) fn texture_slots_rechecked(&self, frame: u64) -> [u64; 3] {
+        /// Looks per pass (each reads 48 KiB), and the time they may take.
+        const MOST: usize = 256;
+        const SPAN: std::time::Duration = std::time::Duration::from_millis(15);
+        let (due, waiting) = {
+            let textures = self.textures.lock().unwrap_or_else(|e| e.into_inner());
+            (textures.rechecks_due(frame, MOST), textures.rechecks.len() as u64)
+        };
+        let began = std::time::Instant::now();
+        let mut found = [0, 0, waiting];
+        for (index, seen) in due {
+            if began.elapsed() > SPAN {
+                break;
+            }
+            let changed = crate::texture::fingerprint(seen.at.0, seen.at.1) != seen.print;
+            found[usize::from(changed)] += 1;
+            if changed {
+                static SAID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+                let n = SAID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                if n < 40 || n.is_multiple_of(1000) {
+                    tracing::info!(
+                        slot = index,
+                        address = format_args!("{:#x}", seen.at.0),
+                        bytes = seen.at.1,
+                        frames_after_upload = frame.saturating_sub(seen.uploaded),
+                        looks = seen.looks,
+                        changed = n + 1,
+                        "a texture picked by index changed after its upload with nothing to tell of it: uploaded again"
+                    );
+                }
+            }
+            let mut textures = self.textures.lock().unwrap_or_else(|e| e.into_inner());
+            textures.rechecked(index, &seen, changed, frame);
+        }
+        found
+    }
+
     /// Nothing to upload at title slot `index` now (its memory is not
     /// mapped, or no more of it than before): looked at again after 1, 2,
     /// 4, ... frames, at most `most`.
@@ -1079,6 +1202,7 @@ impl HostHeap {
             return false;
         }
         self.unmake(&mut made, index);
+        self.textures.lock().unwrap_or_else(|e| e.into_inner()).rechecks.remove(&index);
         STALE[4].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         true
     }
@@ -2671,6 +2795,61 @@ mod tests {
         // Nothing inside: as it was, for the host check to refuse.
         assert_eq!(elements_inside(10, 10, 16, 160), 10);
         assert_eq!(elements_inside(0, 7, 4, 1 << 40), 7);
+    }
+
+    /// A slot uploaded whole is looked at a few times, further and further
+    /// apart; one found changed is due at once; one written again, taken
+    /// out or waiting in the queue is not looked at.
+    #[test]
+    fn uploaded_textures_are_looked_at_again() {
+        let mut q = TextureQueue::default();
+        let at = (0x1000, 64);
+        q.written(7, 1, 1, false);
+        let write = q.due(1, 1)[0].1;
+        q.recheck(7, 1, at, 5);
+        assert!(q.rechecks_due(1000, 9).is_empty(), "it waits in the queue");
+        q.done(7, write);
+        q.recheck(7, 1, at, 5);
+        assert_eq!(q.census(1000)[0], 0, "no slot of the queue");
+        let mut frame = 1;
+        for wait in RECHECK_FRAMES {
+            assert!(q.rechecks_due(frame + wait - 1, 9).is_empty());
+            frame += wait;
+            let due = q.rechecks_due(frame, 9);
+            assert_eq!(due.len(), 1);
+            q.rechecked(7, &due[0].1, false, frame);
+        }
+        assert!(q.rechecks_due(u64::MAX, 9).is_empty(), "the looks are over");
+        q.recheck(7, frame, at, 5);
+        let due = q.rechecks_due(u64::MAX, 9);
+        q.rechecked(7, &due[0].1, true, frame + 4);
+        assert_eq!(q.due(frame + 4, 9)[0].0, 7);
+        assert!(q.rechecks_due(u64::MAX, 9).is_empty());
+        // A draw makes the host slot anew: the slot is due although a look
+        // at it was still to come.
+        q.recheck(8, 1, at, 5);
+        let seen = q.rechecks_due(u64::MAX, 9);
+        q.written(8, 2, 2, true);
+        assert!(q.due(2, 9).iter().any(|d| d.0 == 8));
+        q.rechecked(8, &seen[0].1, false, 5);
+        assert!(q.rechecks_due(u64::MAX, 9).is_empty());
+    }
+
+    /// The fingerprint of a texture's memory sees a change at its start, in
+    /// its middle and at its end, and is the same for the same bytes.
+    #[test]
+    fn a_fingerprint_sees_changes() {
+        let mut memory = vec![3u8; 1 << 20];
+        let print = |m: &[u8]| crate::texture::fingerprint(m.as_ptr() as u64, m.len() as u64);
+        let before = print(&memory);
+        assert_eq!(print(&memory), before);
+        let last = memory.len() - 1;
+        for at in [0, (memory.len() - 4096) / 11 * 5 & !0xfff, last] {
+            memory[at] ^= 1;
+            assert_ne!(print(&memory), before, "byte {at}");
+            memory[at] ^= 1;
+        }
+        assert_ne!(print(&memory[..100]), print(&memory[..200]));
     }
 
     #[test]

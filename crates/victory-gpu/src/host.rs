@@ -5742,6 +5742,12 @@ impl Meter {
                 crate::descriptor::host::KEPT_VIEWS.load(Ordering::Relaxed)
             );
             {
+                let [same, changed, waiting] =
+                    [0, 1, 2].map(|i| crate::draw::HEAP_TEXTURES_RECHECKED[i].load(Ordering::Relaxed));
+                tracing::info!(
+                    "textures picked by index, looked at again after their upload: {same} looks found them unchanged, \
+                     {changed} changed (uploaded again), {waiting} wait for a look"
+                );
                 let [queued, due, away, partly, oldest] =
                     [0, 1, 2, 3, 4].map(|i| crate::draw::HEAP_TEXTURES_QUEUE[i].load(Ordering::Relaxed));
                 let [same, parts, tails] =

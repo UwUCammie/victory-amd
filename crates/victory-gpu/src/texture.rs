@@ -902,6 +902,48 @@ pub(crate) fn upload_again(resource: This) {
     }
 }
 
+/// Where a staged title texture's memory is: address and bytes.
+pub(crate) fn staged_memory(resource: This) -> Option<(u64, u64)> {
+    let map = STAGING.lock().unwrap_or_else(|e| e.into_inner());
+    let (at, len) = map.as_ref()?.get(&(resource as usize))?.memory();
+    Some((at as u64, len as u64))
+}
+
+/// A fingerprint of the title memory `[at, at + len)`: of all of it up to
+/// 48 KiB, else of twelve pieces of 4 KiB spread evenly over it, the first
+/// and the last included. Read through the kernel, so pages not there count
+/// as zeros. (A texture whose change falls between the pieces is missed.)
+pub(crate) fn fingerprint(at: u64, len: u64) -> u64 {
+    const PIECE: usize = 4 << 10;
+    const PIECES: usize = 12;
+    thread_local! {
+        static READ: std::cell::RefCell<Vec<u8>> = const { std::cell::RefCell::new(Vec::new()) };
+    }
+    let len = len as usize;
+    READ.with(|read| {
+        let mut read = read.borrow_mut();
+        read.resize(PIECES * PIECE, 0);
+        let mut hasher = blake3::Hasher::new();
+        let mut take = |from: usize, bytes: usize| {
+            read[..bytes].fill(0);
+            crate::host::copy_mapped(read.as_mut_ptr(), (at as usize + from) as *const u8, bytes, false);
+            hasher.update(&read[..bytes]);
+        };
+        if len <= PIECES * PIECE {
+            take(0, len);
+        } else {
+            for n in 0..PIECES - 1 {
+                take(((len - PIECE) / (PIECES - 1) * n) & !0xfff, PIECE);
+            }
+            take(len - PIECE, PIECE);
+        }
+        let hash = hasher.finalize();
+        let mut first = [0u8; 8];
+        first.copy_from_slice(&hash.as_bytes()[..8]);
+        u64::from_le_bytes(first)
+    })
+}
+
 /// Whether a title texture has a staging buffer: a list recorded its
 /// upload, and the lists that sample it check it at submission.
 pub(crate) fn is_staged(resource: This) -> bool {
