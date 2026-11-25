@@ -1645,6 +1645,9 @@ static CARD_WORK: Mutex<Option<CardWork>> = Mutex::new(None);
 /// to 16 bytes; buffers are multiples of 64 KiB, and a piece flagged for a
 /// byte just outside the range costs a fetch that finds nothing.
 pub(crate) const CARD_COMPARE: &str = r#"
+#ifndef CARD_PIECE_BYTES
+#define CARD_PIECE_BYTES 65536u
+#endif
 #define RS "RootConstants(num32BitConstants=6, b0), SRV(t0), UAV(u0), UAV(u1)"
 cbuffer Span : register(b0) {
     uint first;    // the first piece
@@ -1670,9 +1673,9 @@ void main(uint3 group : SV_GroupID, uint t : SV_GroupIndex) {
     [loop]
     for (uint i = group.x; i < pieces; i += 65535u) {
         uint piece = first + i;
-        uint lo = piece * 65536u;
+        uint lo = piece * CARD_PIECE_BYTES;
         lo = lo > skew ? lo - skew : 0u;
-        uint hi = min((piece + 1u) * 65536u - skew, size);
+        uint hi = min((piece + 1u) * CARD_PIECE_BYTES - skew, size);
         lo = lo & ~15u;
         hi = (hi + 15u) & ~15u;
         uint4 h = uint4(0x9E3779B9u ^ t, 0x85EBCA6Bu + t * 17u, 0xC2B2AE35u, 0x27D4EB2Fu);
@@ -1773,7 +1776,7 @@ pub(crate) const INFLIGHT_NONE: u32 = 0xffff_ffff;
 /// What `Shadow::card_piece` gives for the piece lies at or above it, and
 /// within [`INFLIGHT_SLOT`] of it.
 pub(crate) fn inflight_piece_from(span: &crate::shadow::CardSpan, i: u32) -> usize {
-    let lo = (span.first + i) as usize * 65536;
+    let lo = (span.first + i) as usize * crate::shadow::card_piece_bytes();
     let lo = lo.saturating_sub(span.skew as usize);
     lo & !15
 }
@@ -1799,6 +1802,9 @@ pub(crate) fn inflight_gets_slot(k: u32, floor: u32, slots: u32) -> bool {
 /// slot (the landing repeats the test with the plan's `landed`), or
 /// [`INFLIGHT_NONE`].
 pub(crate) const CARD_FETCH: &str = r#"
+#ifndef CARD_PIECE_BYTES
+#define CARD_PIECE_BYTES 65536u
+#endif
 #define RS "RootConstants(num32BitConstants=8, b0), SRV(t0), UAV(u0), UAV(u1), UAV(u2)"
 #define SLOT 65552u
 #define NONE 0xffffffffu
@@ -1837,9 +1843,9 @@ void main(uint3 group : SV_GroupID, uint t : SV_GroupIndex) {
         GroupMemoryBarrierWithGroupSync();
         if (k != NONE && (k - landed) < slots) {
             uint piece = first + i;
-            uint lo = piece * 65536u;
+            uint lo = piece * CARD_PIECE_BYTES;
             lo = lo > skew ? lo - skew : 0u;
-            uint hi = min((piece + 1u) * 65536u - skew, size);
+            uint hi = min((piece + 1u) * CARD_PIECE_BYTES - skew, size);
             lo = lo & ~15u;
             hi = (hi + 15u) & ~15u;
             uint into = (k % slots) * SLOT;
@@ -4212,13 +4218,14 @@ impl Host {
     fn make_card_work(&self) -> windows::core::Result<CardWork> {
         use windows::Win32::Graphics::Direct3D::Fxc::D3DCompile;
         use windows::Win32::Graphics::Direct3D::ID3DBlob;
+        let source = format!("#define CARD_PIECE_BYTES {}u\n{}", crate::shadow::card_piece_bytes(), CARD_COMPARE);
         let mut code: Option<ID3DBlob> = None;
         // SAFETY: the source and names live through the call; the out
         // pointer is ours.
         unsafe {
             D3DCompile(
-                CARD_COMPARE.as_ptr().cast(),
-                CARD_COMPARE.len(),
+                source.as_ptr().cast(),
+                source.len(),
                 windows::core::s!("card compare"),
                 None,
                 None,
@@ -4271,13 +4278,14 @@ impl Host {
         use windows::Win32::Graphics::Direct3D::Fxc::D3DCompile;
         use windows::Win32::Graphics::Direct3D::ID3DBlob;
         let made = (|| -> windows::core::Result<CardInflight> {
+            let source = format!("#define CARD_PIECE_BYTES {}u\n{}", crate::shadow::card_piece_bytes(), CARD_FETCH);
             let mut code: Option<ID3DBlob> = None;
             // SAFETY: the source and names live through the call; the out
             // pointer is ours.
             unsafe {
                 D3DCompile(
-                    CARD_FETCH.as_ptr().cast(),
-                    CARD_FETCH.len(),
+                    source.as_ptr().cast(),
+                    source.len(),
                     windows::core::s!("card fetch in flight"),
                     None,
                     None,
