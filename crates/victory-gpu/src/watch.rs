@@ -488,7 +488,7 @@ fn failed_asking(start: usize, end: usize) {
     let (protected, clean, absent, viewed, aliased) = {
         let g = guards();
         let b = start / BLOCK;
-        (g.protected.contains(b), g.clean.contains(b), g.absent.contains(&b), g.viewed.contains(&b), g.aliased.contains(&b))
+        (g.protected.contains(b), g.clean.contains(b), g.absent.contains(&b), g.viewed.contains(b), g.aliased.contains(&b))
     };
     tracing::info!(
         "a failed write-watch asking (one in 2048): {start:#x}+{:#x}; Windows says (answered {n}): base {:#x} region {:#x} state {:#x} type {:#x} protect {:#x} allocation protect {:#x}; \
@@ -559,7 +559,7 @@ fn known_view(start: usize) -> bool {
     }
     let g = guards();
     let first = start / BLOCK;
-    g.protected.contains(first) || g.absent.contains(&first) || (view_known() && g.viewed.contains(&first))
+    g.protected.contains(first) || g.absent.contains(&first) || (view_known() && g.viewed.contains(first))
 }
 
 /// Disjoint, non-adjacent maximal `[start, end)` runs of 64 KiB block indices
@@ -736,7 +736,7 @@ struct Guards {
     /// With [`view_known`]: blocks made read-only at least once since the
     /// runtime last mapped or unmapped them. They are view memory whether
     /// their guard stands now or a write has opened it.
-    viewed: BTreeSet<usize>,
+    viewed: BlockRuns,
 }
 
 /// Whether a block once guarded stays known as view memory while its
@@ -785,7 +785,7 @@ static GUARDS: Mutex<Guards> = Mutex::new(Guards {
     clean: BlockRuns::new(),
     absent: BTreeSet::new(),
     aliased: BTreeSet::new(),
-    viewed: BTreeSet::new(),
+    viewed: BlockRuns::new(),
 });
 
 fn guards() -> std::sync::MutexGuard<'static, Guards> {
@@ -829,7 +829,7 @@ fn guard(start: usize, end: usize) -> Option<Vec<usize>> {
     let known = !ask
         && (g.protected.contains(first)
             || g.absent.contains(&first)
-            || (view_known() && g.viewed.contains(&first)));
+            || (view_known() && g.viewed.contains(first)));
     if !known {
         // The question walks the page tables; not under our lock.
         drop(g);
@@ -938,29 +938,19 @@ fn protect(g: &mut Guards, from: usize, to: usize) {
     if !view_guard() {
         return;
     }
-    let mut alias_blocks: Vec<usize> = Vec::new();
-    for (base, bytes) in crate::inplace::views_between(from.saturating_mul(BLOCK), to.saturating_mul(BLOCK)) {
-        let first = (base / BLOCK).max(from);
-        let last = (base.saturating_add(bytes).div_ceil(BLOCK)).min(to);
-        for block in first..last {
-            let shown = crate::inplace::pages_of(block * BLOCK);
-            // One view (nothing else to guard), or the page the title shows
-            // wherever it has nothing (thousands of views): each view of
-            // that one is guarded by itself.
-            if shown.len() < 2 || shown.len() > MANY_VIEWS {
-                continue;
-            }
-            #[cfg(feature = "diagnostics")]
-            ALIASES[0].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            for alias in shown {
-                let alias = alias / BLOCK;
-                g.aliased.insert(alias);
-                if alias != block && !g.protected.contains(alias) {
-                    alias_blocks.push(alias);
-                }
-            }
-        }
+    let (aliased_pages, all_aliased, others) =
+        crate::inplace::alias_targets_in(from, to, BLOCK, MANY_VIEWS);
+    #[cfg(feature = "diagnostics")]
+    if aliased_pages != 0 {
+        ALIASES[0].fetch_add(aliased_pages, std::sync::atomic::Ordering::Relaxed);
     }
+    #[cfg(not(feature = "diagnostics"))]
+    let _ = aliased_pages;
+    for alias in all_aliased {
+        g.aliased.insert(alias);
+    }
+    let mut alias_blocks: Vec<usize> =
+        others.into_iter().filter(|&alias| !g.protected.contains(alias)).collect();
     // Blocks that follow one another are made read-only in one call, as
     // `protect_alias` does for each of them one at a time.
     if alias_blocks.len() > 1 {
@@ -990,7 +980,7 @@ fn protect(g: &mut Guards, from: usize, to: usize) {
         if set != 0 {
             g.protected.insert_range(run_start, run_end);
             if view_known() {
-                g.viewed.extend(run_start..run_end);
+                g.viewed.insert_range(run_start, run_end);
             }
         } else {
             // A run can span views the kernel only lets be guarded one
@@ -1060,7 +1050,7 @@ fn protect_here(g: &mut Guards, from: usize, to: usize) {
         g.protected.insert_range(from, to);
         g.clean.insert_range(from, to);
         if view_known() {
-            g.viewed.extend(from..to);
+            g.viewed.insert_range(from, to);
         }
     };
     if set(from, to) {
@@ -1369,14 +1359,11 @@ pub fn title_memory_remapped(at: usize, len: usize) {
         // that the next asking about each range went to the kernel twice
         // (run 235: 266 to 565 failed askings a frame with the blocks
         // remembered from their guards alone, no fewer than without).
-        g.viewed.extend(at / BLOCK..at.saturating_add(len).div_ceil(BLOCK));
+        g.viewed.insert_range(r_from, r_to);
         return;
     }
     // What the range shows is new: no longer known to be a view.
-    let viewed: Vec<usize> = g.viewed.range(at / BLOCK..at.saturating_add(len).div_ceil(BLOCK)).copied().collect();
-    for block in viewed {
-        g.viewed.remove(&block);
-    }
+    g.viewed.remove_range(r_from, r_to);
 }
 
 /// Registers the handler that takes writes to guarded blocks, once, ahead

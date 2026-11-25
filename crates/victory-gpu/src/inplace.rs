@@ -346,6 +346,9 @@ pub(crate) fn views_gone(at: usize, len: usize) {
 }
 
 /// The title views that overlap `[start, end)`, as `(address, bytes)`.
+// `watch::protect` now walks this under one lock with `pages_of`'s lookup
+// (`alias_targets_in`); this stays as the single-range form.
+#[allow(dead_code)]
 pub(crate) fn views_between(start: usize, end: usize) -> Vec<(usize, usize)> {
     if start >= end {
         return Vec::new();
@@ -375,6 +378,75 @@ pub(crate) fn pages_of(page: usize) -> Vec<usize> {
         return Vec::new();
     }
     v.pages.get(&(section, offset + within as u64)).cloned().unwrap_or_default()
+}
+
+/// Under one `VIEWS` lock: for every mapped view overlapping
+/// `[from_block * block_size, to_block * block_size)`, gathers all alias
+/// block indices for pages mapped in `2..=many_views` views.
+/// Returns `(aliased_page_count, all_aliased_blocks, other_blocks_to_guard)`
+/// matching the exact per-block `views_between` + `pages_of` loop in
+/// `watch::protect`.
+pub(crate) fn alias_targets_in(
+    from_block: usize,
+    to_block: usize,
+    block_size: usize,
+    many_views: usize,
+) -> (u64, Vec<usize>, Vec<usize>) {
+    let mut aliased_pages = 0u64;
+    let mut all_aliased: Vec<usize> = Vec::new();
+    let mut others: Vec<usize> = Vec::new();
+    let (start, end) = (from_block.saturating_mul(block_size), to_block.saturating_mul(block_size));
+    if start >= end {
+        return (aliased_pages, all_aliased, others);
+    }
+    // One lock for the whole range: the same views `views_between` finds,
+    // then `pages_of`'s lookup for each of their blocks, without taking the
+    // lock again per block.
+    let v = views();
+    let mut first = None;
+    if let Some((&base, &(bytes, _, _))) = v.views.range(..=start).next_back()
+        && base + bytes > start
+    {
+        first = Some((base, bytes));
+    }
+    let reached = v
+        .views
+        .range(start.saturating_add(1)..end)
+        .map(|(&base, &(bytes, _, _))| (base, bytes));
+    for (base, bytes) in first.into_iter().chain(reached) {
+        let first = (base / block_size).max(from_block);
+        let last = (base.saturating_add(bytes).div_ceil(block_size)).min(to_block);
+        for block in first..last {
+            let page = block * block_size;
+            // As `pages_of(page)`: the view this page address belongs to,
+            // and the addresses of the same physical page in every view.
+            let Some((&shown_base, &(shown_bytes, section, offset))) = v.views.range(..=page).next_back() else {
+                continue;
+            };
+            let within = page.wrapping_sub(shown_base);
+            if within >= shown_bytes || !within.is_multiple_of(K64) {
+                continue;
+            }
+            let Some(shown) = v.pages.get(&(section, offset + within as u64)) else {
+                continue;
+            };
+            // One view (nothing else to guard), or the page the title shows
+            // wherever it has nothing (thousands of views): each view of
+            // that one is guarded by itself.
+            if shown.len() < 2 || shown.len() > many_views {
+                continue;
+            }
+            aliased_pages += 1;
+            for &alias_addr in shown {
+                let alias = alias_addr / block_size;
+                all_aliased.push(alias);
+                if alias != block {
+                    others.push(alias);
+                }
+            }
+        }
+    }
+    (aliased_pages, all_aliased, others)
 }
 
 /// The title views that show any of the physical bytes `[offset, offset +
