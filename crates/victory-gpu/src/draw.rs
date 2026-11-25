@@ -308,6 +308,12 @@ pub(crate) static WINDOW_WHY: [std::sync::atomic::AtomicU64; 14] = [const { std:
 pub(crate) fn window_line(frames: f64) {
     let n: Vec<f64> = WINDOW_WHY.iter().map(|n| n.swap(0, std::sync::atomic::Ordering::Relaxed) as f64 / frames.max(1.0)).collect();
     let g: Vec<f64> = crate::indirect::GATHER_NONE.iter().map(|n| n.swap(0, std::sync::atomic::Ordering::Relaxed) as f64 / frames.max(1.0)).collect();
+    let r: Vec<f64> = crate::indirect::GATHER_RUNS.iter().map(|n| n.swap(0, std::sync::atomic::Ordering::Relaxed) as f64 / frames.max(1.0)).collect();
+    tracing::info!(
+        "indirect records gathered by runs inside their lists per frame (VICTORY_INDIRECT_GATHER_RUNS): {:.0} records in {:.0} passes",
+        r[1],
+        r[0]
+    );
     tracing::info!(
         "indirect commands per frame by their clamp: {:.0} read from a window (no pass of ours); a pass of ours for {:.0}: {:.0} dispatches, {:.0} of more than one record, {:.0} with a count \
          buffer, {:.0} whose shaders can store to buffers, {:.0} first on their list, {:.0} with no window on their argument buffer, {:.0} off the window's walk, {:.0} past the window's end; \
@@ -3624,10 +3630,16 @@ impl State {
                 }
                 (scratch, at, None)
             }
-            (None, Some((scratch, at))) => {
+            (None, Some((scratch, at, recorded))) => {
                 // The record's bytes are up to date when the list is
                 // submitted, as for a record clamped in the list.
                 args.refresh(list, arguments, len);
+                // A run's pass was recorded for it: the pass bound a
+                // compute pipeline and root signature of its own.
+                if recorded {
+                    self.host_pipeline = 0;
+                    self.host_roots[1] = 0;
+                }
                 // Diagnostics of windows, for gathered records too: the
                 // record clamped again here and compared.
                 if crate::indirect::window_check() && crate::indirect::check_hit(list, (&args.buffer, offset), (kind, stride), &scratch, at) {
