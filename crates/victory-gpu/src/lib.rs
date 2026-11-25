@@ -46,6 +46,8 @@ pub mod frame;
 #[cfg(windows)]
 pub mod framelog;
 #[cfg(windows)]
+mod fx;
+#[cfg(windows)]
 mod host;
 #[cfg(windows)]
 mod indirect;
