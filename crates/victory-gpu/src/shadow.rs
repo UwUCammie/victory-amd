@@ -100,12 +100,13 @@ struct Card {
     before: Mutex<Option<ID3D12Resource>>,
     /// Offsets of the copy whose bytes changed on the CPU's side and have
     /// not gone to the card's side yet.
-    dirty: Mutex<Vec<(usize, usize)>>,
-    /// With [`relay`]: the offsets that went from `dirty` to the card's
-    /// side, each with the number of the send that took it
-    /// ([`card_dirty`]), kept until a fetch sent after it has been merged.
-    /// Locked inside `dirty`'s lock.
-    sent: Mutex<Vec<(usize, usize, u64)>>,
+    dirty: std::sync::RwLock<Vec<(usize, usize)>>,
+    /// With [`relay`]: per-submission sorted, disjoint batches of offsets that
+    /// went from `dirty` to the card's side, as `(sent_as, min_lo, max_hi, runs)`
+    /// ([`card_dirty`]), kept until a fetch sent after them has been merged.
+    /// Locked inside `dirty`'s lock when writing; read in parallel by
+    /// `wide_merge` workers with bounding-box skip + binary search.
+    sent: std::sync::RwLock<Vec<(u64, usize, usize, Vec<(usize, usize)>)>>,
     /// The buffers' bytes (the title buffer's, rounded up to 64 KiB).
     size: u64,
 }
@@ -386,18 +387,21 @@ pub(crate) fn card_dirty(sent_as: u64) -> Vec<(Arc<Shadow>, Vec<(usize, usize)>)
             .card
             .as_ref()
             .map(|c| {
-                let mut dirty = c.dirty.lock().unwrap_or_else(|e| e.into_inner());
-                let ranges = std::mem::take(&mut *dirty);
+                let mut dirty = c.dirty.write().unwrap_or_else(|e| e.into_inner());
+                let raw = std::mem::take(&mut *dirty);
+                let ranges = if raw.is_empty() { raw } else { joined(raw) };
                 if relay() {
-                    let mut sent = c.sent.lock().unwrap_or_else(|e| e.into_inner());
-                    sent.retain(|s| s.2 > fetched);
-                    sent.extend(ranges.iter().map(|&(a, b)| (a, b, sent_as)));
+                    let mut sent = c.sent.write().unwrap_or_else(|e| e.into_inner());
+                    sent.retain(|s| s.0 > fetched);
+                    if let (Some(first), Some(last)) = (ranges.first(), ranges.last()) {
+                        sent.push((sent_as, first.0, last.1, ranges.clone()));
+                    }
                 }
                 ranges
             })
             .unwrap_or_default();
         if !ranges.is_empty() {
-            out.push((shadow, joined(ranges)));
+            out.push((shadow, ranges));
         }
         true
     });
@@ -3066,11 +3070,25 @@ impl Shadow {
                         return true;
                     }
                     *runs_left -= runs.len();
-                    for (r, m) in runs {
-                        held[r..r + m].copy_from_slice(&title[r..r + m]);
-                        self.card_changed(at + r, at + r + m);
-                        MERGED[1].fetch_add(1, Ordering::Relaxed);
-                        MERGED[2].fetch_add(m as u64, Ordering::Relaxed);
+                    if !runs.is_empty() {
+                        let mut bytes_merged = 0u64;
+                        let count = runs.len() as u64;
+                        if let Some(card) = &self.card {
+                            let mut dirty = card.dirty.write().unwrap_or_else(|e| e.into_inner());
+                            for (r, m) in runs {
+                                held[r..r + m].copy_from_slice(&title[r..r + m]);
+                                let (from, to) = (at + r, at + r + m);
+                                match dirty.last_mut() {
+                                    Some(last) if from <= last.1 && to >= last.0 => {
+                                        *last = (last.0.min(from), last.1.max(to));
+                                    }
+                                    _ => dirty.push((from, to)),
+                                }
+                                bytes_merged += m as u64;
+                            }
+                        }
+                        MERGED[1].fetch_add(count, Ordering::Relaxed);
+                        MERGED[2].fetch_add(bytes_merged, Ordering::Relaxed);
                     }
                 } else {
                     // The lock of the copy's reference (the snapshot), from
@@ -3311,7 +3329,7 @@ impl Shadow {
         if from >= to {
             return;
         }
-        let mut dirty = card.dirty.lock().unwrap_or_else(|e| e.into_inner());
+        let mut dirty = card.dirty.write().unwrap_or_else(|e| e.into_inner());
         match dirty.last_mut() {
             Some(last) if from <= last.1 && to >= last.0 => *last = (last.0.min(from), last.1.max(to)),
             _ => dirty.push((from, to)),
@@ -3497,14 +3515,28 @@ impl Shadow {
         let (at, n) = (at + first, last + 1 - first);
         let (gpu, held) = (&gpu[first..=last], &mut held[first..=last]);
         let skip: Vec<(usize, usize)> = {
-            let dirty = card.dirty.lock().unwrap_or_else(|e| e.into_inner());
-            let sent = card.sent.lock().unwrap_or_else(|e| e.into_inner());
-            dirty
-                .iter()
-                .copied()
-                .chain(sent.iter().filter(|s| s.2 > fetched_after).map(|s| (s.0, s.1)))
-                .filter(|&(a, b)| a < at + n && b > at)
-                .collect()
+            let end = at + n;
+            let dirty = card.dirty.read().unwrap_or_else(|e| e.into_inner());
+            let sent = card.sent.read().unwrap_or_else(|e| e.into_inner());
+            let mut out = Vec::new();
+            for &(a, b) in dirty.iter() {
+                if a < end && b > at {
+                    out.push((a, b));
+                }
+            }
+            for &(batch_sent, min_lo, max_hi, ref runs) in sent.iter() {
+                if batch_sent <= fetched_after || max_hi <= at || min_lo >= end {
+                    continue;
+                }
+                let start_idx = runs.partition_point(|&(_, b)| b <= at);
+                for &(a, b) in &runs[start_idx..] {
+                    if a >= end {
+                        break;
+                    }
+                    out.push((a, b));
+                }
+            }
+            out
         };
         title.clear();
         title.resize(n, 0);
@@ -3744,8 +3776,8 @@ fn buffer_shadow(start: u64, len: u64) -> Option<Arc<Shadow>> {
             let card = Card {
                 staging: buffer,
                 before: Mutex::default(),
-                dirty: Mutex::default(),
-                sent: Mutex::default(),
+                dirty: std::sync::RwLock::default(),
+                sent: std::sync::RwLock::default(),
                 size,
             };
             (on_card, Some(card))
@@ -4000,8 +4032,8 @@ fn window_shadow(start: u64, len: u64) -> Option<Arc<Shadow>> {
             let card = Card {
                 staging: buffer,
                 before: Mutex::default(),
-                dirty: Mutex::default(),
-                sent: Mutex::default(),
+                dirty: std::sync::RwLock::default(),
+                sent: std::sync::RwLock::default(),
                 size: len,
             };
             (on_card, Some(card))
@@ -4296,14 +4328,19 @@ mod card_merge_tests {
             shadow.card = Some(Card {
                 staging: staging.clone(),
                 before: Mutex::new(None),
-                dirty: Mutex::default(),
-                sent: Mutex::new(vec![(title_byte, title_byte + 1, 7)]),
+                dirty: std::sync::RwLock::default(),
+                sent: std::sync::RwLock::new(vec![(
+                    7,
+                    title_byte,
+                    title_byte + 1,
+                    vec![(title_byte, title_byte + 1)],
+                )]),
                 // 0: no card bytes counted (`Drop` takes them off again).
                 size: 0,
             });
             // As `card_dirty` with the mark set by the old-way fetch.
             if let Some(card) = &shadow.card {
-                card.sent.lock().unwrap().retain(|s| s.2 > mark);
+                card.sent.write().unwrap().retain(|s| s.0 > mark);
             }
             // Flight 6's slot: the card's bytes behind its lists, before send 7.
             let mut slot = content.clone();
