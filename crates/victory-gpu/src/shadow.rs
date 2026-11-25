@@ -4076,8 +4076,8 @@ type RegistrationCache = [Option<RegistrationQuery>; 256];
 fn cached_registration<'a>(
     map: &'a BufferMap, address: u64, end: u64, cache: &mut RegistrationCache,
 ) -> Option<(&'a (u64, usize), &'a Entry)> {
-    let mixed = (address >> 6) ^ (address >> 20) ^ (end - address).wrapping_mul(0x9e3779b97f4a7c15);
-    let slot = &mut cache[mixed as u8 as usize];
+    let mixed = (address ^ (end - address).rotate_left(17)).wrapping_mul(0x9e3779b97f4a7c15);
+    let slot = &mut cache[(mixed >> 56) as usize];
     if let Some(query) = slot
         && query.epoch == map.epoch && query.address == address && query.end == end
     {
