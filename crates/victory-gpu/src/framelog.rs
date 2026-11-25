@@ -111,12 +111,6 @@ pub fn add(t: T, n: u64) {
     TOTAL[t as usize].fetch_add(n, Relaxed);
 }
 
-/// Takes from a total (a time that was summed over threads is corrected
-/// to the time it took).
-pub fn sub(t: T, n: u64) {
-    TOTAL[t as usize].fetch_sub(n, Relaxed);
-}
-
 /// What a thread did inside our calls since its last present: for the
 /// thread that presents (the title's render thread).
 #[derive(Clone, Copy)]
