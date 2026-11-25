@@ -7336,6 +7336,20 @@ fn wide_refresh() -> bool {
     *ON.get_or_init(|| std::env::var_os("VICTORY_WIDE_REFRESH").is_some_and(|v| v == "1"))
 }
 
+// How many independent ranges a worker may refresh before returning to the queue.
+fn refresh_group_limit() -> usize {
+    static MODE: OnceLock<usize> = OnceLock::new();
+    match *MODE.get_or_init(|| match std::env::var("VICTORY_REFRESH_GROUP").as_deref() {
+        Ok("alt") => 0,
+        Ok(value) => value.parse::<usize>().unwrap_or(1).clamp(1, 64),
+        _ => 1,
+    }) {
+        0 if now_ms() / 15000 % 2 == 1 => 32,
+        0 => 1,
+        width => width,
+    }
+}
+
 /// Whether a range of a host copy brought up to date in a submission is
 /// left alone for the rest of that submission, until a step of ours writes
 /// title memory there (`VICTORY_REFRESH_ONCE=1`; off by default). After
@@ -7555,11 +7569,25 @@ impl Batch {
             for (shadow, from, to) in &self.refreshes {
                 Self::brought(&mut self.current, shadow, *from, *to);
             }
-            let jobs: Vec<Box<dyn FnOnce() + Send>> = self
-                .refreshes
-                .drain(..)
-                .map(|(shadow, from, to)| Box::new(move || Self::refresh(&shadow, from, to)) as Box<dyn FnOnce() + Send>)
-                .collect();
+            let width = refresh_group_limit().min(self.refreshes.len().div_ceil(32));
+            let jobs: Vec<Box<dyn FnOnce() + Send>> = if width < 2 {
+                self.refreshes
+                    .drain(..)
+                    .map(|(shadow, from, to)| Box::new(move || Self::refresh(&shadow, from, to)) as Box<dyn FnOnce() + Send>)
+                    .collect()
+            } else {
+                let mut remaining = self.refreshes.drain(..);
+                let mut jobs: Vec<Box<dyn FnOnce() + Send>> = Vec::with_capacity(remaining.len().div_ceil(width));
+                while remaining.len() > 0 {
+                    let ranges: Vec<_> = remaining.by_ref().take(width).collect();
+                    jobs.push(Box::new(move || {
+                        for (shadow, from, to) in ranges {
+                            Self::refresh(&shadow, from, to);
+                        }
+                    }));
+                }
+                jobs
+            };
             crate::shadow::wide_run(jobs);
             preparing(0, started.elapsed().as_micros() as u64);
         } else {
@@ -7988,7 +8016,7 @@ impl Meter {
         }
         let drawn = crate::draw::drawn();
         let frames = f64::from(self.frames);
-        tracing::info!(target: "victory_bench", frames = self.frames, interval_us = elapsed.as_micros() as u64, draws = drawn - self.drawn, "presents");
+        tracing::info!(target: "victory_bench", frames = self.frames, interval_us = elapsed.as_micros() as u64, draws = drawn - self.drawn, refresh_group = refresh_group_limit(), "presents");
         let fps = frames / elapsed.as_secs_f64();
         let ms = elapsed.as_secs_f64() * 1000.0 / frames;
         let draws = (drawn - self.drawn) as f64 / frames;
