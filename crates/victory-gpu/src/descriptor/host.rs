@@ -4657,7 +4657,7 @@ void BY_FLOATS_OR_NOT(uint3 id : SV_DispatchThreadID) {
         let handle = title.as_ptr() as u64;
         crate::descriptor::record(handle, view(0x7fec_0000_0000));
         let (first, key) = crate::descriptor::view_and_key(handle).unwrap();
-        assert!(heap.note_buffer(1, Some(&first), false).is_empty());
+        assert!(heap.note_buffer(1, Some(&first), false, true).is_empty());
         let (index, write) = heap.texture_slots_due(u64::MAX, 8).0[0];
         assert_eq!(index, 1);
         // Its upload was recorded: out of the queue, the slot not made yet.
