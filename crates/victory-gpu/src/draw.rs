@@ -626,12 +626,12 @@ pub(crate) fn heap_rescan_spread() -> bool {
 /// - Spread: the buffer slots of this pass's share (`slot % every ==
 ///   passes % every`) and the slots written since, sorted, and what
 ///   `ranges` held of that share forgotten.
-fn pass_slots<V>(
+fn pass_slots<V, H: std::hash::BuildHasher>(
     passes: u64,
     (every, spread): (u64, bool),
     changed: Vec<u32>,
     all: impl FnOnce(Option<(u64, u64)>) -> Vec<u32>,
-    ranges: &mut std::collections::HashMap<u32, V>,
+    ranges: &mut std::collections::HashMap<u32, V, H>,
 ) -> Vec<u32> {
     let every = every.max(1);
     if !spread {
@@ -1760,14 +1760,14 @@ impl State {
         // because a view of a released resource goes stale without a write,
         // and a slot written before its memory had a host copy is only made
         // then.
-        type Ranges = std::collections::HashMap<u32, (std::sync::Arc<crate::shadow::Shadow>, u64, u64)>;
+        type Ranges = crate::fx::Map<u32, (std::sync::Arc<crate::shadow::Shadow>, u64, u64)>;
         static RANGES: std::sync::Mutex<Option<std::collections::HashMap<usize, (u64, Ranges)>>> =
             std::sync::Mutex::new(None);
         let mut kept = RANGES.lock().unwrap_or_else(|e| e.into_inner());
         let (passes, ranges) = kept
             .get_or_insert_with(Default::default)
             .entry(std::ptr::from_ref(host) as usize)
-            .or_insert_with(|| (0, Ranges::new()));
+            .or_insert_with(|| (0, Ranges::default()));
         let changed = host.buffer_changes();
         let slots = pass_slots(
             *passes,
@@ -1848,14 +1848,20 @@ impl State {
                 // The entry is mostly the one the last look left (the pass
                 // takes every buffer slot every 16 frames and the writes since
                 // between): written in place, not taken out and put back.
-                if let Some(entry) = ranges.get_mut(&index) {
-                    if std::sync::Arc::ptr_eq(&entry.0, &shadow) && entry.1 == address && entry.2 == address + len {
-                        same += 1;
-                    } else {
-                        *entry = (shadow, address, address + len);
+                use std::collections::hash_map::Entry;
+                let end = address + len;
+                match ranges.entry(index) {
+                    Entry::Occupied(mut slot) => {
+                        let entry = slot.get_mut();
+                        if std::sync::Arc::ptr_eq(&entry.0, &shadow) && entry.1 == address && entry.2 == end {
+                            same += 1;
+                        } else {
+                            *entry = (shadow, address, end);
+                        }
                     }
-                } else {
-                    ranges.insert(index, (shadow, address, address + len));
+                    Entry::Vacant(slot) => {
+                        slot.insert((shadow, address, end));
+                    }
                 }
             }
         }
@@ -1865,8 +1871,7 @@ impl State {
         // Per host copy, the span its picked views cover: one entry per copy
         // (some 4,600 against 29,000 slots), so it is sized for the slots it
         // is filled from rather than left to grow from nothing every frame.
-        let mut spans: std::collections::HashMap<usize, (std::sync::Arc<crate::shadow::Shadow>, u64, u64)> =
-            std::collections::HashMap::with_capacity(ranges.len().min(8192));
+        let mut spans = crate::fx::Map::with_capacity_and_hasher(ranges.len().min(8192), Default::default());
         for (shadow, from, to) in ranges.values() {
             let key = std::sync::Arc::as_ptr(shadow) as usize;
             let span = spans.entry(key).or_insert_with(|| (shadow.clone(), *from, *to));
