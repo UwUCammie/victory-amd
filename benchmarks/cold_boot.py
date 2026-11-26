@@ -25,10 +25,17 @@ def output_size(value):
     return tuple(map(int, value.split("x")))
 
 
-def verify_output(lines, expected):
-    """Require the host swap chain to use the expected dimensions throughout the run."""
+def verify_output(lines, expected, interface=None):
+    """Verify host dimensions and, when requested, the loader's successful UI setup."""
     found = False
+    applied = False
+    if interface is not None:
+        scene = f"{expected[0]}x{expected[1]}"
+        plane = f"{interface[0]}x{interface[1]}"
+        plane_value = f'value="{scene} scene, {plane} interface"'
     for line in lines:
+        if interface is not None and not applied and "victory_loader::resolution: resolution: patched " in line:
+            applied = 'what="settings\' output size applied"' in line and plane_value in line
         if CREATE_SWAP_CHAIN in line or RESIZE_SWAP_CHAIN in line:
             width = re.search(r"\bwidth=(\d+)\b", line)
             height = re.search(r"\bheight=(\d+)\b", line)
@@ -39,20 +46,25 @@ def verify_output(lines, expected):
                 raise ValueError(f"host output {size[0]}x{size[1]}, expected {expected[0]}x{expected[1]}")
             if CREATE_SWAP_CHAIN in line:
                 found = True
-        if not found and MARKER in line:
-            raise ValueError("first accepted present precedes a verified swap-chain creation")
+        if MARKER in line:
+            if not found:
+                raise ValueError("first accepted present precedes a verified swap-chain creation")
+            if interface is not None and not applied:
+                raise ValueError(f"first accepted present precedes a successful {scene} scene, {plane} interface setup")
         yield line
     if not found:
         raise ValueError("no host swap-chain creation in the run")
 
 
-def accepted_frames(lines, launched, compute_drops=None, *, expected_output=None):
+def accepted_frames(lines, launched, compute_drops=None, *, expected_output=None, expected_interface=None):
     """Anchor the first accepted present to launcher UTC, then use its monotonic clock."""
     frames = []
     first = None
     records = session_lines(lines)
+    if expected_interface is not None and expected_output is None:
+        raise ValueError("specify the expected host output alongside the interface size")
     if expected_output is not None:
-        records = verify_output(records, expected_output)
+        records = verify_output(records, expected_output, expected_interface)
     for line in records:
         if compute_drops is not None and "victory_gpu::pipeline::make: a compute dispatch was dropped:" in line:
             timestamp = TIMESTAMP.search(line)
@@ -111,7 +123,7 @@ def window(frames, start, stop, *, stalls=0, compute_drops=()):
     return result
 
 
-def report(run, metadata, start, stop, *, stalls=0, expected_output=None):
+def report(run, metadata, start, stop, *, stalls=0, expected_output=None, expected_interface=None):
     launch = json.loads(metadata.read_text())
     if (metadata.parent / "foreground-overlap").exists() or (run / "gpu-overlap.txt").exists():
         raise ValueError("foreground GPU overlap")
@@ -130,12 +142,15 @@ def report(run, metadata, start, stop, *, stalls=0, expected_output=None):
         raise ValueError("window outside the timed observation")
     drops = [] if stalls else None
     with (run / "run.log").open(encoding="utf-8", errors="replace") as log:
-        frames = accepted_frames(log, launched, drops, expected_output=expected_output)
+        frames = accepted_frames(log, launched, drops, expected_output=expected_output,
+                                 expected_interface=expected_interface)
     if frames[-1] > duration:
         raise ValueError("frame trace extends beyond launcher metadata")
     result = {"first_present_seconds": frames[0] / 1e6, **window(frames, start, stop, stalls=stalls, compute_drops=drops)}
     if expected_output is not None:
         result["host_output"] = f"{expected_output[0]}x{expected_output[1]}"
+    if expected_interface is not None:
+        result["interface_plane"] = f"{expected_interface[0]}x{expected_interface[1]}"
     return result
 
 
@@ -148,10 +163,12 @@ if __name__ == "__main__":
     parser.add_argument("--stalls", type=int, default=0, help="list the N longest gaps and compute-drop notices in each")
     parser.add_argument("--expect-output", type=output_size, metavar="WIDTHxHEIGHT",
                         help="require this host swap-chain size throughout the run")
+    parser.add_argument("--expect-interface", type=output_size, metavar="WIDTHxHEIGHT",
+                        help="also require the loader to apply this separate interface plane before the first present")
     args = parser.parse_args()
     try:
         result = report(args.run, args.metadata, args.start * 1_000_000, args.stop * 1_000_000, stalls=args.stalls,
-                        expected_output=args.expect_output)
+                        expected_output=args.expect_output, expected_interface=args.expect_interface)
     except (ValueError, KeyError, OSError) as error:
         parser.exit(1, f"{error}\n")
     print(json.dumps(result, indent=2))

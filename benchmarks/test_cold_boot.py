@@ -67,6 +67,22 @@ class ColdBootTests(unittest.TestCase):
         with self.assertRaises(SessionFailed):
             accepted_frames([trace(0), "VIctory: unhandled exception 0xc0000005"], self.launched)
 
+    def test_interface_requires_success_at_the_output_site_before_present(self):
+        host = "INFO victory_gpu::host: presenting to a window width=1280 height=720"
+        applied = ('INFO victory_loader::resolution: resolution: patched site=example '
+                   'what="settings\' output size applied" value="1280x720 scene, 3840x2160 interface"')
+        failed = "resolution: settings' output size applied (1280x720 scene, 3840x2160 interface) at title+0: Differs"
+        sizes = dict(expected_output=(1280, 720), expected_interface=(3840, 2160))
+        self.assertEqual(accepted_frames([applied, host, trace(0)], self.launched, **sizes), [1_000_000])
+        for lines in ([host, trace(0)], [failed, host, trace(0)], [host, trace(0), applied],
+                      [applied.replace("3840x2160", "1920x1080"), host, trace(0)],
+                      [applied.replace("output size applied", "other site"), host, trace(0)],
+                      [applied.replace("resolution: patched", "resolution: not patched"), host, trace(0)]):
+            with self.subTest(lines=lines), self.assertRaisesRegex(ValueError, "interface setup"):
+                accepted_frames(lines, self.launched, **sizes)
+        with self.assertRaisesRegex(ValueError, "host output"):
+            accepted_frames([applied, trace(0)], self.launched, expected_interface=(3840, 2160))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -32,7 +32,7 @@ Use the [accepted-present trace](https://github.com/UwUCammie/VIctory-7900XTX/co
 python3 benchmarks/cold_boot.py path/to/run path/to/launch.json --start 0 --stop 300 --expect-output 1280x720
 ```
 
-The optional `--expect-output` check checks the host swap-chain size before the first accepted present and on each subsequent resize.
+The optional `--expect-output` checks the host swap-chain size at creation and on each subsequent resize. For a run using the 720p UI fix, add `--expect-interface 3840x2160`. This requires the loader to confirm that it applied the separate interface plane before the first accepted present. A failed setup can also print the requested dimensions.
 
 Add `--stalls 5` to list the five longest gaps in a saved run, including gaps at the start and end of the window. Each row counts the renderer’s first compute-drop notices that fell inside that gap. A pipeline may drop more than one dispatch after its first notice. The count measures what the log reported during the gap and gives no duration for a compile.
 
@@ -148,6 +148,8 @@ The cache candidate still wrote 2,710 shader entries totaling 170,699,798 bytes 
 I kept the Linux/RADV tests on [linux-amd-best](https://github.com/jtrudeau1530/VIctory-7900XTX/tree/830dc191d749f6e9d30226a0a87dbb20607fcc40). One new [PortWatch](https://portwatch-vi.xyz/) lead, [VIctory-leonida](https://github.com/lepotane/VIctory-leonida/tree/c6c9da9f), reports 18.1 native average FPS in the world at 1080p on an RTX 4060 Ti under Windows. Its higher output figure uses NVIDIA Smooth Motion. Its shared-upload pool is worth measuring separately on RADV, but the host allocation patch needs a port to this branch. [Source change](https://github.com/lepotane/VIctory-leonida/commit/c6c9da9f)
 
 [Kelvaroq](https://github.com/stellarr-studio/kelvaroq) moved organizations. Its translate-once result measures descriptor bookkeeping on an RTX 5080. I found no published first-story, cold-cache 720p RX 7900 XT average in the new scouting entries.
+
+PortWatch also reports about 22 FPS in play for Belobug on Windows 11 with an RX 9070 XT and Ryzen 7 9800X3D. The entry names `main` and gives no tested commit, cache conditions or timing window. When I checked, `main` was at `4f62c2a5`; the default branch `a-publier` and `rx9070xt` were both at `cd8dfc06`. The latter includes a texture-upload ordering change worth testing for flicker on RADV. I kept the RX 7900 XT cold series on its existing base. [Tracker entry](https://github.com/4lwayz/portwatch-vi/blob/cd68b936/data/tracker.json) · [Main](https://github.com/Belobug/VIctory-Belobug-AMD/tree/4f62c2a5) · [Published build source](https://github.com/Belobug/VIctory-Belobug-AMD/tree/cd8dfc06) · [Upload change](https://github.com/Belobug/VIctory-Belobug-AMD/commit/5d6bd841)
 
 ### Verify pipeline-library persistence without the game
 
