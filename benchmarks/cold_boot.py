@@ -61,6 +61,8 @@ def report(run, metadata, start, stop):
     launch = json.loads(metadata.read_text())
     if (metadata.parent / "foreground-overlap").exists() or (run / "gpu-overlap.txt").exists():
         raise ValueError("foreground GPU overlap")
+    if (metadata.parent / "validation-overlap").exists():
+        raise ValueError("external validation or profiling overlapped this run")
     if (run / "exit-code").read_text().strip() != "124":
         raise ValueError("run did not finish its scheduled timeout")
     if launch.get("empty_cache_directories") != dict.fromkeys(("cache", "vkd3dcache", "mesa", "xdg", "dxvk"), 0):
