@@ -194,6 +194,15 @@ Two 150-second warm starts on the RX 7900 XT reached the diner with the same exe
 
 With the pass off, blue-white glare obscured both irises in the close-up. With it on, both irises were visible. In a second shot, mean luma in a 59×13 patch of the reflective floor went from 59 to 24 (0–255). In the same two frames the server's shirt read 170 and 171 and a ceiling light read 177 and 175. These are decoded video samples from comparable shots. They establish a visible change to these surfaces. Geometry flicker and cold-start frame time need their own checks. [AMD pull request](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/14)
 
+I then timed two clean first boots of the reflection executable from process launch, with identical unskipped input, no story save and all five graphics caches empty. Both used the verified 3840×2160 UI plane and a 1280×720 host output. The enabled arm recorded the pass at 853×480. Both reached the same opening location at 85 s, but at 145 and 205 s the shots differed.
+
+| Reflection limit | Presents in 300 s | FPS | P99 gap | Longest gap | Gaps over 1 s | Time in gaps over 100 ms |
+|---|---:|---:|---:|---:|---:|---:|
+| Off | 4,202 | 14.01 | 329 ms | 11.14 s | 30 | 146.99 s |
+| On | 4,084 | 13.61 | 493 ms | 11.41 s | 31 | 150.90 s |
+
+One pair measured a 0.39 FPS difference. The startup stalls and different scene progress make this insufficient to estimate the pass’s frame cost. The visual comparison above used matched shots.
+
 ### November 26 fork check
 
 I kept the Linux/RADV tests on [linux-amd-best](https://github.com/jtrudeau1530/VIctory-7900XTX/tree/830dc191d749f6e9d30226a0a87dbb20607fcc40). One new [PortWatch](https://portwatch-vi.xyz/) lead, [VIctory-leonida](https://github.com/lepotane/VIctory-leonida/tree/c6c9da9f), reports 18.1 native average FPS in the world at 1080p on an RTX 4060 Ti under Windows. Its higher output figure uses NVIDIA Smooth Motion. Its shared-upload pool is worth measuring separately on RADV, but the host allocation patch needs a port to this branch. [Source change](https://github.com/lepotane/VIctory-leonida/commit/c6c9da9f)
