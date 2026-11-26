@@ -188,6 +188,8 @@ python3 benchmarks/submission_cost.py 830dc191 b0a37d79 --workload queue
 python3 benchmarks/submission_cost.py 830dc191 d408c01d --workload ranges
 ```
 
+The ready-front change alone then completed a clean 1280×720 first boot. In 300 seconds it presented 2,574 frames (8.58 FPS), versus 3,298 (10.99 FPS) on the earlier control. P99 was 2.43 s against 1.74 s. The 70, 85, 100, 115 and 130 s captures on this attempt had a black or nearly black world; subtitles appeared in some of them. The reference showed outdoor scenery and characters during that period. Later captures in the changed build showed the car and credits. The microbenchmark gain did not translate into a demonstrated gameplay gain. The desktop preset stays on the original path while this opening is investigated. [Queue change](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/15)
+
 ### Diner reflections at 720p
 
 Two 150-second warm starts on the RX 7900 XT reached the diner with the same executable and input sequence. Each used a private copy of the same application and vkd3d caches, no story slots and `VICTORY_AMBIENT=0.8`. The only switch changed was `VICTORY_AMBIENT_REFLECT`, from 0 to 1. The enabled run recorded a reflection pass at 853×480 within the 1280×720 output. I matched the shots by camera angle and pose because the opening advanced at different times.
