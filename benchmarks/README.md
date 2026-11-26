@@ -148,3 +148,11 @@ A second use of the one-launch method tested the upload and hash ordering from P
 | On | 423 | 78.77 | 5.37 | 4,866 | 190,194 |
 
 Each adjacent pair favored batching by 0.99–1.10 FPS. The two-buffer GPU fixture checks four read-back dwords and four before-hashes over two submissions. It passed in both fixed modes. [Build and reporter](https://github.com/UwUCammie/victory-amd/tree/0454795/benchmarks) · [Fixture](https://github.com/KyleS98/victory-fork/pull/4)
+
+## Shorter first-room warm-up
+
+With the existing release benchmark binary, ordinary Enter taps left the opening cutscene on screen at 60, 80 and 100 seconds. The first-room character and courtyard were visible at 150 and 200 seconds. The standard 150–225 s measurement recorded 584 accepted presents in 74.06 s (7.89 FPS).
+
+In a second run with the same settings, holding the normal skip button for 4.4 seconds starting at input time 50 s put the title in transition at 60 s and in the first room by 80 s. The room remained visible at 100 and 150 s. The complete 90–165 s intervals gave 645 accepted presents in 74.05 s (8.71 FPS). The original executable produced the hold using overlapping 0.2 s Enter taps. These two FPS observations describe different visits to the room.
+
+The gather and worker build then used the same early route to test card batching at its usual 1 MiB card-buffer threshold and with 16 KiB readbacks. Its four-block screen finished at 173.3 s and all eight blocks at 254.6 s. The photos at 80 and 210 s confirmed the room. The full result was 665 accepted presents in 77.17 s (8.62 FPS) off and 699 in 78.17 s (8.94 FPS) on. Pair differences were +1.13, +0.01, −0.02 and +0.19 FPS. The counter recorded 43,778 buffers batched. Most of the difference came from the first pair. [Build](https://github.com/UwUCammie/victory-amd/tree/243edc9) · [Normal cutscene skip in the Steenax6 fork](https://github.com/Steenax6/VIctory-NVID/blob/steenax/README.md)

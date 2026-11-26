@@ -1,4 +1,4 @@
-"""Compare accepted frames inside the 20-second phases of VICTORY_GATHER_BY_COPY=alt."""
+"""Compare complete present intervals inside one runtime switch's alternating phases."""
 import argparse
 from bisect import bisect_right
 from datetime import datetime
@@ -7,10 +7,11 @@ import re
 from first_room import ANSI, INTERVAL, TIMESTAMP
 
 
-PHASE = re.compile(r"\(VICTORY_GATHER_BY_COPY=alt\): (ON|off)\b")
+SWITCHES = ("VICTORY_GATHER_BY_COPY", "VICTORY_HEAP_SYNC_CUT")
 
 
-def phase_totals(lines, start, stop, settle):
+def phase_totals(lines, start, stop, settle, switch=SWITCHES[0]):
+    phase_marker = re.compile(r"\(" + re.escape(switch) + r"=alt\): (ON|off)\b")
     origin = None
     markers = []
     samples = []
@@ -23,7 +24,7 @@ def phase_totals(lines, start, stop, settle):
         if origin is None:
             origin = now
         t = (now - origin).total_seconds()
-        phase = PHASE.search(line)
+        phase = phase_marker.search(line)
         if phase:
             markers.append((t, phase[1]))
         interval = INTERVAL.search(line)
@@ -54,15 +55,16 @@ def phase_totals(lines, start, stop, settle):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("log", type=argparse.FileType("r", encoding="utf-8", errors="replace"))
+    parser.add_argument("--switch", choices=SWITCHES, default=SWITCHES[0])
     parser.add_argument("--start", type=float, default=150)
     parser.add_argument("--stop", type=float, default=385)
     parser.add_argument("--settle", type=float, default=1, help="seconds to omit after each switch")
     args = parser.parse_args()
     if not 0 <= args.start < args.stop or args.settle < 0:
         parser.error("expected 0 <= start < stop and a nonnegative settling time")
-    totals = phase_totals(args.log, args.start, args.stop, args.settle)
+    totals = phase_totals(args.log, args.start, args.stop, args.settle, args.switch)
     if not all(frames and micros for frames, micros, _ in totals.values()):
-        parser.exit(1, "Both gather modes need complete measured intervals.\n")
+        parser.exit(1, "Both switch settings need complete measured intervals.\n")
     for mode, (frames, micros, draws) in totals.items():
         print(f"{mode}: {frames} presents in {micros / 1e6:.2f} s, "
               f"{frames * 1e6 / micros:.2f} FPS, {draws / frames:.0f} draws/frame")
