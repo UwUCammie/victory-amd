@@ -20,6 +20,7 @@ def summarize(lines, early_bytes):
         raise ValueError("expected a nonnegative early-compute size limit")
     drops = {}
     translated = {}
+    bound = {}
     sizes = {}
     worker_started = {}
     for line in session_lines(lines):
@@ -30,11 +31,11 @@ def summarize(lines, early_bytes):
             table = translated
             shader = SHADER.search(line)
         elif 'stage="compute"' in line and "victory_gpu::pipeline: first bind " in line:
+            table = bound
             shader = SHADER.search(line)
             size = SIZE.search(line)
             if shader and size:
                 sizes[shader[1].lower()] = int(size[1])
-            continue
         else:
             continue
         stamp = TIMESTAMP.search(line)
@@ -50,12 +51,17 @@ def summarize(lines, early_bytes):
     matched = drops.keys() & translated.keys()
     lag = [(translated[key] - drops[key]).total_seconds() for key in matched]
     sized = drops.keys() & sizes.keys()
+    bind_lead = [(drops[key] - bound[key]).total_seconds() for key in drops.keys() & bound.keys()]
     return {
         "distinct_shaders_with_drop_notice": len(drops),
         "worker_started_at_first_drop": sum(state == "true" for state in worker_started.values()),
         "worker_not_started_at_first_drop": sum(state == "false" for state in worker_started.values()),
         "worker_state_unreported_at_first_drop": sum(state is None for state in worker_started.values()),
         "with_first_bind_size": len(sized),
+        "with_first_bind_time": len(bind_lead),
+        "median_seconds_first_drop_minus_first_bind": median(bind_lead) if bind_lead else None,
+        "first_drop_within_one_ms_of_first_bind": sum(0 <= seconds < 0.001 for seconds in bind_lead),
+        "first_bind_ten_seconds_or_more_before_drop": sum(seconds >= 10 for seconds in bind_lead),
         "early_limit_bytes": early_bytes,
         "above_early_limit": sum(sizes[key] > early_bytes for key in sized),
         "with_translation_completion": len(matched),

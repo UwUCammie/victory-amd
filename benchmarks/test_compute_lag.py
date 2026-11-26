@@ -19,6 +19,8 @@ class ComputeLagTests(unittest.TestCase):
                             event(7, ': shader translated stage="pixel" hash=ff')], 1024)
         self.assertEqual(result["distinct_shaders_with_drop_notice"], 3)
         self.assertEqual(result["above_early_limit"], 1)
+        self.assertEqual(result["with_first_bind_time"], 1)
+        self.assertEqual(result["median_seconds_first_drop_minus_first_bind"], 2)
         self.assertEqual(result["with_first_bind_size"], 1)
         self.assertEqual(result["with_translation_completion"], 2)
         self.assertEqual(result["translation_after_first_drop"], 1)
@@ -33,6 +35,16 @@ class ComputeLagTests(unittest.TestCase):
         self.assertEqual(result["worker_started_at_first_drop"], 1)
         self.assertEqual(result["worker_not_started_at_first_drop"], 1)
         self.assertEqual(result["worker_state_unreported_at_first_drop"], 1)
+
+    def test_bind_lead_includes_earliest_timestamp_and_exact_deadline(self):
+        bind = ': first bind stage="compute" size=16 hash='
+        drop = "::make: a compute dispatch was dropped: waited shaders="
+        result = summarize([event(6, bind + "ab"), event(12, drop + "ab"), event(2, bind + "ab"),
+                            event(12, bind + "bc"), event(1, drop + "bc"),
+                            event(5, bind + "cd"), event(5, drop + "cd")], 1024)
+        self.assertEqual(result["first_bind_ten_seconds_or_more_before_drop"], 1)
+        self.assertEqual(result["median_seconds_first_drop_minus_first_bind"], 0.0)
+        self.assertEqual(result["first_drop_within_one_ms_of_first_bind"], 1)
 
     def test_no_drop_has_no_delay(self):
         self.assertIsNone(summarize([], 1024)["median_seconds_translation_minus_first_drop"])
