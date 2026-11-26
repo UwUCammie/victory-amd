@@ -1443,6 +1443,32 @@ impl HostHeap {
         (if max == 0 { Vec::new() } else { textures.due(frame, max) }, textures.census(frame))
     }
 
+    /// Puts the title slots `indices` into the queue as written in `frame`
+    /// and due at once, unless they wait in it already: for texture views
+    /// a shader is about to pick by index whose host slot shows nothing
+    /// and which nothing would bring up to date (a view the spans took for
+    /// stale when the title wrote a newer one of memory it clashes with,
+    /// [`Spans::note`], and which the title reads all the same).
+    pub(crate) fn texture_slots_requeue(&self, indices: &[u32], frame: u64) {
+        for &index in indices {
+            let mut textures = self.textures.lock().unwrap_or_else(|e| e.into_inner());
+            if !textures.slots.contains_key(&index) {
+                textures.written(index, frame, frame, false);
+                drop(textures);
+                self.note_slot(index, SLOT_IN_TEXTURES, true);
+            }
+        }
+    }
+
+    /// Of the title slots `indices`, the ones that wait in the queue, due or
+    /// not, each with its write number as [`HostHeap::texture_slots_due`]
+    /// hands it out: for a pass that has to bring those very slots up to
+    /// date now (`crate::draw::State::bake_sources`).
+    pub(crate) fn texture_slots_queued(&self, indices: &[u32]) -> Vec<(u32, u64)> {
+        let textures = self.textures.lock().unwrap_or_else(|e| e.into_inner());
+        indices.iter().filter_map(|&index| textures.slots.get(&index).map(|w| (index, w.write))).collect()
+    }
+
     /// Every title slot of the queue that is due at `frame`, and whether
     /// it was uploaded before in part (one uploaded whole and waiting for
     /// another look is not in the queue: [`TextureQueue::rechecks`]): for the card accounting line
