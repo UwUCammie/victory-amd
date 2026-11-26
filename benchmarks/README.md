@@ -85,6 +85,12 @@ For Windows cross-builds from multiple worktrees, use a separate Cargo target di
 python3 benchmarks/verify_pdb_sources.py "$checkout" "$build/victory.exe" "$build/victory.pdb" crates/victory-shader/src/emit/lower.rs
 ```
 
+### Classifying shader memory writes after translation
+
+After host translation the runtime classifies writes to buffers and writes through raw addresses. Both checks decoded the same GFX10 program. I tested a version that shares one decode between them. It produced the same pair of flags for every one of 26,503 local containers. Of those, 4,231 could write buffers and none reported raw-address writes. A separate Windows test under Wine 11.22 covered a synthetic raw write and the conservative fallback for missing and truncated programs.
+
+I matched 2,862 of 2,865 distinct completed translations in a 308-second opening to the local corpus. In a native Linux release harness I timed only the classifiers on the program vectors already in memory. Median thread CPU time for the whole matched set was 2.182 s for the original and 1.136 s with one decode. The new path was quicker in all eight alternating pairs. The 720p cold queue tests gameplay separately. [AMD branch PR](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/11)
+
 ### Finding ambient passes during shader registration
 
 Each new compute shader is classified while the shader table is locked. I compared the current byte-window search with the workspace's existing substring search. They returned the same role for all 26,503 local containers (245,181,656 bytes), including all eight positive matches.
