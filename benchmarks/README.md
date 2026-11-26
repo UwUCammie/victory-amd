@@ -164,3 +164,15 @@ A separate build on fxceless main `c9092ec` used one timed input entry, `50:Ente
 The same RX 7900 XT release build compared SSE2 and AVX2 over eight 20-second blocks. The character and courtyard were visible at 80 and 210 seconds. All eight blocks finished at 256.2 seconds. The SSE2 blocks produced 700 accepted presents in 77.39 s (9.05 FPS, 4,858 draws/frame). The AVX2 blocks produced 720 in 79.13 s (9.10 FPS, 4,805 draws/frame). The counter recorded 929 MiB going through the AVX2 scan with it enabled and zero with it disabled. On-minus-off differences for the four adjacent pairs were +0.07, +0.00, +0.08 and +0.06 FPS. The CPU fixture showed a larger improvement for sparse changes, but it barely moved frame rate in this room. [Benchmark build and reporter](https://github.com/UwUCammie/victory-amd/tree/d372cae/benchmarks) · [Upstream change](https://github.com/fxceless/victory-fork/pull/1233)
 
 Immediately after block eight, a five-second Linux user-mode CPU profile sampled the same process with the trial back on SSE2. Of 11,136 samples, 4,779 landed in the open-source runtime image. Its most sampled routines were `victory_copy_guarded_at` (674), `shadow::merge_piece` (329), `draw::State::bind` (225), and `shadow::lookup` (159). On the submit thread, `victory_copy_guarded_at` accounted for 191 of 778 runtime-image samples. These counts omit time spent waiting and come from a single short window. The profile used the time between the final measurement and the normal process timeout.
+
+## Profiling after the comparison
+
+On Linux with Wine, start the helper while the eight-block comparison is running. Give it the process ID of the Wine process with the matching renderer executable mapped. Keep that executable and its matching PDB in the same directory. Allow at least the requested profile duration plus a few seconds before the runner ends the process.
+
+```sh
+python3 benchmarks/profile_after_trial.py run.log /path/to/victory.exe "$pid" shadow_cache --seconds 5
+```
+
+The helper waits for block eight, samples user-mode CPU time with Linux perf, then uses llvm-symbolizer to count samples that landed in the open-source runtime. The timed comparison ends before profiling starts. The raw recording lives in a temporary directory. Waiting on the GPU does not produce CPU samples.
+
+I also tried the registration-only shadow cache from #1224, with its fill and retirement changes disabled. The first room was visible at 80 and 210 s. Eight blocks took 255.0 s. The cache recorded 106,684,416 hits during the enabled intervals. The two settings produced 515 presents in 77.99 s (6.60 FPS) off and 508 in 76.86 s (6.61 FPS) on. Pair differences were +0.48, −0.08, −0.43 and +0.06 FPS. A low-priority two-job build overlapped the final eight seconds of the last block. The first three pairs also split directions. The helper then collected 3,353 runtime-image samples in five seconds using the same launch. [Benchmark build](https://github.com/UwUCammie/victory-amd/tree/f57d218) · [Upstream changes](https://github.com/fxceless/victory-fork/pull/1224)
