@@ -1826,7 +1826,7 @@ impl HostHeap {
             COPIED_TABLED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             return false;
         }
-        let Some(header) = record.first_chunk::<12>() else {
+        let Some(header) = super::record_header(record) else {
             return false;
         };
         // Never 0, which is "never looked at". (A multiply-and-fold over
@@ -1849,8 +1849,7 @@ impl HostHeap {
             *last = print;
         }
         // Decode the same bytes we hashed, not a second read of the guest slot.
-        let words = |at| u32::from_le_bytes(header[at..at + 4].try_into().unwrap());
-        self.mirror_record(index, handle, false, [words(0), words(4), words(8)]);
+        self.mirror_record(index, handle, false, header);
         true
     }
 
@@ -1878,7 +1877,7 @@ impl HostHeap {
     ) -> (u64, u64) {
         let (frame, tables) = (crate::frame::current(), sync_tables());
         let mut looked = 0u64;
-        let mut due: Vec<(u32, u64)> = Vec::new();
+        let mut due = Vec::new();
         {
             let mut copied = self.copied.lock().unwrap_or_else(|e| e.into_inner());
             if copied.is_empty() {
@@ -1912,12 +1911,13 @@ impl HostHeap {
                     COPIED_TABLED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     continue;
                 }
+                let Some(header) = super::record_header(record) else { continue };
                 *last = print;
-                due.push((index as u32, handle));
+                due.push((index as u32, handle, header));
             }
         }
-        for &(index, handle) in &due {
-            self.mirror(index, handle, false);
+        for &(index, handle, header) in &due {
+            self.mirror_record(index, handle, false, header);
         }
         (looked, due.len() as u64)
     }
@@ -1953,7 +1953,8 @@ impl HostHeap {
             due
         };
         for record in &due {
-            self.mirror(record.index, start + u64::from(record.index) * step, false);
+            let handle = start + u64::from(record.index) * step;
+            self.mirror_record(record.index, handle, false, record.header);
         }
         (looked, due.len() as u64)
     }
@@ -3202,6 +3203,31 @@ mod tests {
     }
     #[test]
     fn copied_sampler_controls_fenced_shader_output() {
+        check_sampler_output(|heap, live, snapshot| {
+            assert!(heap.mirror_copied(0, live.as_mut_ptr() as u64, &snapshot));
+        });
+    }
+
+    #[test]
+    fn copied_page_sampler_controls_fenced_shader_output() {
+        check_sampler_output(|heap, live, snapshot| {
+            let handle = live.as_mut_ptr() as u64;
+            assert_eq!(heap.mirror_copied_page(0..1, (handle, 16), handle as usize, &snapshot), (1, 1));
+        });
+    }
+
+    #[test]
+    fn prepared_page_sampler_controls_fenced_shader_output() {
+        check_sampler_output(|heap, live, snapshot| {
+            let captured = snapshot.as_ptr() as usize;
+            let records = super::super::prepare_descriptor_page(
+                (captured, captured + snapshot.len()), (captured, 16, 1), &mut Vec::new(),
+            ).expect("captured sampler page");
+            assert_eq!(heap.mirror_prepared_page(records, live.as_mut_ptr() as u64, 16), (1, 1));
+        });
+    }
+
+    fn check_sampler_output(publish: impl FnOnce(&HostHeap, &mut [u32; 4], [u8; 16])) {
         const SOURCE: &str = include_str!("sampler-output.hlsl");
         let host = host().expect("D3D12 test host");
         let device = &host.device;
@@ -3225,7 +3251,7 @@ mod tests {
         // Slot 0 is the copied-record path under test. Its captured bytes
         // name clamp while the still-valid live record has already become wrap.
         live.copy_from_slice(&wrap_record);
-        assert!(samplers.mirror_copied(0, live.as_mut_ptr() as u64, &bytes(clamp_record)));
+        publish(&samplers, &mut live, bytes(clamp_record));
         assert!(samplers.mirror(1, clamp_record.as_ptr() as u64, false).is_some());
         assert!(samplers.mirror(2, wrap_record.as_ptr() as u64, false).is_some());
 
