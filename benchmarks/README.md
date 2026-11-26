@@ -237,6 +237,10 @@ python3 "$bench/texture_query.py" e6b99130 --pairs 7
 
 These are median times per query across seven alternating pairs. Each pair used 193 starting addresses. The direct query stops at the first newer write and skips the scan entirely on a first refresh. In a separate 32-minute saved session at 720p, the median reporting interval after the first two minutes attributed 9.5 ms/frame across all threads to the entire write-watch and guard step. That counter includes kernel and guard work and overlap between threads. It cannot be used as a prediction of FPS.
 
+### Yielding a compile to other work
+
+`competing_build.py` counts compiler processes and also recognizes parallel make/ninja invocations. For timing the game, run it with no arguments so every build counts. For guarding a compile, start that compile in its own session (Python's `subprocess.Popen(..., start_new_session=True)`) and pass its PID to `--exclude-session` while it runs. This excludes the compiler and build driver in that dedicated session. Two outside compiler processes plus a serial compiler of our own previously looked like three outside compilers and could cancel the serial job. Three outside compilers, or a parallel make/ninja invocation outside that session, still trigger a yield. GPU ownership is checked separately.
+
 ### Saved-game visual trials
 
 A saved route can end with the Wine wrapper reporting zero even though the renderer logged an unhandled exception. Classify the exit before comparing captures or starting the next arm. The checker distinguishes a foreground interruption, an incomplete run, a host GPU failure and a renderer failure. A finished timeout still needs the requested scene, output size and interface plane checked. Saved routes use a copy of the player's save and do not contribute to cold first-boot FPS.
