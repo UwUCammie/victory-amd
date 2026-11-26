@@ -84,6 +84,14 @@ In the reverse pair, the enabled build counted 24,231 gather passes and 1,974,91
 
 With the November 26 renderer build, plain fills, indexed submission steps and fill waits enabled, the RX 7900 XT recorded 456 accepted presents in 73.86 s (6.17 FPS, 4,936 draws/frame). The character and courtyard were visible at 175 s. This build used the serial descriptor scan. [Build source](https://github.com/UwUCammie/victory-amd/tree/bench/fx-refresh-nov26)
 
-On the Series S profile with the interface compositor enabled, the unmodified upscaler showed the movement prompt over a black world. Its 532 accepted presents are excluded from gameplay FPS. Adding a packed RGB9E5 destination restored the character and courtyard in private checks at 175 and 217 s. Some scenery still shimmered. All 13 sampled dispatches wrote the stretched image. This first patched run omitted the interval sampler, so it establishes a rendering result only. [Series S fix and GPU pixel test](https://github.com/Tissma95/victory-fork/pull/1)
+On the Series S profile with the interface compositor enabled, the unmodified upscaler showed the movement prompt over a black world. Its 532 accepted presents are excluded from gameplay FPS. Adding a packed RGB9E5 destination restored the character and courtyard in private checks at 175 and 217 s. Some scenery still shimmered. All 13 sampled dispatches wrote the stretched image. The first patched run omitted the interval sampler. A separate patched build with scripted input and sampling enabled then recorded 492 accepted presents in 73.73 s (6.67 FPS, 4,487 draws/frame). The 175 s check again showed the room. [Series S fix and GPU pixel test](https://github.com/Tissma95/victory-fork/pull/1)
 
 The descriptor-table trial with scripted input enabled ended with a device removal during startup and produced no first-room sample. [Trial report](https://github.com/fxceless/victory-fork/pull/1192#issuecomment-7178160485)
+
+
+With captured descriptor headers applied on top of the parallel-scan PR, the same executable ran the serial and parallel paths in the order shown. Both reached the character and courtyard. The small difference is within the variation seen across earlier runs on this shared desktop. [Build](https://github.com/UwUCammie/victory-amd/tree/bench/fx-parallel-snapshots-radv) · [Upstream results](https://github.com/fxceless/victory-fork/pull/1202#issuecomment-7178790298)
+
+| Descriptor scan | Accepted presents | Seconds | FPS | Draws/frame | Median reported descriptor sync (ms/frame) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Serial | 450 | 73.64 | 6.11 | 4,919 | 42.67 |
+| Parallel | 461 | 73.97 | 6.23 | 4,873 | 40.03 |
