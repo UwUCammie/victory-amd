@@ -21,10 +21,13 @@ def reversals(frames, change=24, tolerance=6):
             yield middle, float(np.mean(mask))
 
 
-def region_frames(video, region):
+def region_frames(video, region, start=0, stop=None):
     x, y, w, h = region
     # Crop in grayscale at full resolution to preserve odd pixel coordinates.
-    vf = f"format=gray,crop={w}:{h}:{x}:{y}:exact=1"
+    trim = f"trim=start_frame={start}"
+    if stop is not None:
+        trim += f":end_frame={stop}"
+    vf = f"{trim},format=gray,crop={w}:{h}:{x}:{y}:exact=1"
     command = ["ffmpeg", "-nostdin", "-loglevel", "error", "-threads", "1", "-noautorotate", "-i", str(video), "-map", "0:v:0",
                "-an", "-sn", "-vf", vf, "-filter_threads", "1", "-threads", "1",
                "-fps_mode", "passthrough", "-pix_fmt", "gray", "-f", "rawvideo", "pipe:1"]
@@ -44,7 +47,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("video", type=Path)
     parser.add_argument("region", type=int, nargs=4, metavar=("X", "Y", "WIDTH", "HEIGHT"))
+    parser.add_argument("--start-frame", type=int, default=0, help="first decoded frame of the fixed-camera interval")
+    parser.add_argument("--stop-frame", type=int, help="exclusive end of that interval")
     args = parser.parse_args()
+    if args.start_frame < 0 or (args.stop_frame is not None and args.stop_frame <= args.start_frame):
+        parser.error("expected a nonnegative start frame before the stop frame")
     x, y, w, h = args.region
     if min(x, y) < 0 or min(w, h) < 1:
         parser.error("region needs a nonnegative origin and positive dimensions")
@@ -55,9 +62,9 @@ if __name__ == "__main__":
     width, height = map(int, dimensions.split("x"))
     if x + w > width or y + h > height:
         parser.error(f"region outside {width}x{height} video")
-    scores = list(reversals(region_frames(args.video, args.region)))
+    scores = list(reversals(region_frames(args.video, args.region, args.start_frame, args.stop_frame)))
     if not scores:
         parser.exit(1, "Need three distinct region frames.\n")
     print(f"{len(scores)} distinct middle frames; highest fractions of reversing pixels:")
     for index, score in sorted(scores, key=lambda item: -item[1])[:5]:
-        print(f"frame {index}: {score:.2%}")
+        print(f"frame {args.start_frame + index}: {score:.2%}")

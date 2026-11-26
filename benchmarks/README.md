@@ -153,7 +153,7 @@ I started three Series X runs from separate copies of the same waterfront save a
 
 In the full desktop session, all 17 emitted warnings about unmirrored placed textures had zero backing addresses. The old warning described a lost write even on the shader-resource path. Nonzero failures now report the view type, and null textures bypass the placed-texture lookup. [Renderer PR](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/13)
 
-For fixed-camera video checks, `python3 benchmarks/flicker.py clip.mkv X Y WIDTH HEIGHT` reports the decoded frames where the largest fraction of a selected region briefly changed brightness. It ignores exact repeated grayscale frames. A pixel must change by at least 24 levels on either side of a frame and return within six levels of its initial value. Inspect the neighboring frames to distinguish a surface disappearing from motion, water animation or a passing shadow. This helper needs NumPy, FFmpeg and ffprobe.
+For fixed-camera video checks, `python3 benchmarks/flicker.py clip.mkv X Y WIDTH HEIGHT` reports the decoded frames where the largest fraction of a selected region briefly changed brightness. Use `--start-frame` and `--stop-frame` to isolate a parked camera between movements. It ignores exact repeated grayscale frames. A pixel must change by at least 24 levels on either side of a frame and return within six levels of its initial value. Inspect the neighboring frames to distinguish a surface disappearing from motion, water animation or a passing shadow. This helper needs NumPy, FFmpeg and ffprobe.
 
 ### November 26 fork check
 
