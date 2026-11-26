@@ -236,3 +236,17 @@ On the gather build with the copy-back worker set to either 0 or 2, the server's
 The hardware half-view test preserved all 65,536 patterns through integer views. The float control preserved one. Ten of 280 character-texture pixel programs failed to emit on the older build. All 280 emitted on the integration, and all ten previously failing programs created a host pipeline on the GPU. None of those ten appeared in the recorded first binds of the affected opening shots. [Facial-animation results](https://github.com/fxceless/victory-fork/pull/927#issuecomment-7180848831) · [Texture scheduling results](https://github.com/fxceless/victory-fork/pull/1246#issuecomment-7180852203) · [Ordered-pixel results](https://github.com/fxceless/victory-fork/pull/215#issuecomment-7180873951)
 
 Two runs on the same RX 7900 XT build compared fixed texture-copy budgets of 4 GiB and 8 GiB. In both, the server's face was blotchy red during the same reply to the water order, and her forearms had their usual skin color. The wall behind the seated character was visible in the 8 GiB run and dark in the 4 GiB run. In both, her upper lip pulled toward her nose across successive frames of the next line. The 4 GiB run had 24,862 texture slots due during the exchange, including 5,646 fully mapped entries whose textures had never received a host copy. This establishes a backlog. Identifying the resources sampled by the face still requires a draw-level check. Each budget was tested once.
+
+## First room with 32-bit typed views and legacy multiply-add
+
+I replayed the diner and the first room on the RX 7900 XT, with bake-source uploads enabled throughout. The parent is the bake-source build at `3d3a055`. The second build also includes the 32-bit buffer-view change from #684 and the legacy multiply-add change from #1026. Each row is one launch. The window is 165–215 s from the first log timestamp. At both ends the room and character were visible.
+
+| Build and vkd3d setting | Accepted presents | Seconds | FPS | Draws/frame | Visible changes/s in two samples |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Parent | 579 | 49.03 | 11.81 | 4,826 | 11.68, 11.68 |
+| Both shader changes | 597 | 49.15 | 12.15 | 4,800 | 11.88, 12.48 |
+| Both changes, FORCE_NOCONTRACT_MATH across all shaders | 532 | 49.57 | 10.73 | 4,839 | 11.68, 9.87 |
+
+The second build ran first. The third run used a fresh vkd3d pipeline cache and a build overlapped its last part. These samples establish achieved frame rates on this visit. They do not isolate a speedup or the cost of the math setting. Lucia's clothing also differed in the diner. During the same dialogue the lip still stretched toward her nose in all three runs. The server's face was visible in the second and third runs; part of the parent's sequence still showed a red face.
+
+A separate, game-free hardware test of legacy multiply-add returned zero on the fused-rounding case. Decorating only the SPIR-V Fma with NoContraction, or applying vkd3d-proton 3.1's FORCE_NOCONTRACT_MATH quirk with no shader override, made all four hardware cases pass. Neither the corrected synthetic result nor the diner result establishes the cause of the lip deformation. [Benchmark source](https://github.com/UwUCammie/victory-amd/tree/079d840) · [Hardware test and reproduction](https://github.com/fxceless/victory-fork/pull/1026#issuecomment-7187623405)
