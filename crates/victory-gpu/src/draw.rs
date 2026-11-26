@@ -2259,18 +2259,24 @@ impl State {
         // (`VICTORY_CARD_ACCOUNTING=1`; a line when the card first has no
         // room, and every five seconds after it).
         Self::card_accounting(heap, host, frame, room);
-        // The frames in about four seconds, between 16 and 256: how long a
-        // slot with nothing to upload waits at most for its next look. In
-        // frames alone it was 120: four minutes at the opening cutscene's
-        // half a frame per second, while the title streams by the clock.
-        // (About a second before the runtime told of the memory it maps:
-        // the looks are now only for what that does not tell.)
+        // Bound the retry delay by elapsed time while the title streams.
         static PASSED: AtomicU64 = AtomicU64::new(0);
         let now = crate::host::now_ms();
         let took = now.saturating_sub(PASSED.swap(now, Ordering::Relaxed)).max(1);
         // The worker may run two passes in a frame: no shorter than that.
         let took = if matches!(into, Into::Ahead(_)) { took.max(100) } else { took };
-        let most = (4000 / took).clamp(16, 256);
+        // `VICTORY_RELOOK_MS` (20,000 unless said; 4,000 before): at 4,000 the
+        // opening cutscene's 4 frames a second looked at its ~20,000 slots
+        // waiting for their memory every 16 frames, thousands of queries
+        // a second and most of the pass's time, while slots never looked
+        // at waited. The runtime's mappings already make a slot due
+        // (`texture_slots_remapped`); these looks are only for what that
+        // does not tell.
+        static RELOOK_MS: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+        let relook = *RELOOK_MS.get_or_init(|| {
+            std::env::var("VICTORY_RELOOK_MS").ok().and_then(|v| v.trim().parse().ok()).unwrap_or(20_000)
+        });
+        let most = (relook / took).clamp(16, 1024);
         // What a table entry of a texture a shader samples says.
         let sampled = UsedResource {
             kind: ResourceType::Srv,
