@@ -29,6 +29,21 @@ class ColdBootTests(unittest.TestCase):
         self.assertEqual(r["p99_ms"], 3000)
         self.assertEqual(r["seconds_in_holds_over_100ms"], 3)
 
+    def test_stall_reports_use_half_open_edges_and_log_time(self):
+        notice = " INFO victory_gpu::pipeline::make: a compute dispatch was dropped: its pipeline is not made"
+        drops = []
+        lines = [trace(0), "2026-11-26T00:00:03Z" + notice, "2026-11-26T00:00:01.5Z" + notice,
+                 "2026-11-26T00:00:01Z" + notice, trace(2_000_000)]
+        frames = accepted_frames(lines, self.launched, drops)
+        result = window(frames, 0, 4_000_000, stalls=2, compute_drops=drops)
+        self.assertEqual(result["largest_gaps"], [
+            {"start_s": 1, "stop_s": 3, "gap_ms": 2000, "compute_drop_reports": 2},
+            {"start_s": 0, "stop_s": 1, "gap_ms": 1000, "compute_drop_reports": 0},
+        ])
+        self.assertNotIn("largest_gaps", window(frames, 0, 4_000_000))
+        with self.assertRaises(ValueError):
+            window(frames, 0, 4_000_000, stalls=-1)
+
     def test_rejects_incomplete_or_unordered_trace(self):
         for offsets in ([], [10], [0, 200, 150], ["bad"]):
             with self.subTest(offsets=offsets), self.assertRaises(ValueError):

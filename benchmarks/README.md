@@ -32,6 +32,8 @@ Use the [accepted-present trace](https://github.com/UwUCammie/VIctory-7900XTX/co
 python3 benchmarks/cold_boot.py path/to/run path/to/launch.json --start 0 --stop 300
 ```
 
+Add `--stalls 5` to list the five longest gaps in a saved run, including gaps at the start and end of the window. Each row counts the renderer’s first compute-drop notices that fell inside that gap. A pipeline may drop more than one dispatch after its first notice. The count measures what the log reported during the gap and gives no duration for a compile.
+
 On Linux, `cold_launch.py` creates the directories and records the metadata for a direct Wine launch. Use a dedicated offline prefix, export the settings from `radv_first_room.env` and pass the same timed input to each run. Supply a fresh output directory for every trial. The installed Wine prefix needs a working Z: mapping. For example, from the installed game's working directory:
 
 ```sh
