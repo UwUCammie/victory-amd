@@ -29,8 +29,10 @@ Start the clock before launching Wine. Use an existing offline test prefix with 
 Use the [accepted-present trace](https://github.com/UwUCammie/VIctory-7900XTX/commit/cc16d08e) with `VICTORY_FRAME_TRACE=1`, Series X and `VICTORY_OUTPUT=1280x720`. Record launch and exit UTC timestamps in `launch.json` as `start_utc` and `end_utc`, the timeout in seconds as `timeout`, the initial number of story slots as `story_slots`, and the initial entry counts for `cache`, `vkd3dcache`, `mesa`, `xdg`, `dxvk` in `empty_cache_directories`. Store the timeout command's exit status in `exit-code` next to `run.log`. Mark runs interrupted by another game with `foreground-overlap` next to the metadata. Keep the logs and any scene captures local.
 
 ```sh
-python3 benchmarks/cold_boot.py path/to/run path/to/launch.json --start 0 --stop 300
+python3 benchmarks/cold_boot.py path/to/run path/to/launch.json --start 0 --stop 300 --expect-output 1280x720
 ```
+
+The optional `--expect-output` check checks the host swap-chain size before the first accepted present and on each subsequent resize.
 
 Add `--stalls 5` to list the five longest gaps in a saved run, including gaps at the start and end of the window. Each row counts the renderer’s first compute-drop notices that fell inside that gap. A pipeline may drop more than one dispatch after its first notice. The count measures what the log reported during the gap and gives no duration for a compile.
 

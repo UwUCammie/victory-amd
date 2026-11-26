@@ -49,6 +49,20 @@ class ColdBootTests(unittest.TestCase):
             with self.subTest(offsets=offsets), self.assertRaises(ValueError):
                 accepted_frames([trace(t) for t in offsets], self.launched)
 
+    def test_verifies_host_output_at_creation_and_resize(self):
+        create = "INFO victory_gpu::host: presenting to a window width=1280 height=720 format=28"
+        resize = "INFO victory_gpu::host: the swap chain's buffers were made again for another size or format "
+        hint = 'INFO victory_loader::resolution: settings value="1280x720 scene, 3840x2160 interface"'
+        expected = (1280, 720)
+        frames = [trace(0), trace(10)]
+        self.assertEqual(accepted_frames([create, *frames, resize + "height=720 width=1280"],
+                                         self.launched, expected_output=expected), [1_000_000, 1_000_010])
+        for lines in ([hint, *frames], [create.replace("720", "1080"), *frames],
+                      [create, *frames, resize + "width=1920 height=1080"], [create.rsplit(" height=", 1)[0], *frames],
+                      [*frames, create], [resize + "width=1280 height=720", *frames]):
+            with self.subTest(lines=lines), self.assertRaises(ValueError):
+                accepted_frames(lines, self.launched, expected_output=expected)
+
     def test_terminal_failure_invalidates_even_earlier_frames(self):
         with self.assertRaises(SessionFailed):
             accepted_frames([trace(0), "VIctory: unhandled exception 0xc0000005"], self.launched)
