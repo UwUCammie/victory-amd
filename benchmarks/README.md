@@ -279,3 +279,17 @@ With the published renderer settings, complete first-room intervals between 145 
 With only `VICTORY_FETCH_CHECK=1` added to the same renderer settings, the same window gave 596 presents in 37.07 s (16.08 FPS, 4,861 draws/frame). Window samples changed 15.50 and 16.11 times/s. The check was active: across 23 reporting intervals between 55 and 80 s, the renderer checked about 896–1,706 fetched pieces per frame and recorded up to 11.46 mismatches/frame. In the diner both the server and seated character still showed eyes and teeth through absent skin. This differs from the [face result on an earlier revision](https://github.com/avatarmanz/VIctory-7900XTX/issues/138). The two timed launches used the same binary, copied starting save, initial runtime cache and initial vkd3d cache. The 0.22 FPS difference is one pair of runs.
 
 I also tried the [earlier stage-one workaround](https://github.com/avatarmanz/VIctory-7900XTX/issues/13) by setting `VICTORY_RELAY=1 VICTORY_CARD_STEPS=0` on the published settings. It gave 446 accepted presents in 36.82 s (12.11 FPS, 4,851 draws/frame). Both window samples changed 11.88 times/s. The missing skin was visible on both characters during the water order. Each of the three configurations completed its 190-second run.
+
+## Compute pipeline waits and Radeon buffer sizes
+
+I built the [November 26 Linux branch](https://github.com/jtrudeau1530/VIctory-7900XTX/commit/830dc191d749f6e9d30226a0a87dbb20607fcc40) and replayed the diner and first room on an RX 7900 XT with a Ryzen 7 9700X, RADV 26.3.1, tree-index Wine 11.22 and vkd3d-proton 3.1. Each launch started with a separate copy of the same profile, story slot, runtime cache and vkd3d cache. The table counts complete successful-present intervals between 145 and 183 seconds. The last column counts changes in a 256×144 window crop during two five-second samples. These are Series X runs with the same timed input.
+
+| Texture worker | Compute wait | GPU buffer minimum / budget | Presents / seconds | FPS | Draws/frame | Visible changes/s |
+| --- | --- | --- | ---: | ---: | ---: | --- |
+| Off | Original renderer | 4 MiB / 2 GiB | 588 / 37.05 | 15.87 | 4,830 | 15.69, 16.11 |
+| On | Original renderer | 4 MiB / 2 GiB | 582 / 37.34 | 15.59 | 4,788 | 15.70, 15.91 |
+| On | On | 256 KiB / 4 GiB | 759 / 36.85 | 20.60 | 4,817 | 20.13, 20.74 |
+
+Both original controls showed missing skin on the server and seated character. With Beqren’s bounded compute wait, both had visible faces and necks during the order on two separate launches, one with the texture worker off and one with it on. I then switched only the compute wait off in the **same executable** used for the worker-off replay. The missing faces returned. The profile and story slot were identical in these comparisons. The 20.60 FPS row also changes the buffer sizes, so it measures the combination. The texture worker by itself showed no first-room gain in the original pair.
+
+The shell profile contains the exact renderer settings for the 20.60 FPS row and preserves environment overrides. The comparison sources include the same input hook and accepted-present counter. [Shell profile](radv_first_room.env) · [Original controls](https://github.com/UwUCammie/VIctory-7900XTX/tree/9eb196c7a2bc9256889f600c85f30cbf562aeffd) · [Compute-wait replay](https://github.com/UwUCammie/VIctory-7900XTX/tree/80685279a4a120d3198b9688d9f5b1c6aaf75d99) · [Linux branch PR](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/2)
