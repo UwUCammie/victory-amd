@@ -1,8 +1,11 @@
 """Regression coverage for stalls at the edges of a measured launch."""
 from datetime import datetime, timezone
+from pathlib import Path
+from tempfile import TemporaryDirectory
+import json
 import unittest
 
-from cold_boot import accepted_frames, window
+from cold_boot import accepted_frames, report, window
 from first_room import SessionFailed
 
 
@@ -62,6 +65,34 @@ class ColdBootTests(unittest.TestCase):
                       [*frames, create], [resize + "width=1280 height=720", *frames]):
             with self.subTest(lines=lines), self.assertRaises(ValueError):
                 accepted_frames(lines, self.launched, expected_output=expected)
+
+    def test_live_window_requires_a_present_at_or_after_its_end(self):
+        with TemporaryDirectory() as work:
+            run = Path(work)
+            meta = run / "launch.json"
+            launch = {"start_utc": self.launched.isoformat(), "timeout": 5, "story_slots": 0,
+                      "empty_cache_directories": dict.fromkeys(("cache", "vkd3dcache", "mesa", "xdg", "dxvk"), 0)}
+            meta.write_text(json.dumps(launch))
+            log = run / "run.log"
+            log.write_text(trace(0) + "\n")
+            with self.assertRaisesRegex(ValueError, "not yet covered"):
+                report(run, meta, 0, 2_000_000, progress=True)
+            with self.assertRaises(FileNotFoundError):
+                report(run, meta, 0, 2_000_000)
+            log.write_text(trace(0) + "\n" + trace(1_000_000) + "\n" + trace("partial"))
+            preview = report(run, meta, 0, 2_000_000, progress=True)
+            self.assertTrue(preview.pop("provisional"))
+            (run / "foreground-overlap").touch()
+            with self.assertRaisesRegex(ValueError, "overlap"):
+                report(run, meta, 0, 2_000_000, progress=True)
+            (run / "foreground-overlap").unlink()
+            log.write_text(trace(0) + "\n" + trace(1_000_000) + "\n")
+            (run / "exit-code").write_text("124")
+            with self.assertRaisesRegex(ValueError, "final launcher metadata"):
+                report(run, meta, 0, 2_000_000, progress=True)
+            launch["end_utc"] = self.launched.replace(second=5).isoformat()
+            meta.write_text(json.dumps(launch))
+            self.assertEqual(preview, report(run, meta, 0, 2_000_000))
 
     def test_terminal_failure_invalidates_even_earlier_frames(self):
         with self.assertRaises(SessionFailed):

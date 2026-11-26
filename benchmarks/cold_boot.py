@@ -123,30 +123,42 @@ def window(frames, start, stop, *, stalls=0, compute_drops=()):
     return result
 
 
-def report(run, metadata, start, stop, *, stalls=0, expected_output=None, expected_interface=None):
-    launch = json.loads(metadata.read_text())
+def check_overlap(run, metadata):
     if (metadata.parent / "foreground-overlap").exists() or (run / "gpu-overlap.txt").exists():
         raise ValueError("foreground GPU overlap")
     if (metadata.parent / "validation-overlap").exists():
         raise ValueError("external validation or profiling overlapped this run")
-    if (run / "exit-code").read_text().strip() != "124":
+
+
+def report(run, metadata, start, stop, *, stalls=0, expected_output=None, expected_interface=None, progress=False):
+    launch = json.loads(metadata.read_text())
+    check_overlap(run, metadata)
+    live = progress and "end_utc" not in launch
+    if live and (run / "exit-code").exists():
+        raise ValueError("waiting for final launcher metadata")
+    if not live and (run / "exit-code").read_text().strip() != "124":
         raise ValueError("run did not finish its scheduled timeout")
     if launch.get("empty_cache_directories") != dict.fromkeys(("cache", "vkd3dcache", "mesa", "xdg", "dxvk"), 0):
         raise ValueError("expected five empty cache directories at launch")
     if launch.get("story_slots") != 0:
         raise ValueError("expected a new story")
     launched = datetime.fromisoformat(launch["start_utc"])
-    ended = datetime.fromisoformat(launch["end_utc"])
-    duration = (ended - launched) // MICROSECOND
-    if not 0 <= start < stop <= min(duration, launch["timeout"] * 1_000_000):
+    duration = None if live else (datetime.fromisoformat(launch["end_utc"]) - launched) // MICROSECOND
+    if not 0 <= start < stop <= launch["timeout"] * 1_000_000 or (duration is not None and stop > duration):
         raise ValueError("window outside the timed observation")
     drops = [] if stalls else None
     with (run / "run.log").open(encoding="utf-8", errors="replace") as log:
-        frames = accepted_frames(log, launched, drops, expected_output=expected_output,
+        records = (line for line in log if line.endswith("\n")) if live else log
+        frames = accepted_frames(records, launched, drops, expected_output=expected_output,
                                  expected_interface=expected_interface)
-    if frames[-1] > duration:
+    if live and frames[-1] < stop:
+        raise ValueError("present trace has not yet covered the requested window")
+    if duration is not None and frames[-1] > duration:
         raise ValueError("frame trace extends beyond launcher metadata")
     result = {"first_present_seconds": frames[0] / 1e6, **window(frames, start, stop, stalls=stalls, compute_drops=drops)}
+    if live:
+        check_overlap(run, metadata)
+        result["provisional"] = True
     if expected_output is not None:
         result["host_output"] = f"{expected_output[0]}x{expected_output[1]}"
     if expected_interface is not None:
@@ -160,6 +172,7 @@ if __name__ == "__main__":
     parser.add_argument("metadata", type=Path, help="launch.json from the cold run")
     parser.add_argument("--start", type=int, default=0, help="seconds after launcher start")
     parser.add_argument("--stop", type=int, default=300, help="seconds after launcher start")
+    parser.add_argument("--progress", action="store_true", help="allow a provisional reading after a live trace crosses --stop")
     parser.add_argument("--stalls", type=int, default=0, help="list the N longest gaps and compute-drop notices in each")
     parser.add_argument("--expect-output", type=output_size, metavar="WIDTHxHEIGHT",
                         help="require this host swap-chain size throughout the run")
@@ -168,7 +181,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     try:
         result = report(args.run, args.metadata, args.start * 1_000_000, args.stop * 1_000_000, stalls=args.stalls,
-                        expected_output=args.expect_output, expected_interface=args.expect_interface)
+                        expected_output=args.expect_output, expected_interface=args.expect_interface, progress=args.progress)
     except (ValueError, KeyError, OSError) as error:
         parser.exit(1, f"{error}\n")
     print(json.dumps(result, indent=2))
