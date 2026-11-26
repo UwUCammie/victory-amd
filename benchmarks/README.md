@@ -117,3 +117,9 @@ One 390-second run alternated the placement of the indirect-argument gather ever
 | On | 698 | 104.62 | 6.67 | 4,799 |
 
 The 0.06 FPS difference gives little reason to prefer either mode in this room. Recalculate with `python3 benchmarks/gather_by_copy.py run.log`. [Build and counters](https://github.com/UwUCammie/victory-amd/tree/bench/radv-indirect-by-copy) · [Upstream change](https://github.com/fxceless/victory-fork/commit/006c353)
+
+## In-place title memory on RADV
+
+The same executable and input route ran with in-place import off, then at level 4 with the pool enabled. The control reached the character and courtyard and recorded 356 accepted presents in 73.82 s (4.82 FPS, 5,032 draws/frame). The level-4 run was still on a white transition screen at the late visual check. It accepted six presents in 52.42 s of complete intervals inside the measurement window and is excluded from gameplay FPS.
+
+Level 4 exercised the import path. At the final report, the arenas held 9.99 GiB locked across two private parts and seven sections. The runtime reported 10,093 windows placed (1,728 MB cumulative) and zero title buffers placed. Both runs reached the 230-second timeout. The bounded synthetic GPU test separately passed reads and writes at a nonzero offset. [Build](https://github.com/UwUCammie/victory-amd/tree/bench/radv-inplace-first-room) · [Physical import test](https://github.com/sirrus98/victory-fork/pull/1)
