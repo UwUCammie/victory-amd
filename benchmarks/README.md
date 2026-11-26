@@ -95,3 +95,14 @@ With captured descriptor headers applied on top of the parallel-scan PR, the sam
 | --- | ---: | ---: | ---: | ---: | ---: |
 | Serial | 450 | 73.64 | 6.11 | 4,919 | 42.67 |
 | Parallel | 461 | 73.97 | 6.23 | 4,873 | 40.03 |
+
+## Command-list recording
+
+On the gather and worker integration, one executable ran the same first-room route with target-bind and unaligned root-CBV reuse enabled, then disabled. Pipeline-object retention stayed enabled. Both runs showed the character and courtyard at 175 s. Room lighting differed between captures, and one pair does not isolate the cause.
+
+| Reuse target binds and root CBVs | Accepted presents | Seconds | FPS | Avoided target binds | Root-CBV cache hits |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| On | 699 | 73.92 | 9.46 | 7,689 | 0 |
+| Off | 731 | 73.57 | 9.94 | 0 | 0 |
+
+The sampler also counted 950,166 and 992,228 repeated pipeline-retain requests respectively. These are cumulative-counter differences over the measured intervals. The same GPU passed the target rewrite/replay, deferred CBV write and pipeline lifetime tests. [Build and counters](https://github.com/UwUCammie/victory-amd/tree/bench/radv-recording-reuse) · [Upstream results](https://github.com/fxceless/victory-fork/pull/1215#issuecomment-7178947611)
