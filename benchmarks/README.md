@@ -98,6 +98,20 @@ The first five minutes included 30 holds longer than one second and 169.49 secon
 With the separate UI plane enabled I repeated the first 300 seconds from five empty graphics caches. The run recorded 4,202 accepted presents (14.01 FPS), first present at 3.01 s, p99 280.2 ms and longest hold 11.11 s. It used the same unskipped opening on the RX 7900 XT. Each UI mode has one clean observation on this route.
 
 
+### Reusing a translation after its cache write
+
+I ran the unskipped opening at 1280×720 on the RX 7900 XT with Wine 11.22 and RADV 26.3.1. Both builds used the separate UI plane, the same 1 KiB compute setting and the same input schedule. I started each launch with five empty graphics caches and no story slot. The cache change ran first. I excluded one overlapping control and restarted it from empty caches.
+
+| First 300 seconds from launch | Presents | Average FPS | p99 gap | Longest hold | Seconds in gaps over 100 ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Earlier control, same executable | 4,202 | 14.01 | 280 ms | 11.11 s | 146.82 |
+| Reuse newly translated shaders | 2,826 | 9.42 | 656 ms | 11.42 s | 190.18 |
+| Fresh control | 2,248 | 7.49 | 3,173 ms | 11.40 s | 210.51 |
+
+The candidate and fresh control both showed the same face at 160 s and the same credit at 295 s. They showed different shots at 115, 205 and 245 s. The candidate ended the 308 s launch with 2,710 shader cache entries totaling 170,699,798 bytes. It avoids reopening newly written entries, but the two control results bracket its FPS. Both fresh runs still had 27 holds over one second. I kept the installed preset. [Shader cache PR](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/8)
+
+Across the full 308 s, I matched each distinct compute shader’s first dropped-dispatch notice to its first successful translation message. All 371 matches in the candidate and 422 in the fresh control had inputs above the 1 KiB early-compute limit. The translation message followed the drop by a median 28.47 s in the candidate and 16.89 s in the control. These intervals include time in the compiler queue. The renderer emits the drop notice once per pipeline, so subsequent dropped dispatches can go unreported.
+
 ### Testing the title frame interval
 
 I compared the stock interval with the 16.667 ms setting on the same Windows binary and 1 KiB preset. The title timer confirmed 33,333 and 16,666 microseconds respectively. On the stock clock I counted 3,305 presents in the first 300 s (11.02 FPS) and 1,465 in the 75 s cell movement window (19.53 FPS). The longest hold was 11.95 s. The 16.667 ms launch counted 3,886 presents in 300 s (12.95 FPS), with an 11.44 s hold. Its late window was still cinematic. The title's secondary timer advanced 58.68 s over those 75 seconds, compared with 69.12 s in the stock run's cell. Those were different scenes, so this pair cannot establish a gameplay or simulation-rate improvement. The desktop retains the stock clock. [Upstream interval change](https://github.com/avatarmanz/VIctory-7900XTX/commit/49cb83b4)
