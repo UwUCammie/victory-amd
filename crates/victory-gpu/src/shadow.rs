@@ -2086,11 +2086,7 @@ fn changed_runs_bytes(now: &[u8], was: &[u8]) -> Vec<(usize, usize)> {
 /// than the walk in the last two, by a fifth: it never ran in a game.)
 #[cfg(target_arch = "x86_64")]
 fn changed_runs_wide(now: &[u8], was: &[u8]) -> Vec<(usize, usize)> {
-    static AVX2: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    if *AVX2.get_or_init(|| {
-        std::env::var_os("VICTORY_CHANGED_RUNS_AVX2").is_some_and(|v| v == "1")
-            && std::is_x86_feature_detected!("avx2")
-    }) {
+    if crate::bench_trial::use_avx2(now.len().min(was.len())) {
         // SAFETY: AVX2 support is checked at runtime.
         return unsafe { changed_runs_avx2(now, was) };
     }
