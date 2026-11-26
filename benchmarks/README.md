@@ -84,7 +84,7 @@ I timed one 12-minute launch of the desktop preset with five empty graphics cach
 | Interval from launch | Accepted presents | Average FPS | p99 frame gap | Longest hold |
 | --- | ---: | ---: | ---: | ---: |
 | First 300 s | 3,537 | 11.79 | 386 ms | 11.29 s |
-| Full 720 s | 12,611 | 17.52 | 164 ms | 11.29 s |
+| Full 720 s | 12,611 | 17.52 | 163.5 ms | 11.29 s |
 | Prison movement, 490–565 s | 1,858 | 24.77 | 62 ms | 0.86 s |
 
 The first five minutes included 30 holds longer than one second and 169.49 seconds in gaps longer than 100 ms. This route leaves the opening credits running, which differs from the earlier timed-skip runs. It provides an end-to-end measurement for the [720p HUD change](https://github.com/avatarmanz/VIctory-7900XTX/pull/295).
