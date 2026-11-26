@@ -51,7 +51,9 @@ With six general workers the same route gave 13.25 FPS from launch and 23.91 FPS
 
 Limiting speculative work to compute shaders of at most 2,048 bytes gave **13.06 FPS** over the whole five minutes (3,919 frames) and **23.96 FPS** over the movement window (1,797 frames). The face pipeline was ready at 3.25 s and first bound at 28.58 s. Both diner faces had skin, and the player character still had skin after turning in the cell. P99 was 475 ms. There were 30 waits longer than one second and the longest was 11.12 s. Compared with starting all compute builds, this kept the visible face and cut time in holds over 100 ms from 207–221 s to 152 s. The default missing-face control spent 142 s in those holds. One size-limited trial so far.
 
-The RX 7900 XT desktop preset sources `radv_first_room.env` followed by `radv_720p.env` and uses the [size-limited build](https://github.com/UwUCammie/VIctory-7900XTX/commit/ae742781) with 1280×720 output support. The desktop retains its ordinary graphics caches. The benchmark gives each launch new ones.
+At 1,024 bytes the first clean trial gave **14.10 FPS from launch** (4,230 / 300 s) and **25.01 FPS in the movement window** (1,876 / 75 s). The diner and cell character both had facial skin. The face pipeline was ready at 3.59 s and first bound at 28.98 s. P99 was 281 ms; 27 holds exceeded one second, the longest was 11.17 s, and 138.97 s were spent in holds over 100 ms. Each size has one completed trial at this point.
+
+The RX 7900 XT desktop preset uses the 1,024-byte limit and sources `radv_first_room.env` followed by `radv_720p.env` and uses the [size-limited build](https://github.com/UwUCammie/VIctory-7900XTX/commit/ae742781) with 1280×720 output support. The desktop retains its ordinary graphics caches. The benchmark gives each launch new ones.
 
 ### Verify pipeline-library persistence without the game
 
