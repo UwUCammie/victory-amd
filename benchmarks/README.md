@@ -99,6 +99,12 @@ On Linux, `competing_gpu.py --executable OTHER_GAME` recognizes an independent g
 
 The cache candidate still wrote 2,710 shader entries totaling 170,699,798 bytes during its run. `compute_lag.py` can match first-drop warnings to successful translation messages in an existing log. The contaminated runs establish neither a normal queue delay nor a change in rendering performance. The desktop retains the separate 720p interface plane and the stock timer. [UI fix](https://github.com/avatarmanz/VIctory-7900XTX/pull/295) · [Cache change](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/8) · [Translator change](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/6)
 
+### November 26 fork check
+
+I kept the Linux/RADV tests on [linux-amd-best](https://github.com/jtrudeau1530/VIctory-7900XTX/tree/830dc191d749f6e9d30226a0a87dbb20607fcc40). One new [PortWatch](https://portwatch-vi.xyz/) lead, [VIctory-leonida](https://github.com/lepotane/VIctory-leonida/tree/c6c9da9f), reports 18.1 native average FPS in the world at 1080p on an RTX 4060 Ti under Windows. Its higher output figure uses NVIDIA Smooth Motion. Its shared-upload pool is worth measuring separately on RADV, but the host allocation patch needs a port to this branch. [Source change](https://github.com/lepotane/VIctory-leonida/commit/c6c9da9f)
+
+[Kelvaroq](https://github.com/stellarr-studio/kelvaroq) moved organizations. Its translate-once result measures descriptor bookkeeping on an RTX 5080. I found no published first-story, cold-cache 720p RX 7900 XT average in the new scouting entries.
+
 ### Verify pipeline-library persistence without the game
 
 A separate [vkd3d-proton library fix](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/4) addresses repeat launches. On this branch the host refused its empty library, so it could not save pipeline entries or the list of pipelines to start early next time. The two independent control launches both reported the refusal. A small probe exercises the driver's empty-library calls and serialization without a game or shader compiler. Build `empty_pipeline_library.cpp` in a Windows developer prompt:
