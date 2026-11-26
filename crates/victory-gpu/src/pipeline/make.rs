@@ -396,7 +396,7 @@ fn compute_waits() -> bool {
     *ON.get_or_init(|| {
         let on = crate::wine::on_under_wine("VICTORY_COMPUTE_WAIT");
         if on {
-            tracing::info!(secs = COMPUTE_BUDGET.as_secs(), "compute dispatches wait for their pipelines");
+            tracing::info!(frame_ms = compute_frame_budget().as_millis() as u64, pipeline_secs = COMPUTE_BUDGET.as_secs(), "compute dispatches wait for their pipelines");
         }
         on
     })
@@ -415,11 +415,25 @@ fn compute_waits() -> bool {
 /// the watchdog.
 const COMPUTE_BUDGET: Duration = Duration::from_secs(10);
 
+/// A shorter frame allowance can be tried without changing how long a worker
+/// may spend making one pipeline before later dispatches use the ordinary budget.
+fn compute_frame_budget() -> Duration {
+    static BUDGET: OnceLock<Duration> = OnceLock::new();
+    *BUDGET.get_or_init(|| {
+        std::env::var("VICTORY_COMPUTE_FRAME_WAIT_MS")
+            .ok()
+            .and_then(|v| v.trim().parse::<u64>().ok())
+            .map(Duration::from_millis)
+            .unwrap_or(COMPUTE_BUDGET)
+            .min(COMPUTE_BUDGET)
+    })
+}
+
 /// What a compute dispatch may wait now: what is left of the frame's
 /// [`COMPUTE_BUDGET`] (`since` the frame's first compute wait began) and
 /// of the pipeline's (`making` since a worker began it).
-fn compute_left(since: Duration, making: Duration) -> Duration {
-    COMPUTE_BUDGET.saturating_sub(since).min(COMPUTE_BUDGET.saturating_sub(making))
+fn compute_left(frame_budget: Duration, since: Duration, making: Duration) -> Duration {
+    frame_budget.saturating_sub(since).min(COMPUTE_BUDGET.saturating_sub(making))
 }
 
 /// Waits for `p` while frame `frame` has budget left.
@@ -432,11 +446,11 @@ fn wait(p: &Pending, frame: u64) {
     let budget = if screen {
         screen_budget()
     } else if compute {
-        COMPUTE_BUDGET
+        compute_frame_budget()
     } else {
         wait_budget()
     };
-    if budget.is_zero() {
+    if !compute && budget.is_zero() {
         return;
     }
     // The frame the budget belongs to, and what was waited of it (or is
@@ -457,7 +471,7 @@ fn wait(p: &Pending, frame: u64) {
         if first.0 == u64::MAX || frame > first.0 {
             *first = (frame, Some(Instant::now()));
         }
-        compute_left(first.1.map_or(Duration::ZERO, |at| at.elapsed()), making)
+        compute_left(budget, first.1.map_or(Duration::ZERO, |at| at.elapsed()), making)
     } else {
         let mut spent = spent_of.lock().unwrap_or_else(|e| e.into_inner());
         if spent.0 != frame {
@@ -474,7 +488,7 @@ fn wait(p: &Pending, frame: u64) {
             tracing::info!(
                 shaders = %hashes(p),
                 frame,
-                "a compute dispatch was dropped: its pipeline is not made and this frame's compute waits took 10 s"
+                "a compute dispatch was dropped: its pipeline is not made and this frame's compute wait budget was exhausted"
             );
         }
         return;
@@ -890,11 +904,15 @@ mod tests {
     #[test]
     fn compute_waits_are_bounded_per_frame_and_per_pipeline() {
         let s = Duration::from_secs;
-        assert_eq!(compute_left(s(0), s(0)), COMPUTE_BUDGET);
-        assert_eq!(compute_left(COMPUTE_BUDGET, s(0)), Duration::ZERO);
-        assert_eq!(compute_left(s(0), COMPUTE_BUDGET), Duration::ZERO);
-        assert_eq!(compute_left(s(3), s(8)), COMPUTE_BUDGET - s(8));
-        assert_eq!(compute_left(s(8), s(3)), COMPUTE_BUDGET - s(8));
+        assert_eq!(compute_left(COMPUTE_BUDGET, s(0), s(0)), COMPUTE_BUDGET);
+        assert_eq!(compute_left(COMPUTE_BUDGET, COMPUTE_BUDGET, s(0)), Duration::ZERO);
+        assert_eq!(compute_left(COMPUTE_BUDGET, s(0), COMPUTE_BUDGET), Duration::ZERO);
+        assert_eq!(compute_left(COMPUTE_BUDGET, s(3), s(8)), COMPUTE_BUDGET - s(8));
+        assert_eq!(compute_left(COMPUTE_BUDGET, s(8), s(3)), COMPUTE_BUDGET - s(8));
+        assert_eq!(compute_left(s(2), s(1), s(7)), s(1));
+        assert_eq!(compute_left(s(2), s(2), s(0)), Duration::ZERO);
+        assert_eq!(compute_left(s(5), s(1), s(9)), s(1));
+        assert_eq!(compute_left(Duration::ZERO, s(0), s(0)), Duration::ZERO);
     }
 
     /// A dispatch waits for a compute pipeline that is not made until a
