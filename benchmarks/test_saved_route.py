@@ -2,7 +2,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from saved_route import classify, route_outcome, scene_samples
+from saved_route import classify, route_outcome, scan_for_failure, scene_samples
 
 
 class SavedRouteTests(unittest.TestCase):
@@ -17,6 +17,19 @@ class SavedRouteTests(unittest.TestCase):
     def test_wine_assertion_is_a_failure_even_with_timeout_exit(self):
         message = "app.exe: ../wine/dlls/win32u/sysparams.c:352: user_check_not_lock: Assertion `0' failed."
         self.assertEqual(self.result(self.present, message), "renderer-failure")
+
+    def test_live_scan_revisits_partial_line_and_reads_only_new_bytes(self):
+        with TemporaryDirectory() as directory:
+            log = Path(directory) / "run.log"
+            self.assertEqual(scan_for_failure(log, 0), (0, None))
+            log.write_bytes(b"ok\nVIctory: unhandled")
+            offset, failure = scan_for_failure(log, 0)
+            self.assertEqual((offset, failure), (3, None))
+            with log.open("ab") as stream:
+                stream.write(b" exception 0x80000003\n")
+            end, failure = scan_for_failure(log, offset)
+            self.assertEqual(failure, "renderer-failure")
+            self.assertEqual(scan_for_failure(log, end), (end, None))
 
     def test_overlap_is_excluded_even_if_termination_looks_like_a_crash(self):
         self.assertEqual(self.result("VIctory: unhandled exception 0", overlap=True), "interrupted")

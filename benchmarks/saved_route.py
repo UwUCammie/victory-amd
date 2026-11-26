@@ -27,6 +27,26 @@ def classify(lines, *, interrupted, exit_code, elapsed, target):
     return "finished"
 
 
+def scan_for_failure(path, offset):
+    """Check complete new log lines, retaining the start of a partial line."""
+    try:
+        with path.open("rb") as log:
+            log.seek(offset)
+            for raw in log:
+                if not raw.endswith(b"\n"):
+                    break
+                offset += len(raw)
+                for _ in session_lines((raw.decode("utf-8", errors="replace"),)):
+                    pass
+    except FileNotFoundError:
+        return offset, None
+    except DeviceLost:
+        return offset, "device-failure"
+    except SessionFailed:
+        return offset, "renderer-failure"
+    return offset, None
+
+
 def route_outcome(run, overlap, elapsed, target):
     if overlap.exists():
         return "interrupted"
