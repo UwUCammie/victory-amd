@@ -46,6 +46,12 @@ pub enum Patched {
     Failed(&'static str),
 }
 
+#[cfg(any(windows, test))]
+mod viewbox;
+
+#[cfg(any(windows, test))]
+mod ui_plane;
+
 /// Sizes the title has a display mode for (its own list, +0x615c0c0).
 pub const MODES: [(u32, u32); 5] = [(1280, 720), (1664, 936), (1920, 1080), (2560, 1440), (3840, 2160)];
 
@@ -305,8 +311,33 @@ pub unsafe fn write(base: usize, size: usize, site: &Site, code: &[u8]) -> Patch
 pub unsafe fn apply_asked(base: usize, size: usize) {
     let mut asked: Vec<(&Site, Vec<u8>, String)> = Vec::new();
     if let Some((w, h)) = asked_output() {
-        asked.push((&OUTPUT, output_code(w, h), format!("{w}x{h}")));
-        if (w, h) != (3840, 2160) {
+        // Set the 720p video configuration only when both display-pool
+        // requirements have been verified and applied. Until then the title
+        // may still use its original single-plane settings.
+        let separate_ui = ui_plane::requested(
+            (w, h),
+            std::env::var_os("VICTORY_UI_PLANE_720").as_deref(),
+            std::env::var_os("VICTORY_PLANES").as_deref(),
+        ) && {
+            // SAFETY: the caller provides a mapped image before title execution.
+            unsafe {
+                [&OUTPUT, &POOL_CHECK, &ui_plane::POOL].iter().all(|site| matches(base, size, site) == Patched::Done)
+                    && write(base, size, &POOL_CHECK, &pool_check_code()) == Patched::Done
+                    && write(base, size, &ui_plane::POOL, &ui_plane::SPLIT_POOL) == Patched::Done
+            }
+        };
+        if separate_ui {
+            asked.push((&OUTPUT, ui_plane::output_code(), String::from("1280x720 scene, 3840x2160 interface")));
+        } else {
+            asked.push((&OUTPUT, output_code(w, h), format!("{w}x{h}")));
+        }
+        if !separate_ui && viewbox::requested((w, h), std::env::var_os("VICTORY_UI_VIEWBOX").as_deref())
+            // SAFETY: the mapped image is live and the output override has not been applied.
+            && unsafe { matches(base, size, &OUTPUT) } == Patched::Done
+        {
+            asked.push((&viewbox::SITE, viewbox::FITTED.to_vec(), format!("{w}x{h}")));
+        }
+        if !separate_ui && (w, h) != (3840, 2160) {
             asked.push((&POOL_CHECK, pool_check_code(), format!("{w}x{h}")));
         }
     }
