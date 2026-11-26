@@ -77,6 +77,19 @@ For Windows cross-builds from multiple worktrees, use a separate Cargo target di
 python3 benchmarks/verify_pdb_sources.py "$checkout" "$build/victory.exe" "$build/victory.pdb" crates/victory-shader/src/emit/lower.rs
 ```
 
+### Unskipped first story launch with the 720p HUD fix
+
+I timed one 12-minute launch of the desktop preset with five empty graphics caches and no story slot on the RX 7900 XT. The only confirmation inputs were in the first 20 seconds. The opening then played through to the prison, where timed movement inputs continued. The first successful present was 2.36 s from launch. The character was at the cell window around 445 s and moving through the room and corridor in subsequent captures. No foreground game or competing validation interrupted the run.
+
+| Interval from launch | Accepted presents | Average FPS | p99 frame gap | Longest hold |
+| --- | ---: | ---: | ---: | ---: |
+| First 300 s | 3,537 | 11.79 | 386 ms | 11.29 s |
+| Full 720 s | 12,611 | 17.52 | 164 ms | 11.29 s |
+| Prison movement, 490–565 s | 1,858 | 24.77 | 62 ms | 0.86 s |
+
+The first five minutes included 30 holds longer than one second and 169.49 seconds in gaps longer than 100 ms. This route leaves the opening credits running, which differs from the earlier timed-skip runs. It provides an end-to-end measurement for the [720p HUD change](https://github.com/avatarmanz/VIctory-7900XTX/pull/295).
+
+
 ### Testing the title frame interval
 
 I compared the stock interval with the 16.667 ms setting on the same Windows binary and 1 KiB preset. The title timer confirmed 33,333 and 16,666 microseconds respectively. On the stock clock I counted 3,305 presents in the first 300 s (11.02 FPS) and 1,465 in the 75 s cell movement window (19.53 FPS). The longest hold was 11.95 s. The 16.667 ms launch counted 3,886 presents in 300 s (12.95 FPS), with an 11.44 s hold. Its late window was still cinematic. The title's secondary timer advanced 58.68 s over those 75 seconds, compared with 69.12 s in the stock run's cell. Those were different scenes, so this pair cannot establish a gameplay or simulation-rate improvement. The desktop retains the stock clock. [Upstream interval change](https://github.com/avatarmanz/VIctory-7900XTX/commit/49cb83b4)
