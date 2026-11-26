@@ -47,6 +47,18 @@ Both trials used the same binary, key sequence and protected compute wait. The c
 
 The default lost the character's facial skin in the diner dialogue and again in the cell, with eyes, hair and teeth still visible. The head blend-shape pipeline identified in the compute-wait patch was first bound at 49.49 s, its dispatch timed out at 59.50 s and the host pipeline was ready at 84.63 s. The earlier control with no late walking input showed the same missing face at the same spoken line. With [compute compilation at creation](https://github.com/UwUCammie/VIctory-7900XTX/commit/1bf28084), the host pipeline was ready at 44.17 s ahead of its first bind at 55.15 s; the face was visible at that line and the character had skin in the cell. The cost of queueing all that work persisted into gameplay. One run per configuration; the faster control fails the visual check.
 
+With six general workers the same route gave 13.25 FPS from launch and 23.91 FPS in the movement window; the face was still missing. A second run starting every compute build at creation again drew the face, at 9.19 FPS from launch and 14.63 FPS over the movement window.
+
+### Verify pipeline-library persistence without the game
+
+A separate [vkd3d-proton library fix](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/4) addresses repeat launches. On this branch the host refused its empty library, so it could not save pipeline entries or the list of pipelines to start early next time. The two independent control launches both reported the refusal. A small probe exercises the driver's empty-library calls and serialization without a game or shader compiler. Build `empty_pipeline_library.cpp` in a Windows developer prompt:
+
+```bat
+cl /EHsc empty_pipeline_library.cpp d3d12.lib
+```
+
+Run the resulting executable against the same D3D12 implementation as the game. Here the non-null pointer with zero length gave `80070057`, the null pointer gave `00000000`, and the resulting 56-byte serialized library reopened successfully. First-boot trials always start with an empty pipeline directory.
+
 ## Measurements
 
 Ryzen 7 9700X, RX 7900 XT, RADV 26.3.1, Wine 11.22, vkd3d-proton v3.1-83. I used the Series X profile, the first room, a warmed cache and a separate offline test prefix. Each session lasted 230 seconds. The table includes changes under test in an integration build. A successful present confirms that the swapchain accepted a frame. Draw count and occasional private stills are separate checks on the workload.
