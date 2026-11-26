@@ -1,30 +1,21 @@
 //! One reusable Windows thread for a caller's synchronous host compiles.
-use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
-use std::sync::{Arc, mpsc};
+use std::os::windows::io::AsRawHandle;
+use std::sync::mpsc;
 use std::thread::{self, JoinHandle};
-use windows::Win32::Foundation::{HANDLE, WAIT_OBJECT_0};
+use std::time::Duration;
+use windows::Win32::Foundation::{HANDLE, WAIT_TIMEOUT};
 use windows::Win32::System::Threading::{
-    CreateEventW, GetCurrentThread, INFINITE, SetEvent, SetThreadPriority,
-    THREAD_PRIORITY_BELOW_NORMAL, WaitForMultipleObjects,
+    GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_BELOW_NORMAL, WaitForSingleObject,
 };
 
 pub(super) struct Worker<J, R> {
     jobs: mpsc::Sender<J>,
     results: mpsc::Receiver<R>,
-    completed: Arc<OwnedHandle>,
     thread: JoinHandle<()>,
 }
 
 impl<J: Send + 'static, R: Send + 'static> Worker<J, R> {
     pub(super) fn spawn(compile: impl Fn(J) -> R + Send + 'static) -> std::io::Result<Self> {
-        // SAFETY: CreateEventW returns a new owned handle. Auto-reset consumes one
-        // completion per call. There is only one caller and one outstanding job.
-        let completed = unsafe {
-            Arc::new(OwnedHandle::from_raw_handle(
-                CreateEventW(None, false, false, None)?.0,
-            ))
-        };
-        let signal = completed.clone();
         let (jobs, requests) = mpsc::channel();
         let (replies, results) = mpsc::channel();
         let thread = thread::Builder::new()
@@ -39,34 +30,33 @@ impl<J: Send + 'static, R: Send + 'static> Worker<J, R> {
                     if replies.send(compile(job)).is_err() {
                         break;
                     }
-                    // SAFETY: this thread owns a reference to the event throughout the loop.
-                    if unsafe { SetEvent(HANDLE(signal.as_raw_handle())) }.is_err() {
-                        break;
-                    }
                 }
             })?;
         Ok(Self {
             jobs,
             results,
-            completed,
             thread,
         })
     }
 
     pub(super) fn run(&mut self, job: J) -> Option<R> {
         self.jobs.send(job).ok()?;
-        let handles = [
-            HANDLE(self.completed.as_raw_handle()),
-            HANDLE(self.thread.as_raw_handle()),
-        ];
-        // SAFETY: both handles are live until this call returns. A driver may
-        // end its thread without dropping the Rust sender, so the channel alone
-        // cannot be used to decide whether a reply is still possible.
-        let wait = unsafe { WaitForMultipleObjects(&handles, false, INFINITE) };
-        if wait != WAIT_OBJECT_0 {
-            return None;
+        loop {
+            match self.results.recv_timeout(Duration::from_millis(100)) {
+                Ok(result) => return Some(result),
+                Err(mpsc::RecvTimeoutError::Disconnected) => return None,
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    // A native exit can leave the Rust sender alive. A healthy compile
+                    // wakes the receiver as soon as the result is ready.
+                    // SAFETY: the JoinHandle owns the native handle throughout the wait.
+                    if unsafe { WaitForSingleObject(HANDLE(self.thread.as_raw_handle()), 0) }
+                        != WAIT_TIMEOUT
+                    {
+                        return self.results.try_recv().ok();
+                    }
+                }
+            }
         }
-        self.results.try_recv().ok()
     }
 }
 
