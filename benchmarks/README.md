@@ -149,6 +149,18 @@ With the stock timer and the 1 KiB early-compute limit, the RX 7900 XT presented
 
 With the same keys, output configuration and five empty caches, the shader cache reuse trial presented 2,403 frames in 300.00 s (8.01 FPS). First present took 2.82 s, P95 was 98.45 ms, P99 was 2.825 s and the longest gap was 11.407 s. Gaps over 100 ms occupied 206.25 s. At 205 s the two runs were at different shots, so this one pair measures the full first-boot experience and cannot isolate a rendering cost for the same scene. Cache reuse remains outside the desktop preset. [Cache reuse trial](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/8)
 
+### When work began on late compute pipelines
+
+The runtime records elapsed worker build time for pipelines that took at least one second. On a clean launch I matched the first dropped compute dispatch and the first successful host pipeline log to that saved duration. Subtracting it from the host completion time estimates when work began. Only keys present in the cold run's slow-build snapshot count, and the completion must precede the snapshot by at least two seconds. The saved time is a maximum for a key, in whole milliseconds. These are estimates from the full 308-second process log, not direct measurements of queue residence.
+
+| Cold 720p run | First-drop shaders | Matched to slow builds | Median worker build | Median estimated start after drop | Estimated start more than 10 s after drop |
+|---|---:|---:|---:|---:|---:|
+| Separate UI control | 344 | 182 | 2.62 s | 23.79 s | 142 |
+| Shader cache reuse | 398 | 198 | 3.74 s | 33.85 s | 161 |
+| Reflection binary, pass off | 339 | 188 | 2.59 s | 22.77 s | 146 |
+
+The delay before the measured build merits testing separately from the cost inside the driver and translator. To repeat this on local runs, install the Python `blake3` package and run `python3 benchmarks/compute_build_time.py RUN_DIR METADATA_DIR/launch.json`. The report emits aggregate counts and timings.
+
 ### Saved waterfront lighting at 720p
 
 I started three Series X runs from separate copies of the same waterfront save and the same warm application and vkd3d caches on the RX 7900 XT. All three reached the character leaning on the porch rail. The desktop preset used the indirect-light fallback at 0.8, confirmed by the renderer's radiance and resolve messages. I changed only the saved settings file's `rtDynamicShadows` value in the second run and only `VICTORY_AMBIENT=0` in the third. The wall and door stayed visible in all three. In a fixed 50×105 patch of shaded siding, each mean RGB channel was within one 8-bit level of the control at 100 seconds. This is one exterior viewpoint. The settings-file edit establishes what was requested; the log confirms the renderer fallback switch separately. These warm saved-game runs are for visual checks.
