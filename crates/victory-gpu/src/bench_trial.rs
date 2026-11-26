@@ -1,6 +1,6 @@
-//! One-launch A/B measurement of the stateless cold-descriptor scan.
+//! One-launch A/B measurement for renderer switches that preserve resource state.
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
 enum Mode {
@@ -8,23 +8,52 @@ enum Mode {
     Paired,
 }
 
-fn mode() -> &'static Mode {
-    static MODE: OnceLock<Mode> = OnceLock::new();
-    MODE.get_or_init(
-        || match std::env::var("VICTORY_HEAP_SYNC_ZERO_RUNS").as_deref() {
-            Ok("paired") => Mode::Paired,
-            Ok("1") => Mode::Fixed(true),
-            _ => Mode::Fixed(false),
-        },
-    )
+#[derive(Clone, Copy)]
+enum Case {
+    Descriptors,
+    CardSync,
 }
 
+impl Case {
+    fn mode(self) -> &'static Mode {
+        static DESCRIPTORS: OnceLock<Mode> = OnceLock::new();
+        static CARD: OnceLock<Mode> = OnceLock::new();
+        let (cell, key, default) = match self {
+            Self::Descriptors => (&DESCRIPTORS, "VICTORY_HEAP_SYNC_ZERO_RUNS", false),
+            Self::CardSync => (&CARD, "VICTORY_CARD_SYNC_BATCH", true),
+        };
+        cell.get_or_init(|| match std::env::var(key).as_deref() {
+            Ok("paired") => Mode::Paired,
+            Ok("0") => Mode::Fixed(false),
+            Ok("1") => Mode::Fixed(true),
+            _ => Mode::Fixed(default),
+        })
+    }
+    fn enabled(self) -> bool {
+        match self.mode() {
+            Mode::Fixed(value) => *value,
+            Mode::Paired => ENABLED.load(Ordering::Relaxed),
+        }
+    }
+    fn count(self) -> u64 {
+        match self {
+            Self::Descriptors => crate::descriptor::host::COLD_SLOTS.load(Ordering::Relaxed),
+            Self::CardSync => BATCHED_BUFFERS.load(Ordering::Relaxed),
+        }
+    }
+}
 static ENABLED: AtomicBool = AtomicBool::new(false);
+static BATCHED_BUFFERS: AtomicU64 = AtomicU64::new(0);
 
-pub(super) fn skip_cold() -> bool {
-    match mode() {
-        Mode::Fixed(value) => *value,
-        Mode::Paired => ENABLED.load(Ordering::Relaxed),
+pub(crate) fn skip_cold() -> bool {
+    Case::Descriptors.enabled()
+}
+pub(crate) fn sync_batched() -> bool {
+    Case::CardSync.enabled()
+}
+pub(crate) fn record_batch(size: usize) {
+    if size > 1 && matches!(Case::CardSync.mode(), Mode::Paired) {
+        BATCHED_BUFFERS.fetch_add(size as u64, Ordering::Relaxed);
     }
 }
 
@@ -32,6 +61,7 @@ pub(super) fn skip_cold() -> bool {
 const BLOCKS: [bool; 8] = [false, true, true, false, true, false, false, true];
 
 pub(crate) struct Trial {
+    case: Case,
     block: usize, // 0 is warm-up, 1 through 8 are measured
     duration: Duration,
     block_duration: Duration,
@@ -44,9 +74,15 @@ pub(crate) struct Trial {
 
 impl Trial {
     pub(crate) fn from_env() -> Option<Self> {
-        if !matches!(mode(), Mode::Paired) {
-            return None;
-        }
+        let case = match (Case::Descriptors.mode(), Case::CardSync.mode()) {
+            (Mode::Paired, Mode::Fixed(_)) => Case::Descriptors,
+            (Mode::Fixed(_), Mode::Paired) => Case::CardSync,
+            (Mode::Paired, Mode::Paired) => {
+                tracing::warn!("select only one paired renderer switch per benchmark");
+                return None;
+            }
+            _ => return None,
+        };
         fn seconds(key: &str, default: u64, min: u64) -> Duration {
             let value = std::env::var(key)
                 .ok()
@@ -56,12 +92,13 @@ impl Trial {
         }
         let duration = seconds("VICTORY_BENCH_WARMUP_SECONDS", 150, 0);
         let block_duration = seconds("VICTORY_BENCH_BLOCK_SECONDS", 40, 5);
-        Some(Self::new(duration, block_duration))
+        Some(Self::new(case, duration, block_duration))
     }
 
-    fn new(duration: Duration, block_duration: Duration) -> Self {
+    fn new(case: Case, duration: Duration, block_duration: Duration) -> Self {
         ENABLED.store(false, Ordering::Relaxed);
         Self {
+            case,
             block: 0,
             duration,
             block_duration,
@@ -77,7 +114,7 @@ impl Trial {
         if self.block > BLOCKS.len() {
             return;
         }
-        let skipped = super::host::COLD_SLOTS.load(Ordering::Relaxed);
+        let skipped = self.case.count();
         if self.block > 0 {
             if self.elapsed.is_zero() {
                 // Discard the first complete reporting interval after each boundary.
@@ -93,11 +130,15 @@ impl Trial {
             return;
         }
         if self.block > 0 {
-            tracing::info!(target: "victory_bench", block = self.block,
+            let label = match self.case {
+                Case::Descriptors => "descriptors",
+                Case::CardSync => "card_sync",
+            };
+            tracing::info!(target: "victory_bench", kind = label, block = self.block,
                 enabled = BLOCKS[self.block - 1], frames = self.frames,
                 interval_us = self.measured.as_micros() as u64, draws = self.draws,
-                cold_slots = skipped - self.skipped_before, block_s = self.block_duration.as_secs(),
-                "descriptor trial");
+                work_units = skipped - self.skipped_before, block_s = self.block_duration.as_secs(),
+                "renderer trial");
         }
         self.block += 1;
         ENABLED.store(
@@ -119,7 +160,7 @@ mod tests {
     #[test]
     fn eight_blocks_share_one_warmup_and_each_drops_one_interval() {
         let sec = Duration::from_secs(1);
-        let mut trial = Trial::new(2 * sec, 3 * sec);
+        let mut trial = Trial::new(Case::Descriptors, 2 * sec, 3 * sec);
         trial.interval(sec, 99, 990);
         assert_eq!(trial.block, 0);
         trial.interval(sec, 99, 990);

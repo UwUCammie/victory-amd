@@ -3623,8 +3623,7 @@ fn stale_under_flights(runs: &[&HostList]) -> bool {
 /// Nothing a hash pass reads is written by a later copy of the list: each
 /// copy's ranges and pieces are its own buffer's.
 fn sync_batched() -> bool {
-    static ON: OnceLock<bool> = OnceLock::new();
-    *ON.get_or_init(|| std::env::var_os("VICTORY_CARD_SYNC_BATCH").is_none_or(|v| v != "0"))
+    crate::bench_trial::sync_batched()
 }
 
 /// A fence signal on a queue ([`late`]): goes behind the flights in the
@@ -4887,6 +4886,7 @@ impl Host {
                         }
                     }
                     if batched {
+                        crate::bench_trial::record_batch(synced.len());
                         hashes(list, &synced);
                     }
                     crate::cardmeter::end(list, timed);
@@ -8560,7 +8560,7 @@ struct Presenter {
 /// The frame rate, shown in the window's caption every second and logged
 /// every few seconds.
 struct Meter {
-    descriptor_trial: Option<crate::descriptor::trial::Trial>,
+    renderer_trial: Option<crate::bench_trial::Trial>,
     accepted: u32,
     since: std::time::Instant,
     frames: u32,
@@ -8576,7 +8576,7 @@ impl Meter {
     fn new() -> Self {
         let now = std::time::Instant::now();
         Meter {
-            descriptor_trial: crate::descriptor::trial::Trial::from_env(),
+            renderer_trial: crate::bench_trial::Trial::from_env(),
             accepted: 0,
             since: now,
             frames: 0,
@@ -8614,7 +8614,7 @@ impl Meter {
             cold_slots = crate::descriptor::host::COLD_SLOTS.load(Ordering::Relaxed),
             "presents"
         );
-        if let Some(trial) = &mut self.descriptor_trial {
+        if let Some(trial) = &mut self.renderer_trial {
             trial.interval(elapsed, self.accepted, drawn - self.drawn);
         }
         let fps = f64::from(std::mem::take(&mut self.accepted)) / elapsed.as_secs_f64();

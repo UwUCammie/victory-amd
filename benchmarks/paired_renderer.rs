@@ -1,4 +1,4 @@
-//! Build with rustc --edition 2024 -O benchmarks/paired_descriptors.rs.
+//! Build with rustc --edition 2024 -O benchmarks/paired_renderer.rs.
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
 
@@ -10,7 +10,8 @@ struct Sample {
     frames: u64,
     micros: u64,
     draws: u64,
-    skipped: u64,
+    units: u64,
+    kind: &'static str,
 }
 
 impl Sample {
@@ -68,9 +69,22 @@ fn collect(
         {
             return Err("Runtime or device failure in log".into());
         }
-        let Some((_, rec)) = line.split_once("victory_bench: descriptor trial") else {
-            continue;
-        };
+        let (rec, kind, counter) =
+            if let Some((_, rec)) = line.split_once("victory_bench: renderer trial") {
+                let kind = match field(rec, "kind")?.trim_matches('"') {
+                    "descriptors" => "slots skipped",
+                    "card_sync" => "buffers batched",
+                    other => return Err(format!("Unknown renderer trial {other}")),
+                };
+                (rec, kind, "work_units")
+            } else if let Some((_, rec)) = line.split_once("victory_bench: descriptor trial") {
+                (rec, "slots skipped", "cold_slots")
+            } else {
+                continue;
+            };
+        if rows.first().is_some_and(|s: &Sample| s.kind != kind) {
+            return Err("Mixed renderer trials in log".into());
+        }
         let num = |key| {
             field(rec, key)?
                 .parse::<u64>()
@@ -89,7 +103,8 @@ fn collect(
             frames: num("frames")?,
             micros: num("interval_us")?,
             draws: num("draws")?,
-            skipped: num("cold_slots")?,
+            units: num(counter)?,
+            kind,
         };
         if seconds.replace(nominal).is_some_and(|last| last != nominal) {
             return Err("Block duration changed during trial".into());
@@ -104,10 +119,8 @@ fn collect(
                 "Block {block} is below the draw-count threshold for this scene"
             ));
         }
-        if (s.skipped > 0) != enabled {
-            return Err(format!(
-                "Skipped-slot count disagrees with mode in block {block}"
-            ));
+        if (s.units > 0) != enabled {
+            return Err(format!("Work counter disagrees with mode in block {block}"));
         }
         rows.push(s);
         if live && rows.len() == blocks {
@@ -126,7 +139,7 @@ fn collect(
 
 fn run() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
-    let usage = "usage: paired_descriptors LOG|- [--blocks 4|8] [--min-draws N]";
+    let usage = "usage: paired_renderer LOG|- [--blocks 4|8] [--min-draws N]";
     let path = args.next().ok_or(usage)?;
     if path == "--help" {
         println!("{usage}");
@@ -161,16 +174,17 @@ fn run() -> Result<(), String> {
             sum.frames += s.frames;
             sum.micros += s.micros;
             sum.draws += s.draws;
-            sum.skipped += s.skipped;
+            sum.units += s.units;
         }
         let name = if enabled { "on" } else { "off" };
         println!(
-            "{name}: {} presents in {:.2} s, {:.2} FPS, {:.0} draws/frame, {} slots skipped",
+            "{name}: {} presents in {:.2} s, {:.2} FPS, {:.0} draws/frame, {} {}",
             sum.frames,
             sum.micros as f64 / 1e6,
             sum.fps(),
             sum.draws as f64 / sum.frames as f64,
-            sum.skipped
+            sum.units,
+            samples[0].kind
         );
     }
     for (i, pair) in samples.chunks_exact(2).enumerate() {
@@ -206,6 +220,25 @@ mod tests {
         let rows = collect(log.as_bytes(), 8, 3000, false).unwrap();
         assert!(rows.iter().map(|s| s.enabled).eq(ORDER));
         assert_eq!(collect(log.as_bytes(), 4, 3000, true).unwrap().len(), 4);
+    }
+    #[test]
+    fn reads_a_card_sync_trial_and_rejects_a_change_of_workload() {
+        let input = log()
+            .replace("descriptor trial", "renderer trial kind=card_sync")
+            .replace("cold_slots=", "work_units=");
+        let rows = collect(input.as_bytes(), 8, 3000, false).unwrap();
+        assert_eq!(rows[0].kind, "buffers batched");
+        assert!(
+            collect(
+                input
+                    .replacen("kind=card_sync", "kind=descriptors", 1)
+                    .as_bytes(),
+                8,
+                3000,
+                false
+            )
+            .is_err()
+        );
     }
     #[test]
     fn incomplete_mixed_or_inactive_runs_are_rejected() {

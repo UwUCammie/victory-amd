@@ -25,6 +25,8 @@ mod cardmeter;
 mod renderdoc;
 #[cfg(all(windows, feature = "diagnostics"))]
 mod shot;
+#[cfg(windows)]
+mod bench_trial;
 pub mod console;
 #[cfg(all(windows, feature = "diagnostics"))]
 mod copystat;

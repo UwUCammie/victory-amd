@@ -12,8 +12,6 @@ use crate::resource::{Memory, PAGEABLE_IIDS};
 
 #[cfg(windows)]
 pub(crate) mod host;
-#[cfg(windows)]
-pub(crate) mod trial;
 
 const HEAP_IIDS: [Iid; 4] = [
     guid(
@@ -183,7 +181,7 @@ fn mirror(handle: u64) {
 /// `VICTORY_HEAP_SYNC=0`: not done, as before. [`SYNCED`] counts.
 #[cfg(windows)]
 pub(crate) fn sync_heaps() {
-    sync_heaps_inner(trial::skip_cold());
+    sync_heaps_inner(crate::bench_trial::skip_cold());
 }
 
 #[cfg(windows)]
