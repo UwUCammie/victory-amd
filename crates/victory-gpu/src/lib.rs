@@ -19,6 +19,8 @@
 mod capture;
 #[cfg(windows)]
 mod cardmeter;
+#[cfg(windows)]
+mod bench_trial;
 pub mod console;
 #[cfg(all(windows, feature = "diagnostics"))]
 mod copystat;

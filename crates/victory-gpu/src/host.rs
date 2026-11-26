@@ -782,7 +782,7 @@ mod tests {
         };
         const MEM_WRITE_WATCH: u32 = 0x20_0000;
         const MIB: usize = 1 << 20;
-        const PIECE: usize = 64 << 10;
+        let piece = crate::shadow::card_piece_bytes();
         let host = super::host().expect("a D3D12 device");
         assert!(host.card_ready(), "the card hash pipeline must be available");
         // SAFETY: a private allocation held through the fenced submissions.
@@ -804,7 +804,7 @@ mod tests {
             let list = host.new_list().unwrap();
             let mut expected = [0u32; 4];
             for (i, (shadow, &base)) in shadows.iter().zip(&bases).enumerate() {
-                for (j, offset) in [32, PIECE + 20].into_iter().enumerate() {
+                for (j, offset) in [32, piece + 20].into_iter().enumerate() {
                     let k = 2 * i + j;
                     expected[k] = round * 0x0101_0101 + k as u32;
                     // SAFETY: aligned dword in the private allocation.
@@ -3412,8 +3412,7 @@ fn stale_under_flights(runs: &[&HostList]) -> bool {
 /// Nothing a hash pass reads is written by a later copy of the list: each
 /// copy's ranges and pieces are its own buffer's.
 fn sync_batched() -> bool {
-    static ON: OnceLock<bool> = OnceLock::new();
-    *ON.get_or_init(|| std::env::var_os("VICTORY_CARD_SYNC_BATCH").is_none_or(|v| v != "0"))
+    crate::bench_trial::sync_batched()
 }
 
 /// A fence signal on a queue ([`late`]): goes behind the flights in the
@@ -4695,6 +4694,7 @@ impl Host {
                         }
                     }
                     if batched {
+                        crate::bench_trial::record_batch(synced.len());
                         hashes(list, &synced);
                     }
                     crate::cardmeter::end(list, timed);
@@ -8380,6 +8380,7 @@ struct Presenter {
 /// The frame rate, shown in the window's caption every second and logged
 /// every few seconds.
 struct Meter {
+    trial: Option<crate::bench_trial::Trial>,
     last_present: windows::core::HRESULT,
     since: std::time::Instant,
     frames: u32,
@@ -8395,6 +8396,7 @@ impl Meter {
     fn new() -> Self {
         let now = std::time::Instant::now();
         Meter {
+            trial: crate::bench_trial::Trial::from_env(),
             last_present: windows::Win32::Foundation::S_OK,
             since: now,
             frames: 0,
@@ -8448,6 +8450,9 @@ impl Meter {
             pipeline_keep_hits = PIPELINE_KEEP_HITS.load(Ordering::Relaxed),
             "cumulative recording cache hits"
         );
+        if let Some(trial) = &mut self.trial {
+            trial.interval(elapsed, self.frames, drawn - self.drawn);
+        }
         tracing::info!(target: "victory_bench", frames = self.frames, interval_us = elapsed.as_micros() as u64, draws = drawn - self.drawn, relay_avx = crate::shadow::relay_merge_simd::enabled(), refresh_group = refresh_group_limit(), clean_guard_read = crate::watch::clean_guard_read(), "presents");
         let fps = frames / elapsed.as_secs_f64();
         let ms = elapsed.as_secs_f64() * 1000.0 / frames;
