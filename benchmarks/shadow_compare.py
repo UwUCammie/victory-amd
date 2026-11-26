@@ -15,7 +15,10 @@ def prepare(checkout, output):
 
 def report(path):
     results = {}
-    for line in path.read_text(encoding="utf-8").splitlines():
+    data = path.read_bytes()
+    # Windows PowerShell 5 redirects native output to UTF-16; Wine and newer shells use UTF-8.
+    encoding = "utf-16" if data.startswith((b"\xff\xfe", b"\xfe\xff")) else "utf-8-sig"
+    for line in data.decode(encoding).splitlines():
         case, pair, method, ns = line.split()
         key = (case, int(pair), method)
         if key in results or int(ns) < 0:
