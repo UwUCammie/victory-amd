@@ -213,6 +213,8 @@ To verify a driver run locally, use `python benchmarks/cold_boot.py RUN RUN_META
 
 ### Saved waterfront lighting at 720p
 
+The Wine in-place heap fallback passed a matched saved-route replay with the switch on and off. With the switch on, the capability probe ran once and rejected the import. Both the page-rearrangement and imported-region counts stayed at zero, and the renderer used copied buffers. Both runs reached the glass door. The player and porch were visible at 125, 135, 145 and 155 seconds. In two earlier attempts the GPU-only fallback rejected the import but still rearranged pages. One replay hit a Wine assertion and the other an access violation. [Shared capability check and physical test](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/25)
+
 I replayed the same saved waterfront route twice on the RX 7900 XT, with the same launch inputs and 720p executable. The first run used relay stage 2 and card steps 2. The second used relay stage 1 and card steps 0, as in the [bordersky Linux preset](https://github.com/bordersky/victory-linux). Fetch checking was enabled on both. Both arrived at the sliding glass door. The recorded intervals lasted 161 seconds and were used for visual checks.
 
 In the final stationary view I compared 207 samples at 15 Hz for brief luminance reversals. The largest covered 0.41% of the tested rectangle in stage 2 and 0.05% in stage 1. Reviewing the adjacent frames around the peak did not reveal a protruding mesh or a whole surface disappearing. The camera and character were slightly different across runs. I could not reproduce the reported large geometry spikes on this route.
