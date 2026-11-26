@@ -213,6 +213,10 @@ To verify a driver run locally, use `python benchmarks/cold_boot.py RUN RUN_META
 
 ### Saved waterfront lighting at 720p
 
+I replayed the same saved waterfront route twice on the RX 7900 XT, with the same launch inputs and 720p executable. The first run used relay stage 2 and card steps 2. The second used relay stage 1 and card steps 0, as in the [bordersky Linux preset](https://github.com/bordersky/victory-linux). Fetch checking was enabled on both. Both arrived at the sliding glass door. The recorded intervals lasted 161 seconds and were used for visual checks.
+
+In the final stationary view I compared 207 samples at 15 Hz for brief luminance reversals. The largest covered 0.41% of the tested rectangle in stage 2 and 0.05% in stage 1. Reviewing the adjacent frames around the peak did not reveal a protruding mesh or a whole surface disappearing. The camera and character were slightly different across runs. I could not reproduce the reported large geometry spikes on this route.
+
 In a separate 150-second first-boot diagnostic with `VICTORY_WALLS_TRACE=1`, the exterior at 100 and 115 seconds looked dark with lit windows. During the first 145 seconds, 70 read-backs of 16 bytes and 70 of 80 bytes landed across 61 distinct frame numbers. Each width had four records between 95 and 120 seconds. All eight were finite, contained a nonzero value and differed within their width. The logger identifies transfers by size and destination only. It does not identify an exposure target or establish the cause of the bright exterior in an earlier run.
 
 Run `python benchmarks/readback_lighting.py RUN/run.log RUN_META/launch.json --start 95 --stop 120` on a local trace to reproduce the aggregate without sharing the log.
