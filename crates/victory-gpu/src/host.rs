@@ -1654,9 +1654,10 @@ fn record_plane_pass(
         (views.GetGPUDescriptorHandleForHeapStart().ptr,
          host.device.GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV))
     };
-    for slice in 0..u32::from(of.DepthOrArraySize) {
-        for mip in 0..u32::from(of.MipLevels) {
-            let slot = slice * u32::from(of.MipLevels) + mip;
+    // The SRVs are laid out using the source twin's mip count.
+    for slice in 0..u32::from(of.DepthOrArraySize.min(twin.DepthOrArraySize)) {
+        for mip in 0..u32::from(of.MipLevels.min(twin.MipLevels)) {
+            let slot = slice * u32::from(twin.MipLevels) + mip;
             let target = D3D12_DEPTH_STENCIL_VIEW_DESC {
                 Format: format,
                 ViewDimension: D3D12_DSV_DIMENSION_TEXTURE2DARRAY,
