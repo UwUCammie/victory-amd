@@ -8,7 +8,11 @@ INTERVAL = re.compile(r"victory_bench: presents frames=(\d+) interval_us=(\d+) d
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 
-class DeviceLost(ValueError):
+class SessionFailed(ValueError):
+    pass
+
+
+class DeviceLost(SessionFailed):
     pass
 
 
@@ -17,6 +21,8 @@ def session_lines(lines):
         line = ANSI.sub("", raw)
         if "host GPU failure:" in line or "host GPU device removed after " in line:
             raise DeviceLost("The renderer reported a GPU failure during this session.")
+        if re.match(r"^\s*thread '.+?'(?: \(\d+\))? panicked at\b", line):
+            raise SessionFailed("A runtime thread panicked during this session.")
         yield line
 
 
@@ -52,7 +58,7 @@ if __name__ == "__main__":
         parser.error("expected 0 <= start < stop")
     try:
         frames, micros, draws = summarize(args.log, args.start, args.stop)
-    except DeviceLost as error:
+    except SessionFailed as error:
         parser.exit(1, f"{error}\n")
     if not micros or not frames:
         parser.exit(1, "No complete present intervals in that window.\n")
