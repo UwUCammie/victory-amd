@@ -8520,6 +8520,7 @@ struct Presenter {
 /// The frame rate, shown in the window's caption every second and logged
 /// every few seconds.
 struct Meter {
+    trial: Option<crate::bench_trial::Trial>,
     accepted: u32,
     since: std::time::Instant,
     frames: u32,
@@ -8535,6 +8536,7 @@ impl Meter {
     fn new() -> Self {
         let now = std::time::Instant::now();
         Meter {
+            trial: crate::bench_trial::Trial::from_env(),
             accepted: 0,
             since: now,
             frames: 0,
@@ -8563,6 +8565,9 @@ impl Meter {
             return;
         }
         let drawn = crate::draw::drawn();
+        if let Some(trial) = &mut self.trial {
+            trial.interval(elapsed, self.accepted, drawn - self.drawn);
+        }
         let frames = f64::from(self.frames);
         tracing::info!(
             target: "victory_bench",

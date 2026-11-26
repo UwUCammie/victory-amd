@@ -4281,8 +4281,7 @@ pub(crate) static LOOKUPS: [AtomicU64; 2] = [const { AtomicU64::new(0) }; 2];
 /// found, weakly (a copy nothing else holds can still be let go), for as
 /// long as the tables have not changed ([`TABLES_CHANGED`]).
 fn lookup_cache() -> bool {
-    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var_os("VICTORY_LOOKUP_CACHE").is_none_or(|v| v != "0"))
+    crate::bench_trial::cache_enabled()
 }
 
 /// The most asks a thread remembers before it starts again.
@@ -4327,6 +4326,7 @@ fn lookup_cached(address: u64, len: u64, any: bool) -> Option<Arc<Shadow>> {
         note_window(shadow, address, address.saturating_add(len.max(1)), len <= 1);
         true
     }) {
+        crate::bench_trial::cache_hit();
         LOOKUPS[0].fetch_add(1, Ordering::Relaxed);
         return Some(shadow);
     }
