@@ -4503,12 +4503,13 @@ impl Shadow {
         if let Some(before_vec) = snapshot.as_mut()
             && from < to
         {
+            // SAFETY: writing initialized this declared range in the snapshot's
+            // allocation. Other ranges may be uninitialized, so the Vec keeps
+            // length zero. The snapshot lock excludes competing accesses.
+            let before = unsafe { std::slice::from_raw_parts_mut(before_vec.as_mut_ptr().add(from), to - from) };
             if self.resync_count.load(Ordering::Acquire) > 0 {
-                self.lazy_apply_flushed_baseline(from, &mut before_vec[from..to]);
+                self.lazy_apply_flushed_baseline(from, before);
             }
-            // SAFETY: `writing` set the snapshot's bytes of every declared
-            // range, at the copy's offsets.
-            let before = unsafe { std::slice::from_raw_parts(before_vec.as_ptr().add(from), to - from) };
             #[cfg(feature = "diagnostics")]
             let scanning = std::time::Instant::now();
             let differing = match found {
@@ -4659,8 +4660,13 @@ impl Shadow {
         let Some(before) = snapshot.as_mut() else {
             return 0;
         };
+        // SAFETY: the snapshot's allocation holds the copy's length
+        // (`writing`), and these offsets are in a range declared and not
+        // done with, whose bytes it holds; nothing else touches them
+        // without the lock held here.
+        let held = unsafe { std::slice::from_raw_parts_mut(before.as_mut_ptr().add(at), n) };
         if self.resync_count.load(Ordering::Acquire) > 0 {
-            self.lazy_apply_flushed_baseline(at, &mut before[at..at + n]);
+            self.lazy_apply_flushed_baseline(at, held);
         }
         if lazy_copyback() && self.try_defer_piece(at, at + n) {
             return 0;
@@ -4678,11 +4684,6 @@ impl Shadow {
             }
             now.set_len(n);
         }
-        // SAFETY: the snapshot's allocation holds the copy's length
-        // (`writing`), and these offsets are in a range declared and not
-        // done with, whose bytes it holds; nothing else touches them
-        // without the lock held here.
-        let held = unsafe { std::slice::from_raw_parts_mut(before.as_mut_ptr().add(at), n) };
         let Some(first) = first_difference(now, held) else {
             return 0;
         };
@@ -9545,6 +9546,45 @@ void main(uint3 tid : SV_DispatchThreadID) {
         shadow.copy_back_done(&[(block.addr(), block.addr() + PAGE)]);
         drop(shadow);
         assert_eq!(LAZY_ARMED_COUNT.load(Ordering::Acquire), 0);
+    }
+
+    #[test]
+    fn lazy_copyback_resyncs_a_declared_range_in_a_shared_snapshot() {
+        let _guard = LazyTestGuard::enable();
+        let Some(h) = host() else { return };
+        for relay in [false, true] {
+            let block = VirtualBlock::new(PAGE, true);
+            let shadow = make_test_shadow(h, block.addr() as u64, PAGE as u64, false).expect("shared copy");
+            let at = 510;
+            // SAFETY: a committed title page and a mapped host copy of the same size.
+            unsafe {
+                std::ptr::write_bytes(block.ptr, 0x22, PAGE);
+                std::ptr::write_bytes(shadow.data, 0x11, PAGE);
+            }
+            shadow.writing(block.addr() + at, 2);
+            // Model a prior flush that copied 0x22 into title memory while
+            // the next flight still held the declared range's older snapshot.
+            LAZY_TABLE.lock().unwrap().flushed_baselines.insert(
+                (shadow.id, 0), FlushedBaseline::new(vec![0x22; PAGE]),
+            );
+            shadow.lazy_state[0].store(LAZY_RESYNC, Ordering::Release);
+            shadow.resync_count.store(1, Ordering::Release);
+            // SAFETY: both offsets are within the two live mappings above.
+            // The CPU changes the first byte; model a GPU change to the second.
+            unsafe {
+                *block.ptr.add(at) = 0x55;
+                *shadow.data.add(at) = 0x22;
+                *shadow.data.add(at + 1) = 0x77;
+            }
+            if relay {
+                shadow.relay_merge(at, 2, &mut Vec::new(), &mut Vec::new());
+            } else {
+                shadow.copy_back(block.addr() + at, 2);
+            }
+            // SAFETY: these two bytes belong to the committed title page.
+            assert_eq!(unsafe { std::slice::from_raw_parts(block.ptr.add(at), 2) }, &[0x55, 0x77]);
+            shadow.copy_back_done(&[(block.addr() + at, block.addr() + at + 2)]);
+        }
     }
 
     /// F3 regression: `lazy_apply_flushed_baseline` MUST be idempotent across
