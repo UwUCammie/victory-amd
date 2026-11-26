@@ -396,7 +396,7 @@ fn compute_waits() -> bool {
     *ON.get_or_init(|| {
         let on = crate::wine::on_under_wine("VICTORY_COMPUTE_WAIT");
         if on {
-            tracing::info!(frame_ms = compute_frame_budget().as_millis() as u64, pipeline_secs = COMPUTE_BUDGET.as_secs(), "compute dispatches wait for their pipelines");
+            tracing::info!(secs = COMPUTE_BUDGET.as_secs(), frame_ms = compute_frame_budget().as_millis() as u64, "compute dispatches wait for their pipelines");
         }
         on
     })
@@ -429,9 +429,8 @@ fn compute_frame_budget() -> Duration {
     })
 }
 
-/// What a compute dispatch may wait now: what is left of the frame's
-/// [`COMPUTE_BUDGET`] (`since` the frame's first compute wait began) and
-/// of the pipeline's (`making` since a worker began it).
+/// Time remaining until the frame deadline or the pipeline's age limit,
+/// whichever comes first.
 fn compute_left(frame_budget: Duration, since: Duration, making: Duration) -> Duration {
     frame_budget.saturating_sub(since).min(COMPUTE_BUDGET.saturating_sub(making))
 }
@@ -488,7 +487,13 @@ fn wait(p: &Pending, frame: u64) {
             tracing::info!(
                 shaders = %hashes(p),
                 frame,
-                "a compute dispatch was dropped: its pipeline is not made and this frame's compute wait budget was exhausted"
+                budget_ms = budget.as_millis() as u64,
+                "{}",
+                if budget == COMPUTE_BUDGET {
+                    "a compute dispatch was dropped: its pipeline is not made and this frame's compute waits took 10 s"
+                } else {
+                    "a compute dispatch was dropped: its pipeline is not made and this frame's compute wait budget was exhausted"
+                }
             );
         }
         return;
