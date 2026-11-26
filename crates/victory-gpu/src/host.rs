@@ -1422,8 +1422,7 @@ float plane(float4 p : SV_Position) : SV_Depth {
 "#;
 
 /// Cached pipeline objects. Shader-visible descriptors belong to the
-/// individual recorded pass instead: a command list may be submitted late
-/// or more than once, so a global descriptor ring cannot safely wrap.
+/// depth twin. A command list can submit late or more than once and retains the immutable heap.
 struct PlanePass {
     made: Mutex<Vec<(bool, i32, Option<PlanePipeline>)>>,
 }
@@ -1437,10 +1436,9 @@ unsafe impl Send for PlanePass {}
 // SAFETY: as above.
 unsafe impl Sync for PlanePass {}
 
-fn plane_pass() -> Option<&'static PlanePass> {
+fn plane_pass() -> &'static PlanePass {
     static PASS: OnceLock<PlanePass> = OnceLock::new();
-    host()?;
-    Some(PASS.get_or_init(|| PlanePass { made: Mutex::default() }))
+    PASS.get_or_init(|| PlanePass { made: Mutex::default() })
 }
 
 /// Compiles function `entry` of `source` for `target` with the system's
@@ -1561,6 +1559,53 @@ impl PlanePass {
     }
 }
 
+/// Build the complete set of views before publishing the heap on its twin.
+fn depth_plane_views(
+    host: &Host,
+    plane: &ID3D12Resource,
+    desc: &D3D12_RESOURCE_DESC,
+) -> windows::core::Result<ID3D12DescriptorHeap> {
+    let kind = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    let mips = u32::from(desc.MipLevels);
+    let slices = u32::from(desc.DepthOrArraySize);
+    // SAFETY: plain shader-visible heap creation on the live device.
+    let heap: ID3D12DescriptorHeap = unsafe {
+        host.device.CreateDescriptorHeap(&D3D12_DESCRIPTOR_HEAP_DESC {
+            Type: kind,
+            NumDescriptors: slices * mips,
+            Flags: D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE,
+            NodeMask: 0,
+        })?
+    };
+    // SAFETY: live heap and device.
+    let (base, step) = unsafe {
+        (heap.GetCPUDescriptorHandleForHeapStart().ptr, host.device.GetDescriptorHandleIncrementSize(kind) as usize)
+    };
+    for slice in 0..slices {
+        for mip in 0..mips {
+            let view = D3D12_SHADER_RESOURCE_VIEW_DESC {
+                Format: DXGI_FORMAT(if desc.Format.0 == 53 { 57 } else { 41 }),
+                ViewDimension: D3D12_SRV_DIMENSION_TEXTURE2DARRAY,
+                Shader4ComponentMapping: D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+                Anonymous: D3D12_SHADER_RESOURCE_VIEW_DESC_0 {
+                    Texture2DArray: D3D12_TEX2D_ARRAY_SRV {
+                        MostDetailedMip: mip,
+                        MipLevels: 1,
+                        FirstArraySlice: slice,
+                        ArraySize: 1,
+                        ..Default::default()
+                    },
+                },
+            };
+            let slot = (slice * mips + mip) as usize;
+            let cpu = D3D12_CPU_DESCRIPTOR_HANDLE { ptr: base + slot * step };
+            // SAFETY: a new slot of the heap for this resource.
+            unsafe { host.device.CreateShaderResourceView(plane, Some(&view), cpu) };
+        }
+    }
+    Ok(heap)
+}
+
 /// Records into `list` the pass that draws `plane`, the twin of the depth
 /// plane of `depth`, into that plane: `depth` in the depth-write state,
 /// `plane` readable by pixel shaders. The pass sets the list's descriptor
@@ -1571,11 +1616,11 @@ fn record_plane_pass(
     owner: &HostList,
     depth: &ID3D12Resource,
     plane: &ID3D12Resource,
+    cached_views: &OnceLock<ID3D12DescriptorHeap>,
 ) {
     let list = &owner.list;
-    let (Some(host), Some(pass)) = (host(), plane_pass()) else {
-        return;
-    };
+    let Some(host) = host() else { return };
+    let pass = plane_pass();
     // SAFETY: live resources.
     let (of, twin) = unsafe { (depth.GetDesc(), plane.GetDesc()) };
     // An R16 typeless twin (53) holds steps, read as R16_UINT (57); an R32
@@ -1590,56 +1635,28 @@ fn record_plane_pass(
     let Some((root, pipeline)) = pass.pipeline(steps, format) else {
         return;
     };
-    let count = u32::from(of.DepthOrArraySize) * u32::from(of.MipLevels);
-    if count == 0 {
-        return;
-    }
-    let kind = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    // SAFETY: plain heap creation. Each subresource has one immutable
-    // descriptor, and the owner retains the heap through all submissions.
-    let views: ID3D12DescriptorHeap = match unsafe {
-        host.device.CreateDescriptorHeap(&D3D12_DESCRIPTOR_HEAP_DESC {
-            Type: kind,
-            NumDescriptors: count,
-            Flags: D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE,
-            NodeMask: 0,
-        })
-    } {
-        Ok(heap) => heap,
-        Err(e) => {
-            tracing::error!(error = %e, count, "no descriptor heap for depth plane pass");
-            return;
+    if cached_views.get().is_none() {
+        match depth_plane_views(host, plane, &twin) {
+            Ok(heap) => {
+                // Concurrent recorders may both build a heap. Every list uses the one published first.
+                let _ = cached_views.set(heap);
+            }
+            Err(error) => tracing::warn!(%error, "no descriptor heap for depth plane pass"),
         }
-    };
-    owner.keep(&views);
+    }
+    let Some(views) = cached_views.get() else { return };
+    owner.keep(views);
     owner.keep(depth);
     owner.keep(plane);
     // SAFETY: live heap, open list.
-    let (base_cpu, base_gpu, step) = unsafe {
+    let (base_gpu, step) = unsafe {
         list.SetDescriptorHeaps(&[Some(views.clone())]);
-        (
-            views.GetCPUDescriptorHandleForHeapStart().ptr,
-            views.GetGPUDescriptorHandleForHeapStart().ptr,
-            host.device.GetDescriptorHandleIncrementSize(kind),
-        )
+        (views.GetGPUDescriptorHandleForHeapStart().ptr,
+         host.device.GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV))
     };
     for slice in 0..u32::from(of.DepthOrArraySize) {
         for mip in 0..u32::from(of.MipLevels) {
             let slot = slice * u32::from(of.MipLevels) + mip;
-            let view = D3D12_SHADER_RESOURCE_VIEW_DESC {
-                Format: DXGI_FORMAT(if steps { 57 } else { 41 }),
-                ViewDimension: D3D12_SRV_DIMENSION_TEXTURE2DARRAY,
-                Shader4ComponentMapping: D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
-                Anonymous: D3D12_SHADER_RESOURCE_VIEW_DESC_0 {
-                    Texture2DArray: D3D12_TEX2D_ARRAY_SRV {
-                        MostDetailedMip: mip,
-                        MipLevels: 1,
-                        FirstArraySlice: slice,
-                        ArraySize: 1,
-                        ..Default::default()
-                    },
-                },
-            };
             let target = D3D12_DEPTH_STENCIL_VIEW_DESC {
                 Format: format,
                 ViewDimension: D3D12_DSV_DIMENSION_TEXTURE2DARRAY,
@@ -1654,17 +1671,12 @@ fn record_plane_pass(
             };
             let target = host.dsv(depth, Some(&target));
             let (width, height) = ((of.Width >> mip).max(1) as u32, (of.Height >> mip).max(1));
-            let cpu = D3D12_CPU_DESCRIPTOR_HANDLE {
-                ptr: base_cpu + slot as usize * step as usize,
-            };
             let gpu = D3D12_GPU_DESCRIPTOR_HANDLE {
                 ptr: base_gpu + u64::from(slot) * u64::from(step),
             };
             // SAFETY: an open list; a slot of our heap; live resources and
             // objects (the pass's own live as long as the process).
             unsafe {
-                host.device
-                    .CreateShaderResourceView(plane, Some(&view), cpu);
                 list.SetGraphicsRootSignature(&root);
                 list.SetPipelineState(&pipeline);
                 list.SetGraphicsRootDescriptorTable(0, gpu);
@@ -6792,7 +6804,7 @@ impl HostList {
         let Some(plane) = &twin.plane else { return };
         self.settle(depth, DEPTH_WRITE);
         self.settle(plane, PIXEL_SHADER_RESOURCE);
-        record_plane_pass(self, &depth.texture, &plane.texture);
+        record_plane_pass(self, &depth.texture, &plane.texture, &twin.plane_views);
         self.settle(plane, UNORDERED_ACCESS);
     }
 
@@ -7502,7 +7514,6 @@ impl HostList {
         self.deferred().indirect_readable = scratch.as_raw() as usize;
     }
 
-    /// Keeps `object` alive until the list is reset.
     #[cfg(test)]
     pub(crate) fn kept_shader_heaps(&self) -> Vec<ID3D12DescriptorHeap> {
         self.deferred().kept.iter()
@@ -7514,6 +7525,7 @@ impl HostList {
             .collect()
     }
 
+    /// Keeps `object` alive until the list is reset.
     pub(crate) fn keep(&self, object: &impl Interface) {
         if let Ok(object) = object.cast::<windows::core::IUnknown>() {
             self.deferred().kept.push(object);

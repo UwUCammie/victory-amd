@@ -369,6 +369,8 @@ pub(crate) struct Twin {
     /// the bits of a 24-bit depth plane, so the two are not copied: a pass
     /// draws the twin into the plane.
     pub(crate) plane: Option<std::sync::Arc<HostTexture>>,
+    /// Immutable SRVs, one per slice and mip of this twin, shared by recorded lists.
+    pub(crate) plane_views: std::sync::OnceLock<windows::Win32::Graphics::Direct3D12::ID3D12DescriptorHeap>,
 }
 
 #[cfg(windows)]
@@ -586,6 +588,7 @@ fn twin_texture(
         behind: std::sync::atomic::AtomicU32::new(0),
         through,
         plane,
+        plane_views: std::sync::OnceLock::new(),
     }))
 }
 
@@ -4359,26 +4362,27 @@ mod tests {
         fill.close();
         host.execute(&[&fill]);
 
-        // Two lists recorded before either is submitted must retain distinct
-        // shader-visible heaps. Neither may overwrite the other's views.
-        let list = host.new_list().unwrap();
-        assert!(list.twin_use(depth, true, true));
-        list.twins_written();
-        list.close();
-        let other = host.new_list().unwrap();
-        assert!(other.twin_use(depth, true, true));
-        other.twins_written();
-        other.close();
-        let first = list.kept_shader_heaps();
-        let second = other.kept_shader_heaps();
-        assert_eq!(first.len(), 1);
-        assert_eq!(second.len(), 1);
-        assert_ne!(first[0], second[0], "recorded passes share descriptor storage");
-        // The lists, not these inspection references, keep their heaps alive.
-        drop(first);
-        drop(second);
-        drop(other);
-        eprintln!("depth plane descriptor lifetime verified on two recorded lists");
+        let record = |texture| {
+            let list = host.new_list().unwrap();
+            assert!(list.twin_use(texture, true, true));
+            list.twins_written();
+            list.close();
+            list
+        };
+        let list = record(depth);
+        let other = record(depth);
+        let mut separate_depth = null;
+        assert_eq!(create_committed(null, &PROPERTIES, 0, &desc, DEPTH_WRITE, null.cast(),
+                                    &RESOURCE_IIDS[0], &mut separate_depth), S_OK);
+        let separate = record(separate_depth);
+        let heaps = list.kept_shader_heaps();
+        assert_eq!(heaps.len(), 1);
+        assert_eq!(other.kept_shader_heaps(), heaps, "the same twin can reuse its immutable views");
+        let separate_heaps = separate.kept_shader_heaps();
+        assert_eq!(separate_heaps.len(), 1);
+        assert_ne!(separate_heaps[0], heaps[0], "different twins need independent SRVs");
+        drop((heaps, separate_heaps, other, separate));
+        resource_release(separate_depth);
         host.execute(&[&list]);
 
         // The draws: a triangle over the target at the depth of a class,
@@ -4508,6 +4512,7 @@ float4 lit() : SV_Target { return 1.0; }
             let drawn = matches!(class, 65 | 129);
             assert_eq!(covered, drawn, "texel {i}, class {class}");
         }
+        eprintln!("verified immutable depth views and classified all 16 texels");
     }
 
     #[test]
