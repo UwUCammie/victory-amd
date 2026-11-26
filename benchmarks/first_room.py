@@ -23,6 +23,8 @@ def session_lines(lines):
             raise DeviceLost("The renderer reported a GPU failure during this session.")
         if re.match(r"^\s*thread '.+?'(?: \(\d+\))? panicked at\b", line):
             raise SessionFailed("A runtime thread panicked during this session.")
+        if line.startswith("VIctory: unhandled exception "):
+            raise SessionFailed("The runtime reported an unhandled exception during this session.")
         yield line
 
 
