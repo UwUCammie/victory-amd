@@ -11,6 +11,9 @@ ANSI = re.compile(r"\x1b\[[0-9;]*m")
 COSTS = {
     "Submission preparation": re.compile(r"submissions prepared by a thread of ours, per frame .*?that thread worked ([\d.]+) ms"),
     "GPU queue empty": re.compile(r"the card's clock per frame: nothing of ours queued ([\d.]+) ms"),
+    "GPU idle during submission preparation": re.compile(
+        r"the card's clock per frame: .*? ([\d.]+) ms of that while the submitting thread was working"
+    ),
     "Merging fetched data": re.compile(r"landing per frame .*?merging what was fetched ([\d.]+) ms"),
     "Wait for title memory reads": re.compile(r"of the waiting for the card in settles, per frame,.*?title memory read ([\d.]+)"),
     "Wait for overlapping shader writes": re.compile(r"of the waiting for the card in settles, per frame,.*?title memory changed under shader writes ([\d.]+)"),

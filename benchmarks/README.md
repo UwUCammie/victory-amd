@@ -157,6 +157,10 @@ I also replayed a short walk past the porch door with asynchronous texture uploa
 
 For fixed-camera video checks, `python3 benchmarks/flicker.py clip.mkv X Y WIDTH HEIGHT` reports the decoded frames where the largest fraction of a selected region briefly changed brightness. Use `--start-frame` and `--stop-frame` to isolate a parked camera between movements. It ignores exact repeated grayscale frames. A pixel must change by at least 24 levels on either side of a frame and return within six levels of its initial value. Inspect the neighboring frames to distinguish a surface disappearing from motion, water animation or a passing shadow. This helper needs NumPy, FFmpeg and ffprobe.
 
+### Desktop play profile at 720p
+
+The interactive session that produced the waterfront save reported 32,585 presents in 1,948.58 seconds of complete reporting intervals (16.72 FPS and 5,043 draws/frame). It includes menus and gameplay. The submission thread worked 53.46 ms/frame. The GPU queue was empty for 35.25 ms/frame, including 31.05 ms while that thread was working. This points to CPU submission work as a candidate in this session. The interactive timing uses the desktop caches and is separate from the clean first-boot baseline.
+
 ### Diner reflections at 720p
 
 Two 150-second warm starts on the RX 7900 XT reached the diner with the same executable and input sequence. Each used a private copy of the same application and vkd3d caches, no story slots and `VICTORY_AMBIENT=0.8`. The only switch changed was `VICTORY_AMBIENT_REFLECT`, from 0 to 1. The enabled run recorded a reflection pass at 853×480 within the 1280×720 output. I matched the shots by camera angle and pose because the opening advanced at different times.
