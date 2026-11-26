@@ -49,15 +49,19 @@ The default lost the character's facial skin in the diner dialogue and again in 
 
 With six general workers the same route gave 13.25 FPS from launch and 23.91 FPS in the movement window; the face was still missing. A second run starting every compute build at creation again drew the face, at 9.19 FPS from launch and 14.63 FPS over the movement window.
 
-Limiting speculative work to compute shaders of at most 2,048 bytes gave **13.06 FPS** over the whole five minutes (3,919 frames) and **23.96 FPS** over the movement window (1,797 frames). The face pipeline was ready at 3.25 s and first bound at 28.58 s. Both diner faces had skin, and the player character still had skin after turning in the cell. P99 was 475 ms. There were 30 waits longer than one second and the longest was 11.12 s. Compared with starting all compute builds, this kept the visible face and cut time in holds over 100 ms from 207–221 s to 152 s. The default missing-face control spent 142 s in those holds. One size-limited trial so far.
+Limiting speculative work to compute shaders of at most 2,048 bytes gave **13.06 FPS** over the whole five minutes (3,919 frames) and **23.96 FPS** over the movement window (1,797 frames). The face pipeline was ready at 3.25 s and first bound at 28.58 s. Both diner faces had skin, and the player character still had skin after turning in the cell. P99 was 475 ms. There were 30 waits longer than one second and the longest was 11.12 s. Compared with starting all compute builds, this kept the visible face and cut time in holds over 100 ms from 207–221 s to 152 s. The default missing-face control spent 142 s in those holds.
 
-At 1,024 bytes the first clean trial gave **14.10 FPS from launch** (4,230 / 300 s) and **25.01 FPS in the movement window** (1,876 / 75 s). The diner and cell character both had facial skin. The face pipeline was ready at 3.59 s and first bound at 28.98 s. P99 was 281 ms; 27 holds exceeded one second, the longest was 11.17 s, and 138.97 s were spent in holds over 100 ms. Each size has one completed trial at this point.
+At 1,024 bytes the first clean trial gave **14.10 FPS from launch** (4,230 / 300 s) and **25.01 FPS in the movement window** (1,876 / 75 s). The diner and cell character both had facial skin. The face pipeline was ready at 3.59 s and first bound at 28.98 s. P99 was 281 ms; 27 holds exceeded one second, the longest was 11.17 s, and 138.97 s were spent in holds over 100 ms.
 
 The RX 7900 XT desktop preset uses the 1,024-byte limit and sources `radv_first_room.env` followed by `radv_720p.env` and uses the [size-limited build](https://github.com/UwUCammie/VIctory-7900XTX/commit/ae742781) with 1280×720 output support. The desktop retains its ordinary graphics caches. The benchmark gives each launch new ones.
 
 The follow-up 2 KiB run measured 13.18 FPS over the first 300 s and 24.15 FPS in the movement window. Faces were visible in the diner and the cell. The repeat of the 1 KiB launch stayed in the opening cinematic and credits during seconds 220–295. Its **12.68 FPS** across the full five minutes is a valid cold-launch observation; that late interval cannot verify a second walking score. Timed skip inputs can take a different route when loading stalls shift the cutscenes.
 
 [Linux branch PR #5](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/5) carries the size limit. Starting compilation only when a recording thread first bound the compute pipeline still lost the skin (12.65 FPS from launch, 23.69 FPS in the movement window). Turning off landing-echo detection on its own also left the face missing on this cold route (12.89 / 23.25 FPS).
+
+The six holds over ten seconds in the 1 KiB trial coincided with frames that exhausted the compute wait budget. The first bind of 1,051 distinct compute shaders appeared in the log. Of those, 314 reported a dropped dispatch while waiting. None of the 52 shaders of 1 KiB or less reported one. This count is per shader because the runtime logs its first drop only.
+
+A [reverse-use index in the shader translator](https://github.com/UwUCammie/VIctory-7900XTX/commit/1a90bf03) produced identical bytecode and metadata or the same translation error for a 256-input sample. A cold run with the 1 KiB preset gave 13.05 FPS across 300 s and 24.27 FPS while moving, with an 11.28 s hold. This run showed no gameplay improvement.
 
 ### Verify pipeline-library persistence without the game
 
@@ -68,6 +72,8 @@ cl /EHsc empty_pipeline_library.cpp d3d12.lib
 ```
 
 Run the resulting executable against the same D3D12 implementation as the game. Here the non-null pointer with zero length gave `80070057`, the null pointer gave `00000000`, and the resulting 56-byte serialized library reopened successfully. First-boot trials always start with an empty pipeline directory.
+
+With the fix in the runtime, two first story launches wrote pipeline libraries from empty directories. At 1 KiB the library reached 426,680 bytes and the early list had 2,348 entries. The launch averaged 13.27 FPS, with a 396 ms p99 and an 11.27 s hold. The opening cinematic continued through the movement window. At 2 KiB the library reached 456,248 bytes with 2,269 early entries. The launch averaged 13.75 FPS (4,125 frames) and the verified cell movement averaged 25.59 FPS (1,919 frames). P99 was 279 ms and the longest hold was 11.12 s. The face pipeline was ready before its first bind in both runs.
 
 ## Measurements
 
