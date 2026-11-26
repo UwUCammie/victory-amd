@@ -55,6 +55,10 @@ At 1,024 bytes the first clean trial gave **14.10 FPS from launch** (4,230 / 300
 
 The RX 7900 XT desktop preset uses the 1,024-byte limit and sources `radv_first_room.env` followed by `radv_720p.env` and uses the [size-limited build](https://github.com/UwUCammie/VIctory-7900XTX/commit/ae742781) with 1280×720 output support. The desktop retains its ordinary graphics caches. The benchmark gives each launch new ones.
 
+The follow-up 2 KiB run measured 13.18 FPS over the first 300 s and 24.15 FPS in the movement window. Faces were visible in the diner and the cell. The repeat of the 1 KiB launch stayed in the opening cinematic and credits during seconds 220–295. Its **12.68 FPS** across the full five minutes is a valid cold-launch observation; that late interval cannot verify a second walking score. Timed skip inputs can take a different route when loading stalls shift the cutscenes.
+
+[Linux branch PR #5](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/5) carries the size limit. Starting compilation only when a recording thread first bound the compute pipeline still lost the skin (12.65 FPS from launch, 23.69 FPS in the movement window). Turning off landing-echo detection on its own also left the face missing on this cold route (12.89 / 23.25 FPS).
+
 ### Verify pipeline-library persistence without the game
 
 A separate [vkd3d-proton library fix](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/4) addresses repeat launches. On this branch the host refused its empty library, so it could not save pipeline entries or the list of pipelines to start early next time. The two independent control launches both reported the refusal. A small probe exercises the driver's empty-library calls and serialization without a game or shader compiler. Build `empty_pipeline_library.cpp` in a Windows developer prompt:
