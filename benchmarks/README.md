@@ -185,6 +185,8 @@ Two completed 720p control runs wrote 2,840 and 2,828 translated shader stages t
 
 Run `python3 benchmarks/direct_heap_features.py CACHE_DIR/shaders` on a local VSH2 cache. The reader reports aggregate counts. An unknown feature record takes the conservative two-heap path in the upstream patch.
 
+The paired test binary with selective heap flags disabled completed a fresh cold control on the RX 7900 XT. It accepted 2,350 presents in 300 seconds (7.83 FPS), including 28 gaps over one second. P99 was 3.061 s, the longest gap was 11.469 s, and gaps over 100 ms occupied 210.34 s. The cache at exit held 1,796 resource-only stages, 666 that requested both heaps and 77 that requested neither. The control used the same 720p output and native UI plane as the enabled trial.
+
 ### Saved waterfront lighting at 720p
 
 I started three Series X runs from separate copies of the same waterfront save and the same warm application and vkd3d caches on the RX 7900 XT. All three reached the character leaning on the porch rail. The desktop preset used the indirect-light fallback at 0.8, confirmed by the renderer's radiance and resolve messages. I changed only the saved settings file's `rtDynamicShadows` value in the second run and only `VICTORY_AMBIENT=0` in the third. The wall and door stayed visible in all three. In a fixed 50×105 patch of shaded siding, each mean RGB channel was within one 8-bit level of the control at 100 seconds. This is one exterior viewpoint. The settings-file edit establishes what was requested; the log confirms the renderer fallback switch separately. These warm saved-game runs are for visual checks.
