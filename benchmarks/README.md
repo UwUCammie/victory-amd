@@ -191,3 +191,26 @@ wine "$gpu_test_exe" --exact \
 ```
 
 Build the binary once with `cargo test -p victory-gpu --lib --target x86_64-pc-windows-msvc --no-run`. The grouped command is for cases sharing the same process configuration. Trials that compare switches read once at process startup still need separate launches.
+
+## Testing the relay merge without the game
+
+The independent Linux fixture imports the renderer's AVX2 merge code. It compares always storing the 32-byte vector with the equality check from #1178, which avoids loading or modifying the destination if the GPU and reference bytes match. Each pattern uses 4 MiB of synthetic data. Both paths have to match the expected reference bytes, destination bytes and change flag. The renderer's three alignment, tail and CPU-write tests also pass in 0.02 s.
+
+Five complete fixture runs on a Ryzen 7 9700X after the game exited took a median of 0.048 s with the binary already built. Median kernel times in microseconds were 131 → 92 for equal inputs, 133 → 72 for one changed byte per 4 KiB and 134 → 147 for changes in every other byte. The left figure is the existing vector merge, the right skips equal vectors. [CPU fixture and source](https://github.com/UwUCammie/victory-amd/tree/8406243/benchmarks) · [Upstream merge implementation](https://github.com/fxceless/victory-fork/pull/1178)
+
+In the first eight-block room test, accepted presents averaged 9.14/s off and 9.43/s on (702/76.83 s and 738/78.25 s). The enabled path examined 39,027 MiB. But private captures at 80 and 210 s were pixel-identical, and another near the end was identical too. The picture changed at 260 s after all the measured blocks. These figures are present rates only. I excluded this run from the gameplay comparison.
+
+## Checking visible frame changes in the same launch
+
+A four-block repeat sampled the center of the Wine game window for five seconds inside each block. The helper reads a 256×144 crop with the cursor hidden and counts adjacent samples whose luma changes. It saves no images. A synthetic static source produced zero changes in 60 samples. A 10 Hz animation sampled at 30 Hz produced 19, and a 30 Hz animation produced 59. A stationary scene can have fewer changes than presents. Shimmer can also change pixels, so we still check that the character and room are visible.
+
+| Start in room run | Skip equal vectors | Changed samples / 4.97 s | Changes/s | Accepted presents/s in complete enclosed intervals |
+| ---: | --- | ---: | ---: | ---: |
+| 98 s | Off | 45 | 9.06 | 9.19 |
+| 120 s | On | 44 | 8.86 | 9.13 |
+| 141 s | On | 46 | 9.26 | 9.13 |
+| 162 s | Off | 43 | 8.66 | 8.98 |
+
+The room was visible at 80 and 170 s, and the character's pose differed. The four-block result was ready at 172.1 s. The full qualifying intervals gave 341 presents in 38.50 s off (8.86 FPS) and 346 in 38.26 s on (9.04 FPS). The pair differences were +0.03 and +0.34 FPS. The enabled path examined 18,635 MiB. The visual samples ran during the comparison, so these numbers include the cost of that check. The earlier eight-block result stays excluded.
+
+With the game window ID on the correct X11 display, use `python3 benchmarks/window_activity.py "$window" --seconds 5 --rate 30`. Choose a sample rate above the frame rate you want to check. FFmpeg and ffprobe need X11 capture support. The reported changes/s applies only to the sampled crop and time span.
