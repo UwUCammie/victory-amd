@@ -116,13 +116,13 @@ trait Source: Send {
 }
 
 /// A scripted key: when it starts, how long it is held, and its code.
-#[cfg(any(test, feature = "diagnostics"))]
+#[cfg(any(test, feature = "diagnostics", feature = "benchmark-input"))]
 type Scripted = (Duration, Duration, u8);
 
-/// [`scripted`]: `at:key[:hold]` entries, the hold 0.2 s when not given. A
+/// Parse `at:key[:hold]` entries, using a 0.2 s hold when omitted. A
 /// screen that samples its input slower than the hold ignores the key, which
 /// reads exactly like a screen that ignores input.
-#[cfg(any(test, feature = "diagnostics"))]
+#[cfg(any(test, feature = "diagnostics", feature = "benchmark-input"))]
 fn parse_scripted(list: &str) -> Vec<Scripted> {
     const DEFAULT_HOLD: Duration = Duration::from_millis(200);
     list.split(',')
@@ -155,6 +155,13 @@ fn parse_scripted(list: &str) -> Vec<Scripted> {
             ))
         })
         .collect()
+}
+
+#[cfg(any(test, feature = "diagnostics", feature = "benchmark-input"))]
+fn scripted_at(keys: &[Scripted], now: Duration) -> Vec<u8> {
+    keys.iter().filter_map(|&(at, hold, key)| {
+        now.checked_sub(at).is_some_and(|elapsed| elapsed < hold).then_some(key)
+    }).collect()
 }
 
 fn fallback(keys: &[KeyState]) -> PadState {
@@ -1192,7 +1199,7 @@ mod host {
             // pad's buttons, by the stand-in pad's table: with a real pad
             // connected the stand-in is not there, and a title that listens
             // to the pad (the title's start screen) saw nothing.
-            #[cfg(feature = "diagnostics")]
+            #[cfg(any(feature = "diagnostics", feature = "benchmark-input"))]
             if slot == 0 {
                 for vk in scripted() {
                     if let Some(&(_, button)) = super::FALLBACK_BUTTONS.iter().find(|(key, _)| *key == vk) {
@@ -1204,9 +1211,9 @@ mod host {
         }
 
         fn keys(&mut self) -> Vec<KeyState> {
-            #[cfg(feature = "diagnostics")]
+            #[cfg(any(feature = "diagnostics", feature = "benchmark-input"))]
             let mut down = scripted();
-            #[cfg(not(feature = "diagnostics"))]
+            #[cfg(not(any(feature = "diagnostics", feature = "benchmark-input")))]
             let mut down = Vec::new();
             if focused() {
                 // Left/right modifier keys only, as devices report them; no
@@ -1247,18 +1254,14 @@ mod host {
     /// hold is in seconds, 0.2 by default: a screen that samples its input
     /// slowly misses a hold shorter than its sampling, which looks exactly
     /// like a screen that ignores input.
-    #[cfg(feature = "diagnostics")]
+    #[cfg(any(feature = "diagnostics", feature = "benchmark-input"))]
     fn scripted() -> Vec<u8> {
         static SCRIPT: LazyLock<(Instant, Vec<Scripted>)> = LazyLock::new(|| {
             let list = std::env::var("VICTORY_KEYS").unwrap_or_default();
             (Instant::now(), parse_scripted(&list))
         });
         let (start, keys) = &*SCRIPT;
-        let now = start.elapsed();
-        keys.iter()
-            .filter(|&&(at, hold, _)| (at..at + hold).contains(&now))
-            .map(|&(_, _, vk)| vk)
-            .collect()
+        scripted_at(keys, start.elapsed())
     }
 
     /// The foreground window is one of ours (the title's or our fallback).
@@ -1669,5 +1672,20 @@ mod tests {
             ]
         );
     }
+
+    #[test]
+    fn a_hold_has_a_half_open_interval_even_at_large_times() {
+        let keys = parse_scripted("50:Enter:4.4,60:Up");
+        let at = |ms| scripted_at(&keys, Duration::from_millis(ms));
+        assert!(at(49999).is_empty());
+        assert_eq!(at(50000), [0x0d]);
+        assert_eq!(at(54399), [0x0d]);
+        assert!(at(54400).is_empty());
+        assert_eq!(at(60199), [0x26]);
+        assert!(at(60200).is_empty());
+        let far = [(Duration::MAX, Duration::from_secs(1), 0x20)];
+        assert_eq!(scripted_at(&far, Duration::MAX), [0x20]);
+    }
+
 
 }
