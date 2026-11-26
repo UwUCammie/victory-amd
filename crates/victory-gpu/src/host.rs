@@ -8520,6 +8520,7 @@ struct Presenter {
 /// The frame rate, shown in the window's caption every second and logged
 /// every few seconds.
 struct Meter {
+    accepted: u32,
     since: std::time::Instant,
     frames: u32,
     #[cfg(feature = "diagnostics")]
@@ -8534,6 +8535,7 @@ impl Meter {
     fn new() -> Self {
         let now = std::time::Instant::now();
         Meter {
+            accepted: 0,
             since: now,
             frames: 0,
             #[cfg(feature = "diagnostics")]
@@ -8545,7 +8547,8 @@ impl Meter {
     }
 
     /// Counts a presented frame.
-    fn frame(&mut self, hwnd: HWND) {
+    fn frame(&mut self, hwnd: HWND, accepted: bool) {
+        self.accepted += u32::from(accepted);
         #[cfg(feature = "diagnostics")]
         tracing::debug!(target: "victory_gpu::frame", token = crate::frame::current(), "present");
         #[cfg(feature = "diagnostics")]
@@ -8563,12 +8566,12 @@ impl Meter {
         let frames = f64::from(self.frames);
         tracing::info!(
             target: "victory_bench",
-            frames = self.frames,
+            frames = self.accepted,
             interval_us = elapsed.as_micros() as u64,
             draws = drawn - self.drawn,
             "presents"
         );
-        let fps = frames / elapsed.as_secs_f64();
+        let fps = f64::from(std::mem::take(&mut self.accepted)) / elapsed.as_secs_f64();
         crate::fpsbox::set(fps);
         let ms = elapsed.as_secs_f64() * 1000.0 / frames;
         let draws = (drawn - self.drawn) as f64 / frames;
@@ -8971,7 +8974,7 @@ impl Host {
                     tracing::error!("Present answered {:#010x} (said once): the first call to report it, frame {frame}", shown.0 as u32);
                 });
             }
-            p.meter.frame(p.hwnd);
+            p.meter.frame(p.hwnd, shown == windows::Win32::Foundation::S_OK);
             #[cfg(feature = "diagnostics")]
             return Some(probe.is_some_and(|b| crate::capture::black(&b)));
             #[cfg(not(feature = "diagnostics"))]
