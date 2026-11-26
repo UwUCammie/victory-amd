@@ -195,6 +195,14 @@ With selective flags enabled, the same executable accepted 2,305 presents in 300
 
 The archived driver logs for 85 cold launches and 23 saved-route attempts identify the baseline as GE build `cae8353ed7959c4+`. It reports application version 3.2.0 and describes itself as 83 commits past v3.1. Earlier notes used the version in the launcher's comment. These archive counts include interrupted runs and describe driver identity only.
 
+### vkd3d-proton on a cold opening
+
+I ran the driver from [the Linux prison-cell report](https://github.com/avatarmanz/VIctory-7900XTX/pull/386) on the RX 7900 XT. I used the x64 DLLs from vkd3d-proton's CI package for `71cae091` in a copy of my Wine prefix, with the original DXGI DLL, release executable and input sequence. The driver log confirms the loaded revision. I kept the existing pipeline wait settings to isolate the driver change.
+
+With five empty graphics caches and no story save, 2,702 accepted presents over the first 300 seconds gave **9.01 FPS**. The first present was at 2.53 s, P99 was 1.94 s, and the longest gap was 11.52 s. Gaps over 100 ms occupied 194.35 s, including 31 gaps over one second. The renderer logged 1,671 successful host pipelines and 378 first compute-dispatch drops during those 300 seconds. It logged zero compiles recovered through an alternate control-flow form. Two earlier clean launches of the same application on GE build `cae8353e` logged six recoveries each. A late diner close-up showed a face and the opening montage advanced. The published 23.5 FPS figure uses a standing prison-cell scene, a different card and different settings.
+
+To verify a driver run locally, use `python benchmarks/cold_boot.py RUN RUN_META/launch.json --expect-vkd3d 71cae091 --expect-output 1280x720 --expect-interface 3840x2160`.
+
 ### Saved waterfront lighting at 720p
 
 In a separate 150-second first-boot diagnostic with `VICTORY_WALLS_TRACE=1`, the exterior at 100 and 115 seconds looked dark with lit windows. During the first 145 seconds, 70 read-backs of 16 bytes and 70 of 80 bytes landed across 61 distinct frame numbers. Each width had four records between 95 and 120 seconds. All eight were finite, contained a nonzero value and differed within their width. The logger identifies transfers by size and destination only. It does not identify an exposure target or establish the cause of the bright exterior in an earlier run.
