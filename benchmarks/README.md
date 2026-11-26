@@ -36,6 +36,17 @@ The denominator is the full interval from launcher start. A frame counts at the 
 
 On a Ryzen 7 9700X and RX 7900 XT (RADV 26.3.1, Wine 11.22, vkd3d-proton 3.1), the initial completed run produced **4,063 presents in 300 seconds (13.54 FPS)**, including loading, the opening sequence and the prison cell. The first present was at 2.54 s, p99 was 268 ms, and the longest gap was 11.33 s. There were 27 holds over one second, including the initial wait. Holds over 100 ms took 138.90 s. The compute pipeline wait reached its ten-second frame budget in six distinct title frames. The settled prison-cell view averaged 24.23 FPS over seconds 220–300; movement was not verified in that interval.
 
+### Cold control and compute-at-creation comparison
+
+Both trials used the same binary, key sequence and protected compute wait. The clock started before Wine; each trial ran for 308 seconds. The second measurement window includes standing at the cell window, walking and turning. Identical input timing led to different final camera positions. The first visible response to the directional input was captured by 252.4 seconds after launching in both runs. Earlier stills show the character in the cell, so this is an upper bound on when control became available.
+
+| Pipeline scheduling | First 300 s | Seconds 220–295, movement | p99, first 300 s | Longest hold | Time in holds over 100 ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Default, ten general workers | 4,241 / 300 = 14.14 FPS | 1,923 / 75 = 25.64 FPS | 252.8 ms | 11.28 s | 141.70 s |
+| Start every waiting compute pipeline at creation | 2,394 / 300 = 7.98 FPS | 865 / 75 = 11.53 FPS | 693.3 ms | 11.17 s | 220.86 s |
+
+The default lost the character's facial skin in the diner dialogue and again in the cell, with eyes, hair and teeth still visible. The head blend-shape pipeline identified in the compute-wait patch was first bound at 49.49 s, its dispatch timed out at 59.50 s and the host pipeline was ready at 84.63 s. The earlier control with no late walking input showed the same missing face at the same spoken line. With [compute compilation at creation](https://github.com/UwUCammie/VIctory-7900XTX/commit/1bf28084), the host pipeline was ready at 44.17 s ahead of its first bind at 55.15 s; the face was visible at that line and the character had skin in the cell. The cost of queueing all that work persisted into gameplay. One run per configuration; the faster control fails the visual check.
+
 ## Measurements
 
 Ryzen 7 9700X, RX 7900 XT, RADV 26.3.1, Wine 11.22, vkd3d-proton v3.1-83. I used the Series X profile, the first room, a warmed cache and a separate offline test prefix. Each session lasted 230 seconds. The table includes changes under test in an integration build. A successful present confirms that the swapchain accepted a frame. Draw count and occasional private stills are separate checks on the workload.
