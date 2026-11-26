@@ -95,6 +95,8 @@ I matched a second native renderer’s session times against the launcher metada
 | Indexed shader values | Withdraw 8.33 FPS as a game timing. The separately tested shader outputs and translation workload have their own results. |
 | Stock and 16.667 ms title timer | Withdraw the FPS comparison for both settings. The title reported the configured intervals. |
 
+On Linux, `competing_gpu.py --executable OTHER_GAME` recognizes an independent game by its executable even when it renames its threads. For other graphics jobs in a known separate cgroup, add `--group OTHER_JOBS.slice --node /dev/dri/renderD128` with the benchmark GPU's render node. It returns zero while a matching game is running or a process in that cgroup holds that node. Use it before launch and throughout the measured run. The benchmark's own cgroup must be outside the selected group.
+
 The cache candidate still wrote 2,710 shader entries totaling 170,699,798 bytes during its run. `compute_lag.py` can match first-drop warnings to successful translation messages in an existing log. The contaminated runs establish neither a normal queue delay nor a change in rendering performance. The desktop retains the separate 720p interface plane and the stock timer. [UI fix](https://github.com/avatarmanz/VIctory-7900XTX/pull/295) · [Cache change](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/8) · [Translator change](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/6)
 
 ### Verify pipeline-library persistence without the game
