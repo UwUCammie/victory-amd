@@ -83,6 +83,12 @@ For Windows cross-builds from multiple worktrees, use a separate Cargo target di
 python3 benchmarks/verify_pdb_sources.py "$checkout" "$build/victory.exe" "$build/victory.pdb" crates/victory-shader/src/emit/lower.rs
 ```
 
+### Finding ambient passes during shader registration
+
+Each new compute shader is classified while the shader table is locked. I compared the current byte-window search with the workspace's existing substring search. They returned the same role for all 26,503 local containers (245,181,656 bytes), including all eight positive matches.
+
+For the timing I matched the first-bind records from one 308-second opening to the local corpus by content hash. I could recover 1,056 of the 1,091 distinct bound compute containers, totaling 23,282,628 bytes. File reads, hashing and result verification finished before the timer started. Across 12 alternating pairs with the inputs in memory, the median thread CPU time for the full set was 72.12 ms for the byte-window search and 3.21 ms for the substring search. The latter was quicker in every pair. This measures one step of shader registration. The three Windows ambient tests passed under Wine 11.22. [AMD branch PR](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/10)
+
 ### Streaming the shader cache key
 
 The shader cache joins a 32-byte build fingerprint to each container before hashing it. I tried feeding those two slices to BLAKE3 separately. One local opening supplied 2,795 distinct input sizes. With synthetic buffers of those sizes, one pass avoided copying 40,097,932 bytes and produced identical keys for every input.
