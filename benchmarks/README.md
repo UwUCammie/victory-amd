@@ -179,6 +179,10 @@ With priority on, the same verified binary delivered 2,439 presents in 300 s (8.
 
 Among first-drop notices that reported at least one second actually spent waiting, 16 of 18 shaders had no worker start with priority off. With priority on, all five had a worker start. All 16 previously unstarted shaders were bound, translated and logged a host pipeline in the priority-on run. None of those 16 logged a dropped dispatch there. These counts cover each complete process log. The full five-minute FPS result above still favored priority off.
 
+### Isolated compiler thread dispatch
+
+The two full selective-heap launches below recorded 1,559 and 1,579 successful host pipeline creations. With `VICTORY_PIPE_FIX=1` the AMD branch launches a Windows thread for each compile attempt. I measured the cost of just handing a trivial job to a fresh or reused isolated compiler on the Ryzen 7 9700X under Wine 11.22. Seven alternating pairs of 128 jobs gave median elapsed times of 17.763 ms for fresh threads and 0.390 ms for reuse, including startup. All seven pairs favored reuse. The fixture checks every reply and uses the same stack reservation and priority in both paths. These are debug fixture measurements without a driver compile. [Worker change and test command](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/24)
+
 ### Direct heap requirements in the cold shader cache
 
 Two completed 720p control runs wrote 2,840 and 2,828 translated shader stages to disk. I read the final stage bytecode from each cache entry and counted its direct heap feature bits. In the first run 2,011 stages requested the resource heap only, 745 requested both heaps and 84 requested neither. In the repeat the counts were 2,005, 738 and 85. All entries had exactly one readable feature record. For compute alone the first counts were 798, 327 and four. A graphics pipeline combines the requirements of all its stages. These counts measure where a narrower flag set is possible. [Upstream change and RX 7900 XT results](https://github.com/avatarmanz/VIctory-7900XTX/pull/58#issuecomment-7202090922)
