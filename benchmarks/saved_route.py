@@ -39,11 +39,39 @@ def route_outcome(run, overlap, elapsed, target):
         return "incomplete"
 
 
+def scene_samples(run, seconds):
+    """Fraction of the central half of the image with all RGB channels at 6 or below."""
+    from PIL import Image, ImageChops
+
+    samples = []
+    for second in seconds:
+        if second < 0:
+            raise ValueError("sample times must be nonnegative")
+        path = run / "cap" / f"private-{second}.png"
+        if not path.exists():
+            samples.append({"second": second, "near_black_fraction": None})
+            continue
+        with Image.open(path) as frame:
+            w, h = frame.size
+            left, top = w // 4, h // 4
+            box = (left, top, max(left + 1, 3 * w // 4), max(top + 1, 3 * h // 4))
+            crop = frame.crop(box).convert("RGB")
+            red, green, blue = crop.split()
+            brightest = ImageChops.lighter(ImageChops.lighter(red, green), blue)
+            near_black = sum(brightest.histogram()[:7])
+            samples.append({"second": second, "near_black_fraction": near_black / (crop.width * crop.height)})
+    return samples
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("run", type=Path, help="directory containing run.log and exit-code")
     parser.add_argument("--elapsed", type=float, required=True, help="seconds measured by the launcher")
     parser.add_argument("--target", type=float, required=True, help="configured timeout in seconds")
     parser.add_argument("--overlap", type=Path, required=True, help="this attempt's foreground-overlap marker")
+    parser.add_argument("--sample-seconds", type=int, nargs="+", help="measure the center of these private captures (requires Pillow)")
     args = parser.parse_args()
-    print(json.dumps({"outcome": route_outcome(args.run, args.overlap, args.elapsed, args.target)}))
+    result = {"outcome": route_outcome(args.run, args.overlap, args.elapsed, args.target)}
+    if args.sample_seconds:
+        result["scene_samples"] = scene_samples(args.run, args.sample_seconds)
+    print(json.dumps(result))

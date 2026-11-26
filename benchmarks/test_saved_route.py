@@ -2,7 +2,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from saved_route import classify, route_outcome
+from saved_route import classify, route_outcome, scene_samples
 
 
 class SavedRouteTests(unittest.TestCase):
@@ -34,3 +34,20 @@ class SavedRouteTests(unittest.TestCase):
             self.assertEqual(route_outcome(run, marker, 1, 161), "incomplete")
             marker.touch()
             self.assertEqual(route_outcome(run, marker, 1, 161), "interrupted")
+
+    def test_scene_samples_ignore_hud_and_preserve_missing_captures(self):
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Pillow required for screen captures")
+        with TemporaryDirectory() as directory:
+            run = Path(directory)
+            (run / "cap").mkdir()
+            frame = Image.new("RGB", (4, 4), "white")
+            frame.paste((6, 6, 6), (1, 1, 3, 3))
+            frame.putpixel((1, 1), (0, 7, 0))
+            frame.save(run / "cap/private-125.png")
+            self.assertEqual(scene_samples(run, [125, 155]), [
+                {"second": 125, "near_black_fraction": 0.75},
+                {"second": 155, "near_black_fraction": None},
+            ])

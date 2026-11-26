@@ -632,6 +632,8 @@ On separate Series X dialogue runs the original compute-wait build kept the seat
 
 ### Saved waterfront with in-place indirect arguments
 
+To check the private screenshots from a route, add `--sample-seconds 125 135 145 155` to `benchmarks/saved_route.py`. Each entry gives the fraction of the center half (in both dimensions) with every RGB channel at 6 or below. A missing capture produces `null`. Review the images themselves to distinguish a black world with a HUD from a fade during loading.
+
 On the RX 7900 XT with RADV 26.3.1, Wine 11.22 and vkd3d-proton 3.1, the ordering-off run completed a 161 s saved-game route with `VICTORY_PORT_CONSTANTS=1`. The in-place path logged 86 samples with indirect draws and peaked at 5,536 executions per frame. Zero were ordered by the patch, as expected with `VICTORY_PORT_CONSTANTS_ORDER=0`. The HUD appeared over a black world. At 125, 135, 145 and 155 s, every pixel in the center half of the captured window had all three channels at 0 or 1 on the 0–255 scale.
 
 An interrupted run with ordering enabled also showed a black world. A separate launch with ordering enabled exited at startup with a renderer breakpoint before any affected indirect draws were logged. These are observations on disposable copies of the same save. The setting for importing buffers in place was on in both runs. The port-off comparison uses the same binary and save. [AMD ordering patch](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/18)
