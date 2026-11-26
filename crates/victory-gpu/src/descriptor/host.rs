@@ -1875,6 +1875,7 @@ impl HostHeap {
     ) -> (u64, u64) {
         let (frame, tables) = (crate::frame::current(), sync_tables());
         let mut looked = 0u64;
+        let mut skipped = 0u64;
         let mut due: Vec<(u32, u64)> = Vec::new();
         {
             let mut copied = self.copied.lock().unwrap_or_else(|e| e.into_inner());
@@ -1893,6 +1894,7 @@ impl HostHeap {
                         && let Some(at) = at
                         && cold_empty_run(&copied, index as usize, page, at, step as usize)
                     {
+                        skipped += RUN as u64;
                         slots.start = next_run;
                         looked += RUN as u64;
                         continue;
@@ -1930,6 +1932,9 @@ impl HostHeap {
         }
         for &(index, handle) in &due {
             self.mirror(index, handle, false);
+        }
+        if skipped != 0 {
+            COLD_SLOTS.fetch_add(skipped, std::sync::atomic::Ordering::Relaxed);
         }
         (looked, due.len() as u64)
     }
@@ -2252,6 +2257,8 @@ fn sync_tables() -> bool {
 /// Since the last frame line: slots on changed heap pages that
 /// [`HostHeap::mirror_copied`] left to their draws (tables' slots).
 pub(crate) static COPIED_TABLED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+pub(crate) static COLD_SLOTS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 fn cold_empty_run(copied: &[u64], index: usize, page: &[u8], at: usize, step: usize) -> bool {
     // A nonzero cached fingerprint is not cold: a cleared record may have
