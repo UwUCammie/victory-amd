@@ -88,4 +88,61 @@ mod tests {
         let mut replacement = Worker::spawn(|value| value).unwrap();
         assert_eq!(replacement.run(42), Some(42));
     }
+    #[test]
+    fn a_signalled_thread_handle_finishes_a_request_even_when_the_sender_survives() {
+        let (jobs, _requests) = mpsc::channel();
+        let (_live_sender, results) = mpsc::channel::<usize>();
+        let thread = thread::spawn(|| {});
+        let mut worker = Worker {
+            jobs,
+            results,
+            thread,
+        };
+        assert_eq!(worker.run(()), None);
+    }
+
+    #[test]
+    #[ignore = "measure thread dispatch overhead on the target Windows runtime"]
+    fn compare_compile_thread_dispatch() {
+        use std::time::Instant;
+        use windows::Win32::System::Threading::INFINITE;
+        const JOBS: u32 = 128;
+        for pair in 0..7 {
+            for reuse in [pair % 2 != 0, pair % 2 == 0] {
+                let started = Instant::now();
+                let mut worker = reuse.then(|| Worker::spawn(|i: u32| i + 1).unwrap());
+                for i in 0..JOBS {
+                    let answer = if let Some(worker) = &mut worker {
+                        worker.run(i).unwrap()
+                    } else {
+                        let (tx, rx) = mpsc::channel();
+                        let handle = thread::Builder::new()
+                            .name("victory-pipeline-compile".into())
+                            .stack_size(8 << 20)
+                            .spawn(move || {
+                                // SAFETY: the same priority as an isolated host compile.
+                                unsafe {
+                                    let _ = SetThreadPriority(
+                                        GetCurrentThread(),
+                                        THREAD_PRIORITY_BELOW_NORMAL,
+                                    );
+                                }
+                                tx.send(i + 1).unwrap();
+                            })
+                            .unwrap();
+                        // SAFETY: the thread owns a live handle throughout the wait.
+                        unsafe {
+                            WaitForSingleObject(HANDLE(handle.as_raw_handle()), INFINITE);
+                        }
+                        rx.recv().unwrap()
+                    };
+                    assert_eq!(answer, i + 1);
+                }
+                println!(
+                    "compile dispatch pair={pair} reuse={reuse} jobs={JOBS} us={}",
+                    started.elapsed().as_micros()
+                );
+            }
+        }
+    }
 }
