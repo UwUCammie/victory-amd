@@ -195,6 +195,10 @@ With selective flags enabled, the same executable accepted 2,305 presents in 300
 
 The archived driver logs for 85 cold launches and 23 saved-route attempts identify the baseline as GE build `cae8353ed7959c4+`. It reports application version 3.2.0 and describes itself as 83 commits past v3.1. Earlier notes used the version in the launcher's comment. These archive counts include interrupted runs and describe driver identity only.
 
+### Texture write-query experiment
+
+The same release executable accepted 2,851 presents in the first 300 seconds with the texture write query optimization off (9.50 FPS) and 2,195 with it on (7.32 FPS). P99 was 2.18 s off and 3.25 s on. Gaps over 100 ms took 189.13 s off and 212.16 s on, and the longest gaps were 11.46 and 11.38 s. Both 720p launches used the same input sequence, five empty caches and no story save. The opening montage reached different shots at the same timestamps. This pair showed a worse overall cold start with the change enabled. [Texture write-query PR](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/19)
+
 ### vkd3d-proton on a cold opening
 
 I ran the driver from [the Linux prison-cell report](https://github.com/avatarmanz/VIctory-7900XTX/pull/386) on the RX 7900 XT. I used the x64 DLLs from vkd3d-proton's CI package for `71cae091` in a copy of my Wine prefix, with the original DXGI DLL, release executable and input sequence. The driver log confirms the loaded revision. I kept the existing pipeline wait settings to isolate the driver change.
