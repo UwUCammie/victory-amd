@@ -2135,7 +2135,9 @@ impl Deferred {
         self.uploads.clear();
         self.upload_bytes = 0;
         self.kept.clear();
+        self.kept_pipelines.clear();
         self.refreshed.clear();
+        self.filled_root_cbvs.clear();
         self.textures.clear();
         self.writes.clear();
         self.backs.clear();
