@@ -4,7 +4,7 @@ from bisect import bisect_right
 from datetime import datetime
 import re
 
-from first_room import ANSI, INTERVAL, TIMESTAMP
+from first_room import DeviceLost, INTERVAL, TIMESTAMP, session_lines
 
 
 SWITCHES = ("VICTORY_GATHER_BY_COPY", "VICTORY_HEAP_SYNC_CUT")
@@ -15,8 +15,7 @@ def phase_totals(lines, start, stop, settle, switch=SWITCHES[0]):
     origin = None
     markers = []
     samples = []
-    for raw in lines:
-        line = ANSI.sub("", raw)
+    for line in session_lines(lines):
         stamp = TIMESTAMP.search(line)
         if stamp is None:
             continue
@@ -62,7 +61,10 @@ if __name__ == "__main__":
     args = parser.parse_args()
     if not 0 <= args.start < args.stop or args.settle < 0:
         parser.error("expected 0 <= start < stop and a nonnegative settling time")
-    totals = phase_totals(args.log, args.start, args.stop, args.settle, args.switch)
+    try:
+        totals = phase_totals(args.log, args.start, args.stop, args.settle, args.switch)
+    except DeviceLost as error:
+        parser.exit(1, f"{error}\n")
     if not all(frames and micros for frames, micros, _ in totals.values()):
         parser.exit(1, "Both switch settings need complete measured intervals.\n")
     for mode, (frames, micros, draws) in totals.items():

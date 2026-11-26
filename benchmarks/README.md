@@ -214,3 +214,23 @@ A four-block repeat sampled the center of the Wine game window for five seconds 
 The room was visible at 80 and 170 s, and the character's pose differed. The four-block result was ready at 172.1 s. The full qualifying intervals gave 341 presents in 38.50 s off (8.86 FPS) and 346 in 38.26 s on (9.04 FPS). The pair differences were +0.03 and +0.34 FPS. The enabled path examined 18,635 MiB. The visual samples ran during the comparison, so these numbers include the cost of that check. The earlier eight-block result stays excluded.
 
 With the game window ID on the correct X11 display, use `python3 benchmarks/window_activity.py "$window" --seconds 5 --rate 30`. Choose a sample rate above the frame rate you want to check. FFmpeg and ffprobe need X11 capture support. The reported changes/s applies only to the sampled crop and time span.
+
+## Window placement on the RX 7900 XT
+
+One release compared direct GPU upload windows, staged windows and shared memory. The early run with direct upload skipped the intro. The others played it. Only the last complete intervals (166–182 s) in each run showed the first room in all three.
+
+| Backing | Presents | Seconds | FPS | Draws/frame |
+| --- | ---: | ---: | ---: | ---: |
+| Direct GPU upload, 512 MiB cap | 129 | 14.79 | 8.72 | 4,799 |
+| Staged, 512 MiB cap | 85 | 14.44 | 5.89 | 4,964 |
+| Shared memory | 80 | 15.16 | 5.28 | 4,965 |
+
+In the reverse-order repeat with ordinary taps, shared memory gave 482 presents in 54.26 s (8.88 FPS, 4,875 draws/frame) from 170–225 s. The center of the window changed 9.26 and 8.86 times per second in two five-second samples. The direct-upload repeat lost the GPU at 38.2 s, well before gameplay. The launcher returned zero. With shared memory spanning 5.28–8.88 FPS across visits, these measurements do not establish a placement advantage. The reporters now reject sessions containing a terminal GPU error even if they logged accepted presents earlier. The separate accounting test used a 4 MiB cap and passed on both GPU backings. [Budget regression and physical tests](https://github.com/fxceless/victory-fork/pull/1250)
+
+## Opening dialogue visual check
+
+The fast room route skips the diner. A view of the player's back and an advancing frame counter can confirm gameplay while missing two defects visible from the front. To check this build on the RX 7900 XT, leave the dialogue running, compare the server's face, neck and forearms during the order, and inspect several frames of the seated character speaking. Align runs by the same shot and line of dialogue. A single open-mouth pose cannot show whether the lips, teeth and jaw move together.
+
+On the gather build with the copy-back worker set to either 0 or 2, the server's face could appear black while her forearms and clothing drew. In other shots the seated character had visible skin but the upper lip stretched toward the nose. The same deformation is visible in an earlier control run. Rechecking placed textures after streaming writes made 2,985 previously uploaded slots due again in one run. The server's face still failed the visual check. An integration of the fair queue, the latest half-view change and ordered-pixel support also reproduced both defects.
+
+The hardware half-view test preserved all 65,536 patterns through integer views. The float control preserved one. Ten of 280 character-texture pixel programs failed to emit on the older build. All 280 emitted on the integration, and all ten previously failing programs created a host pipeline on the GPU. None of those ten appeared in the recorded first binds of the affected opening shots. [Facial-animation results](https://github.com/fxceless/victory-fork/pull/927#issuecomment-7180848831) · [Texture scheduling results](https://github.com/fxceless/victory-fork/pull/1246#issuecomment-7180852203) · [Ordered-pixel results](https://github.com/fxceless/victory-fork/pull/215#issuecomment-7180873951)
