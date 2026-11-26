@@ -38,11 +38,17 @@ class ColdBootTests(unittest.TestCase):
         lines = [trace(0), "2026-11-26T00:00:03Z" + notice, "2026-11-26T00:00:01.5Z" + notice,
                  "2026-11-26T00:00:01Z" + notice, trace(2_000_000)]
         frames = accepted_frames(lines, self.launched, drops)
-        result = window(frames, 0, 4_000_000, stalls=2, compute_drops=drops)
+        result = window(frames, 0, 4_000_000, stalls=3, compute_drops=drops)
         self.assertEqual(result["largest_gaps"], [
-            {"start_s": 1, "stop_s": 3, "gap_ms": 2000, "compute_drop_reports": 2},
-            {"start_s": 0, "stop_s": 1, "gap_ms": 1000, "compute_drop_reports": 0},
+            {"start_s": 1, "stop_s": 3, "gap_ms": 2000, "compute_drop_reports": 2,
+             "first_compute_drop_after_gap_start_s": 0},
+            {"start_s": 0, "stop_s": 1, "gap_ms": 1000, "compute_drop_reports": 0,
+             "first_compute_drop_after_gap_start_s": None},
+            {"start_s": 3, "stop_s": 4, "gap_ms": 1000, "compute_drop_reports": 1,
+             "first_compute_drop_after_gap_start_s": 0},
         ])
+        self.assertEqual(window(frames, 0, 4_000_000, stalls=1, compute_drops=[1_500_000])
+                         ["largest_gaps"][0]["first_compute_drop_after_gap_start_s"], 0.5)
         self.assertNotIn("largest_gaps", window(frames, 0, 4_000_000))
         with self.assertRaises(ValueError):
             window(frames, 0, 4_000_000, stalls=-1)

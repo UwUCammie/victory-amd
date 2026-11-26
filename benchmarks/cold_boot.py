@@ -115,11 +115,15 @@ def window(frames, start, stop, *, stalls=0, compute_drops=()):
         drops = sorted(compute_drops)
         gaps = ((a, b) for a, b in zip(edges, edges[1:]) if a < b)
         longest = nlargest(stalls, gaps, key=lambda gap: gap[1] - gap[0])
-        result["largest_gaps"] = [
-            {"start_s": a / 1e6, "stop_s": b / 1e6, "gap_ms": (b - a) / 1000,
-             "compute_drop_reports": bisect_left(drops, b) - bisect_left(drops, a)}
-            for a, b in longest
-        ]
+        result["largest_gaps"] = []
+        for a, b in longest:
+            first = bisect_left(drops, a)
+            count = bisect_left(drops, b, lo=first) - first
+            result["largest_gaps"].append({
+                "start_s": a / 1e6, "stop_s": b / 1e6, "gap_ms": (b - a) / 1000,
+                "compute_drop_reports": count,
+                "first_compute_drop_after_gap_start_s": (drops[first] - a) / 1e6 if count else None,
+            })
     return result
 
 

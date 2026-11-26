@@ -34,7 +34,9 @@ python3 benchmarks/cold_boot.py path/to/run path/to/launch.json --start 0 --stop
 
 The optional `--expect-output` checks the host swap-chain size at creation and on each subsequent resize. For a run using the 720p UI fix, add `--expect-interface 3840x2160`. This requires the loader to confirm that it applied the separate interface plane before the first accepted present. A failed setup can also print the requested dimensions.
 
-Add `--stalls 5` to list the five longest gaps in a saved run, including gaps at the start and end of the window. Each row counts the renderer’s first compute-drop notices that fell inside that gap. A pipeline may drop more than one dispatch after its first notice. The count measures what the log reported during the gap and gives no duration for a compile.
+Add `--stalls 5` to list the five longest gaps in a saved run, including gaps at the start and end of the window. Each row counts the renderer’s first compute-drop notices inside that gap and gives the elapsed seconds from the start of the gap to its earliest notice. A pipeline can drop further dispatches silently after its first notice.
+
+The two stock 720p launches each had five gaps of at least ten seconds, all between seconds 27 and 83 of the first story boot. The earliest compute-drop notice in each gap came 9.85–10.15 seconds after the preceding present. The first gap of each boot contained 243 and 235 first-drop notices respectively. The compute wait budget is shared across a frame, so those counts can bunch together when the budget runs out. Measuring the duration of an individual pipeline build requires its own start and finish timestamps.
 
 On Linux, `cold_launch.py` creates the directories and records the metadata for a direct Wine launch. Use a dedicated offline prefix, export the settings from `radv_first_room.env` and pass the same timed input to each run. Supply a fresh output directory for every trial. The installed Wine prefix needs a working Z: mapping. For example, from the installed game's working directory:
 
