@@ -179,6 +179,12 @@ With priority on, the same verified binary delivered 2,439 presents in 300 s (8.
 
 Among first-drop notices that reported at least one second actually spent waiting, 16 of 18 shaders had no worker start with priority off. With priority on, all five had a worker start. All 16 previously unstarted shaders were bound, translated and logged a host pipeline in the priority-on run. None of those 16 logged a dropped dispatch there. These counts cover each complete process log. The full five-minute FPS result above still favored priority off.
 
+### Root descriptor slot lookup
+
+The submission profile included samples in SipHash, so I tested the per-command-list root SRV and UAV cache shape with the renderer's existing address hasher. The fixture uses aligned synthetic addresses over five heaps and covers both biased and ordinary slots. It clears, populates and repeatedly looks up entries just as a list does. Both maps returned the same accumulated slot values in all 21 pairs.
+
+On the Ryzen 7 9700X, seven alternating native release pairs per size gave median times per list of 2.45 → 0.75 µs for 32 keys, 19.31 → 5.64 µs for 256, and 159.07 → 47.27 µs for 2,048. Each pair favored the address hasher. The fixture measures map operations and excludes the driver and rendering. Run `python benchmarks/root_slot_hash.py /path/to/victory` with a Rust toolchain to reproduce it.
+
 ### Isolated compiler thread dispatch
 
 The two full selective-heap launches below recorded 1,559 and 1,579 successful host pipeline creations. With `VICTORY_PIPE_FIX=1` the AMD branch launches a Windows thread for each compile attempt. I measured the cost of just handing a trivial job to a fresh or reused isolated compiler on the Ryzen 7 9700X under Wine 11.22. Seven alternating pairs of 128 jobs gave median elapsed times of 17.763 ms for fresh threads and 0.390 ms for reuse, including startup. All seven pairs favored reuse. The fixture checks every reply and uses the same stack reservation and priority in both paths. These are debug fixture measurements without a driver compile. [Worker change and test command](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/24)
