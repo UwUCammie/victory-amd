@@ -49,6 +49,10 @@ The default lost the character's facial skin in the diner dialogue and again in 
 
 With six general workers the same route gave 13.25 FPS from launch and 23.91 FPS in the movement window; the face was still missing. A second run starting every compute build at creation again drew the face, at 9.19 FPS from launch and 14.63 FPS over the movement window.
 
+Limiting speculative work to compute shaders of at most 2,048 bytes gave **13.06 FPS** over the whole five minutes (3,919 frames) and **23.96 FPS** over the movement window (1,797 frames). The face pipeline was ready at 3.25 s and first bound at 28.58 s. Both diner faces had skin, and the player character still had skin after turning in the cell. P99 was 475 ms. There were 30 waits longer than one second and the longest was 11.12 s. Compared with starting all compute builds, this kept the visible face and cut time in holds over 100 ms from 207–221 s to 152 s. The default missing-face control spent 142 s in those holds. One size-limited trial so far.
+
+The RX 7900 XT desktop preset sources `radv_first_room.env` followed by `radv_720p.env` and uses the [size-limited build](https://github.com/UwUCammie/VIctory-7900XTX/commit/ae742781) with 1280×720 output support. The desktop retains its ordinary graphics caches. The benchmark gives each launch new ones.
+
 ### Verify pipeline-library persistence without the game
 
 A separate [vkd3d-proton library fix](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/4) addresses repeat launches. On this branch the host refused its empty library, so it could not save pipeline entries or the list of pipelines to start early next time. The two independent control launches both reported the refusal. A small probe exercises the driver's empty-library calls and serialization without a game or shader compiler. Build `empty_pipeline_library.cpp` in a Windows developer prompt:
