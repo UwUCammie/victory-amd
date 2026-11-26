@@ -201,6 +201,8 @@ I ran the driver from [the Linux prison-cell report](https://github.com/avatarma
 
 With five empty graphics caches and no story save, 2,702 accepted presents over the first 300 seconds gave **9.01 FPS**. The first present was at 2.53 s, P99 was 1.94 s, and the longest gap was 11.52 s. Gaps over 100 ms occupied 194.35 s, including 31 gaps over one second. The renderer logged 1,671 successful host pipelines and 378 first compute-dispatch drops during those 300 seconds. It logged zero compiles recovered through an alternate control-flow form. Two earlier clean launches of the same application on GE build `cae8353e` logged six recoveries each. A late diner close-up showed a face and the opening montage advanced. The published 23.5 FPS figure uses a standing prison-cell scene, a different card and different settings.
 
+The fresh GE control finished with the same executable, DXGI DLL and input sequence. GE `cae8353e` accepted 2,682 presents in 300 seconds (8.94 FPS), against 2,702 (9.01 FPS) on `71cae091`. P99 was 0.81 s on GE and 1.94 s on upstream. The longest gaps were 11.45 and 11.52 s respectively. Gaps over 100 ms occupied 192.61 and 194.35 seconds. Both runs started without a story save and with five empty graphics caches. The comparable cold pair differed by 20 presents. The GE control also logged six alternate-form recoveries, against zero on upstream.
+
 To verify a driver run locally, use `python benchmarks/cold_boot.py RUN RUN_META/launch.json --expect-vkd3d 71cae091 --expect-output 1280x720 --expect-interface 3840x2160`.
 
 ### Saved waterfront lighting at 720p
