@@ -204,6 +204,8 @@ A second control and ready-front run gave 3,954 and 3,644 presents in 300 s (13.
 
 The range-merge change alone presented 3,644 frames in the first 300 s (12.15 FPS) with all five caches empty. The earlier control presented 3,298 (10.99 FPS). P99 was 570 ms versus 1,743 ms, but the worst gap was still 11.23 s versus 11.19 s. The range run showed the exterior at 85 s and the two characters in the car at 205 s; the reference had reached credits at 205 s. This is a positive first result with different scene progress. It needs repetition before treating the difference as a gameplay improvement. [Range merge change](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/16)
 
+The range-merge repeat delivered 2,889 presents in 300 s (9.63 FPS). The second stock control gave 3,954 (13.18 FPS). P99 was 539 versus 362 ms, and >100 ms gaps took 187.92 versus 154.08 seconds. The earlier 12.15 versus 10.99 FPS result did not repeat. At 85 s a dark rectangular area covered most of the repeat's view. At 115 and 130 s a large stretched shape crossed the foreground. The first range trial had shown the diner at 100–115 s. These samples include different workloads and do not establish which change caused the bad frames. Three interrupted range repeats were excluded.
+
 ### Diner reflections at 720p
 
 Two 150-second warm starts on the RX 7900 XT reached the diner with the same executable and input sequence. Each used a private copy of the same application and vkd3d caches, no story slots and `VICTORY_AMBIENT=0.8`. The only switch changed was `VICTORY_AMBIENT_REFLECT`, from 0 to 1. The enabled run recorded a reflection pass at 853×480 within the 1280×720 output. I matched the shots by camera angle and pose because the opening advanced at different times.
