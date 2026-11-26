@@ -38,6 +38,8 @@ pub mod dxgi;
 pub mod fence;
 pub mod frame;
 #[cfg(windows)]
+mod frame_why;
+#[cfg(windows)]
 pub mod framelog;
 #[cfg(windows)]
 mod heap_worker;
