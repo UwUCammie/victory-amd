@@ -237,6 +237,14 @@ python3 "$bench/texture_query.py" e6b99130 --pairs 7
 
 These are median times per query across seven alternating pairs. Each pair used 193 starting addresses. The direct query stops at the first newer write and skips the scan entirely on a first refresh. In a separate 32-minute saved session at 720p, the median reporting interval after the first two minutes attributed 9.5 ms/frame across all threads to the entire write-watch and guard step. That counter includes kernel and guard work and overlap between threads. It cannot be used as a prediction of FPS.
 
+### Saved-game visual trials
+
+A saved route can end with the Wine wrapper reporting zero even though the renderer logged an unhandled exception. Classify the exit before comparing captures or starting the next arm. The checker distinguishes a foreground interruption, an incomplete run, a host GPU failure and a renderer failure. A finished timeout still needs the requested scene, output size and interface plane checked. Saved routes use a copy of the player's save and do not contribute to cold first-boot FPS.
+
+```sh
+python benchmarks/saved_route.py "$run" --overlap "$attempt/foreground-overlap" --elapsed "$wall_seconds" --target 161
+```
+
 ### Card fills with buffer copies handled on the CPU
 
 On the same executable, the two stock runs used `VICTORY_CARD_STEPS=2`. Changing only that setting to `1` kept GPU fills and returned buffer copies to the CPU. Each measurement starts at the launcher with five empty caches, no story save, the same scripted inputs, a 1280×720 scene and the 3840×2160 interface plane. The first 300 seconds include loading and stalls.
