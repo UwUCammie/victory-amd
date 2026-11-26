@@ -74,6 +74,7 @@ fn collect(
                 let kind = match field(rec, "kind")?.trim_matches('"') {
                     "descriptors" => "slots skipped",
                     "card_sync" => "buffers batched",
+                    "merge_lanes" => "MiB examined by skip-equal merge",
                     "changed_runs" => "MiB compared with AVX2",
                     other => return Err(format!("Unknown renderer trial {other}")),
                 };

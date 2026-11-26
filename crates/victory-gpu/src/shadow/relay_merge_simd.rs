@@ -22,7 +22,13 @@ pub(super) fn merge(now: &[u8], held: &mut [u8], title: &mut [u8]) -> bool {
     #[cfg(target_arch = "x86_64")]
     if len >= 32 && enabled() && std::arch::is_x86_feature_detected!("avx2") {
         // SAFETY: runtime AVX2 detection; all slices have equal length.
-        return unsafe { avx2(now, held, title) };
+        return unsafe {
+            if crate::bench_trial::skip_equal(len) {
+                avx2::<true>(now, held, title)
+            } else {
+                avx2::<false>(now, held, title)
+            }
+        };
     }
     scalar(now, held, title)
 }
@@ -41,7 +47,7 @@ fn scalar(now: &[u8], held: &mut [u8], title: &mut [u8]) -> bool {
 
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
-unsafe fn avx2(now: &[u8], held: &mut [u8], title: &mut [u8]) -> bool {
+unsafe fn avx2<const SKIP_EQUAL: bool>(now: &[u8], held: &mut [u8], title: &mut [u8]) -> bool {
     use std::arch::x86_64::*;
 
     let end = now.len() / 32 * 32;
@@ -52,8 +58,12 @@ unsafe fn avx2(now: &[u8], held: &mut [u8], title: &mut [u8]) -> bool {
         unsafe {
             let n = _mm256_loadu_si256(now.as_ptr().add(at).cast());
             let h = _mm256_loadu_si256(held.as_ptr().add(at).cast());
+            let equal = _mm256_cmpeq_epi8(n, h);
+            if SKIP_EQUAL && _mm256_movemask_epi8(equal) == -1 {
+                continue;
+            }
             let t = _mm256_loadu_si256(title.as_ptr().add(at).cast());
-            let merged = _mm256_blendv_epi8(n, t, _mm256_cmpeq_epi8(n, h));
+            let merged = _mm256_blendv_epi8(n, t, equal);
             differs = _mm256_or_si256(differs, _mm256_xor_si256(merged, t));
             _mm256_storeu_si256(title.as_mut_ptr().add(at).cast(), merged);
             _mm256_storeu_si256(held.as_mut_ptr().add(at).cast(), n);

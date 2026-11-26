@@ -10,16 +10,16 @@ enum Mode {
 
 #[derive(Clone, Copy)]
 enum Case {
-    ChangedRuns,
+    MergeLanes,
     CardSync,
 }
 
 impl Case {
     fn mode(self) -> &'static Mode {
-        static CHANGED_RUNS: OnceLock<Mode> = OnceLock::new();
+        static MERGE_LANES: OnceLock<Mode> = OnceLock::new();
         static CARD: OnceLock<Mode> = OnceLock::new();
         let (cell, key, default) = match self {
-            Self::ChangedRuns => (&CHANGED_RUNS, "VICTORY_CHANGED_RUNS_AVX2", false),
+            Self::MergeLanes => (&MERGE_LANES, "VICTORY_MERGE_SKIP_EQUAL", false),
             Self::CardSync => (&CARD, "VICTORY_CARD_SYNC_BATCH", true),
         };
         cell.get_or_init(|| match std::env::var(key).as_deref() {
@@ -37,7 +37,7 @@ impl Case {
     }
     fn count(self) -> u64 {
         match self {
-            Self::ChangedRuns => COMPARED_MIB[1].load(Ordering::Relaxed),
+            Self::MergeLanes => COMPARED_MIB[1].load(Ordering::Relaxed),
             Self::CardSync => BATCHED_BUFFERS.load(Ordering::Relaxed),
         }
     }
@@ -48,10 +48,10 @@ static BATCHED_BUFFERS: AtomicU64 = AtomicU64::new(0);
 static COMPARED_MIB: [AtomicU64; 2] = [const { AtomicU64::new(0) }; 2];
 
 #[cfg(target_arch = "x86_64")]
-pub(crate) fn use_avx2(bytes: usize) -> bool {
-    let enabled = Case::ChangedRuns.enabled() && std::is_x86_feature_detected!("avx2");
-    if matches!(Case::ChangedRuns.mode(), Mode::Paired) {
-        // Count both modes with the same work in the byte scanner. Publish whole
+pub(crate) fn skip_equal(bytes: usize) -> bool {
+    let enabled = Case::MergeLanes.enabled();
+    if matches!(Case::MergeLanes.mode(), Mode::Paired) {
+        // Count both modes with the same work in the relay merge. Publish whole
         // MiB per thread so workers do not share an atomic on every short slice.
         thread_local! { static PENDING: std::cell::Cell<[u64; 2]> = const { std::cell::Cell::new([0; 2]) }; }
         PENDING.with(|pending| {
@@ -93,8 +93,8 @@ pub(crate) struct Trial {
 
 impl Trial {
     pub(crate) fn from_env() -> Option<Self> {
-        let case = match (Case::ChangedRuns.mode(), Case::CardSync.mode()) {
-            (Mode::Paired, Mode::Fixed(_)) => Case::ChangedRuns,
+        let case = match (Case::MergeLanes.mode(), Case::CardSync.mode()) {
+            (Mode::Paired, Mode::Fixed(_)) => Case::MergeLanes,
             (Mode::Fixed(_), Mode::Paired) => Case::CardSync,
             (Mode::Paired, Mode::Paired) => {
                 tracing::warn!("select only one paired renderer switch per benchmark");
@@ -150,7 +150,7 @@ impl Trial {
         }
         if self.block > 0 {
             let label = match self.case {
-                Case::ChangedRuns => "changed_runs",
+                Case::MergeLanes => "merge_lanes",
                 Case::CardSync => "card_sync",
             };
             tracing::info!(target: "victory_bench", kind = label, block = self.block,
@@ -179,7 +179,7 @@ mod tests {
     #[test]
     fn eight_blocks_share_one_warmup_and_each_drops_one_interval() {
         let sec = Duration::from_secs(1);
-        let mut trial = Trial::new(Case::ChangedRuns, 2 * sec, 3 * sec);
+        let mut trial = Trial::new(Case::MergeLanes, 2 * sec, 3 * sec);
         trial.interval(sec, 99, 990);
         assert_eq!(trial.block, 0);
         trial.interval(sec, 99, 990);
