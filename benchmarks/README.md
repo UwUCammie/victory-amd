@@ -178,3 +178,16 @@ The helper waits for block eight, samples user-mode CPU time with Linux perf, th
 I also tried the registration-only shadow cache from #1224, with its fill and retirement changes disabled. The first room was visible at 80 and 210 s. Eight blocks took 255.0 s. The cache recorded 106,684,416 hits during the enabled intervals. The two settings produced 515 presents in 77.99 s (6.60 FPS) off and 508 in 76.86 s (6.61 FPS) on. Pair differences were +0.48, −0.08, −0.43 and +0.06 FPS. A low-priority two-job build overlapped the final eight seconds of the last block. The first three pairs also split directions. The helper then collected 3,353 runtime-image samples in five seconds using the same launch. [Benchmark build](https://github.com/UwUCammie/victory-amd/tree/f57d218) · [Upstream changes](https://github.com/fxceless/victory-fork/pull/1224)
 
 The full cache from #1237 also remembers loose windows. On its branch plus the two lifetime fixes, the room was visible at 80 and 210 seconds. Eight blocks finished at 256.8 s. Off gave 473 presents in 78.59 s (6.02 FPS, 4,784 draws/frame). On gave 474 in 78.93 s (6.01 FPS, 4,813 draws/frame), with 131,969,280 measured cache hits. Pair differences were +0.14, +0.05, −0.04 and −0.20 FPS. Both modes ran the fixes. This comparison measures enabling the cache on the patched build. [Build](https://github.com/UwUCammie/victory-amd/tree/ed9ff4e) · [Lifetime fixes and synthetic regressions](https://github.com/KyleS98/victory-fork/pull/5)
+
+## Running focused Windows tests together
+
+The Rust test executable accepts several exact test names in one launch. For the two independent shadow-cache regressions in [PR #1245](https://github.com/fxceless/victory-fork/pull/1245), I used the same Windows test binary, Wine prefix and physical RX 7900 XT for each measurement. Running them separately took 10.098, 9.711 and 9.692 s per pair. Running both serially in one process took 4.920, 4.938 and 4.902 s. The median dropped from 9.711 to 4.920 s, a 49% reduction. These times include Wine startup and exclude compilation. Both exact names passed in every group, with no skips.
+
+```sh
+wine "$gpu_test_exe" --exact \
+  shadow::registration_tests::a_pending_registration_invalidates_readers_of_the_old_table \
+  shadow::window_cache_tests::cached_window_removed_by_sweep_is_replaced \
+  --test-threads=1 --nocapture
+```
+
+Build the binary once with `cargo test -p victory-gpu --lib --target x86_64-pc-windows-msvc --no-run`. The grouped command is for cases sharing the same process configuration. Trials that compare switches read once at process startup still need separate launches.
