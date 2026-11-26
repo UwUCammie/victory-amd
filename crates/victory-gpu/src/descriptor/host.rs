@@ -3069,6 +3069,14 @@ impl HostHeap {
         }
     }
 
+    /// Whether title slot `index` has a deferred view marked required
+    /// before the next submission runs: the lists of that submission find
+    /// it made.
+    pub(crate) fn texture_slot_required(&self, index: u32) -> bool {
+        let deferred = self.deferred_views.lock().unwrap_or_else(|e| e.into_inner());
+        deferred.iter().any(|&(slot, _, _, _, required)| slot == index && required)
+    }
+
     /// Whether any deferred title-slot view is marked required before the
     /// next submission runs.
     pub(crate) fn has_required_deferred(&self, finished: u64) -> bool {
