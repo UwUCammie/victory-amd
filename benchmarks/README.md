@@ -207,6 +207,8 @@ With five empty graphics caches and no story save, 2,702 accepted presents over 
 
 The fresh GE control finished with the same executable, DXGI DLL and input sequence. GE `cae8353e` accepted 2,682 presents in 300 seconds (8.94 FPS), against 2,702 (9.01 FPS) on `71cae091`. P99 was 0.81 s on GE and 1.94 s on upstream. The longest gaps were 11.45 and 11.52 s respectively. Gaps over 100 ms occupied 192.61 and 194.35 seconds. Both runs started without a story save and with five empty graphics caches. The comparable cold pair differed by 20 presents. The GE control also logged six alternate-form recoveries, against zero on upstream.
 
+A separate run kept upstream `71cae091` and changed only the ordinary graphics pipeline wait budget from 500 ms to 2 ms. It accepted 2,068 presents in 300 seconds (6.89 FPS). P99 was 3.08 s, the longest gap was 20.22 s, and gaps over 100 ms took 212.75 s. The default-budget upstream run had 9.01 FPS, 1.94 s P99, an 11.52 s maximum and 194.35 seconds in gaps over 100 ms. The 2 ms run also showed an overbright shot at 100 s. The runs reached different shots at several checkpoints, so the capture alone does not establish which pass was missing.
+
 To verify a driver run locally, use `python benchmarks/cold_boot.py RUN RUN_META/launch.json --expect-vkd3d 71cae091 --expect-output 1280x720 --expect-interface 3840x2160`.
 
 ### Saved waterfront lighting at 720p
