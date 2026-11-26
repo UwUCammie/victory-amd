@@ -63,6 +63,10 @@ The six holds over ten seconds in the 1 KiB trial coincided with frames that exh
 
 A [reverse-use index in the shader translator](https://github.com/UwUCammie/VIctory-7900XTX/commit/1a90bf03) produced identical bytecode and metadata or the same translation error for a 256-input sample. A Windows build from a shared Cargo target directory still contained the previous translator. Its matching PDB recorded the baseline checksum for the changed source file. The 13.05 FPS from launch and 24.27 FPS while moving are additional control measurements. The two native comparison binaries did compile their respective translator sources.
 
+Across all 26,503 local inputs, four native processes reduced end-to-end corpus translation time from 201.81 to 105.50 s. All 26,308 translations matched in DXIL and metadata, and the 195 errors matched. In four alternating runs per build on the 256-input sample, the median sum of individual translation durations fell from 3.49 to 2.96 s. [Linux branch PR #6](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/6)
+
+An isolated Windows build with the new translator matched the recorded checksums of all 166 runtime source files. Its first cold 720p run averaged 8.15 FPS over 300 s (2,446 frames) and 12.16 FPS while moving in the cell (912 frames in 75 s). P99 was 1.84 s, the longest hold was 11.36 s and 173.14 s fell in holds over 100 ms. The avatar had visible skin. The movement interval had about 4,803 executed draws per frame compared with 3,228 on the original 1 KiB control. The native compilation gain did not translate to a better experience on this run. The desktop continues to use the cache fix with the previous translator.
+
 For Windows cross-builds from multiple worktrees, use a separate Cargo target directory for each candidate. Before testing, compare the executable's CodeView GUID and age with its PDB, then check the recorded Rust source hashes against the intended checkout. Pass a changed source path to require its presence. This takes well under a second on this system and caught the stale translator before another five-minute trial.
 
 ```sh
