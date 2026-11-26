@@ -255,6 +255,15 @@ The fresh GE control finished with the same executable, DXGI DLL and input seque
 
 A separate run kept upstream `71cae091` and changed only the ordinary graphics pipeline wait budget from 500 ms to 2 ms. It accepted 2,068 presents in 300 seconds (6.89 FPS). P99 was 3.08 s, the longest gap was 20.22 s, and gaps over 100 ms took 212.75 s. The default-budget upstream run had 9.01 FPS, 1.94 s P99, an 11.52 s maximum and 194.35 seconds in gaps over 100 ms. The 2 ms run also showed an overbright shot at 100 s. The runs reached different shots at several checkpoints, so the capture alone does not establish which pass was missing.
 
+For the compute-wait follow-up, both cold launches used upstream vkd3d-proton `71cae091b06571e` and a 500 ms ordinary graphics wait in the same release binary. The AMD backport's `VICTORY_COMPUTE_WAIT` switch also changes compute priority and early queue eligibility. The first 300 seconds include launch, menus and the opening sequences.
+
+| Compute wait | Presents | Average FPS | P99 gap | Longest gap | Gaps over 1 s | Time in gaps over 100 ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Off | 4,933 | 16.44 | 465 ms | 2.20 s | 3 | 129.50 s |
+| On | 4,253 | 14.18 | 296 ms | 11.27 s | 30 | 147.11 s |
+
+The enabled run logged 320 first compute-wait drop notices. With it off, that log path is disabled. No alternate-form recovery appeared in either run. Faces were visible in the sampled opening shots in both. The samples land at different cuts, so they do not establish whether turning the wait off preserves the skin bake throughout the scene. This was one run per setting.
+
 To verify a driver run locally, use `python benchmarks/cold_boot.py RUN RUN_META/launch.json --expect-vkd3d 71cae091 --expect-output 1280x720 --expect-interface 3840x2160`.
 
 ### Saved waterfront lighting at 720p
