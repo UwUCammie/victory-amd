@@ -163,6 +163,19 @@ For fixed-camera video checks, `python3 benchmarks/flicker.py clip.mkv X Y WIDTH
 
 The interactive session that produced the waterfront save reported 32,585 presents in 1,948.58 seconds of complete reporting intervals (16.72 FPS and 5,043 draws/frame). It includes menus and gameplay. The submission thread worked 53.46 ms/frame. The GPU queue was empty for 35.25 ms/frame, including 31.05 ms while that thread was working. This points to CPU submission work as a candidate in this session. The interactive timing uses the desktop caches and is separate from the clean first-boot baseline.
 
+### CPU costs in submission preparation
+
+Two isolated tests use the generic queue and range-merging code from each revision. They ran eight alternating pairs on one pinned Ryzen 7 9700X core. For the queue fixture each batch uses four logical queues round-robin and checks the full execution order. In the waiting case the first queue starts blocked, the other three run, then the fence opens. At a depth of 16, taking a ready front entry directly reduced median time per batch from 1,781 to 1,343 ns, and from 1,828 to 1,714 ns with the initial wait. At depth one with the initial wait both medians were 122 ns.
+
+For two calls to merge 16 address ranges, collapsing overlaps in the existing vector took 83 ns against 110 ns with clustered addresses and 80 ns against 117 ns with more dispersed addresses. The clustered 64-range case was 420 ns against 419 ns. The fixture checks the union against an independent byte map, including empty and reversed ranges. These CPU timings measure isolated helpers. Neither test measures a game frame.
+
+Run from a checkout that has both revisions. Each command compiles the corresponding helper from Git and runs both versions in alternating order.
+
+```sh
+python3 benchmarks/submission_cost.py 830dc191 b0a37d79 --workload queue
+python3 benchmarks/submission_cost.py 830dc191 d408c01d --workload ranges
+```
+
 ### Diner reflections at 720p
 
 Two 150-second warm starts on the RX 7900 XT reached the diner with the same executable and input sequence. Each used a private copy of the same application and vkd3d caches, no story slots and `VICTORY_AMBIENT=0.8`. The only switch changed was `VICTORY_AMBIENT_REFLECT`, from 0 to 1. The enabled run recorded a reflection pass at 853×480 within the 1280×720 output. I matched the shots by camera angle and pose because the opening advanced at different times.
