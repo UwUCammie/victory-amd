@@ -28,13 +28,16 @@ class ComputeLagTests(unittest.TestCase):
 
     def test_worker_state_at_earliest_drop_in_mixed_logs(self):
         drop = "::make: a compute dispatch was dropped: waited shaders="
-        events = [event(8, drop + "aa worker_started=true"), event(3, drop + "aa"),
-                  event(5, drop + "bb worker_started=false"), event(6, drop + "cc worker_started=true"),
-                  event(7, drop + "bb worker_started=true")]
+        events = [event(8, drop + "aa worker_started=true waited_ms=9000"), event(3, drop + "aa waited_ms=2000"),
+                  event(5, drop + "bb worker_started=false waited_ms=1000"),
+                  event(6, drop + "cc worker_started=true waited_ms=999"),
+                  event(7, drop + "bb worker_started=true waited_ms=1500"), event(4, drop + "dd worker_started=true")]
         result = summarize(events, 1024)
-        self.assertEqual(result["worker_started_at_first_drop"], 1)
+        self.assertEqual(result["worker_started_at_first_drop"], 2)
         self.assertEqual(result["worker_not_started_at_first_drop"], 1)
         self.assertEqual(result["worker_state_unreported_at_first_drop"], 1)
+        self.assertEqual(result["first_drops_after_recorded_wait_of_at_least_one_second"],
+                         {"worker_started": 0, "worker_not_started": 1, "worker_state_unreported": 1})
 
     def test_bind_lead_includes_earliest_timestamp_and_exact_deadline(self):
         bind = ': first bind stage="compute" size=16 hash='

@@ -11,6 +11,7 @@ from first_room import TIMESTAMP, session_lines
 SHADER = re.compile(r"\bhash=([0-9a-fA-F]+)\b")
 DROPPED_SHADER = re.compile(r"\bshaders=([0-9a-fA-F]+)\b")
 WORKER_STARTED = re.compile(r"\bworker_started=(true|false)\b")
+WAITED_MS = re.compile(r"\bwaited_ms=(\d+)\b")
 SIZE = re.compile(r"\bsize=(\d+)\b")
 
 
@@ -23,6 +24,7 @@ def summarize(lines, early_bytes):
     bound = {}
     sizes = {}
     worker_started = {}
+    waited_ms = {}
     for line in session_lines(lines):
         if "victory_gpu::pipeline::make: a compute dispatch was dropped:" in line:
             table = drops
@@ -47,16 +49,24 @@ def summarize(lines, early_bytes):
                 if table is drops:
                     state = WORKER_STARTED.search(line)
                     worker_started[key] = state[1] if state else None
+                    waited = WAITED_MS.search(line)
+                    waited_ms[key] = int(waited[1]) if waited else None
 
     matched = drops.keys() & translated.keys()
     lag = [(translated[key] - drops[key]).total_seconds() for key in matched]
     sized = drops.keys() & sizes.keys()
     bind_lead = [(drops[key] - bound[key]).total_seconds() for key in drops.keys() & bound.keys()]
+    long_waits = [worker_started[key] for key, ms in waited_ms.items() if ms is not None and ms >= 1000]
     return {
         "distinct_shaders_with_drop_notice": len(drops),
         "worker_started_at_first_drop": sum(state == "true" for state in worker_started.values()),
         "worker_not_started_at_first_drop": sum(state == "false" for state in worker_started.values()),
         "worker_state_unreported_at_first_drop": sum(state is None for state in worker_started.values()),
+        "first_drops_after_recorded_wait_of_at_least_one_second": {
+            "worker_started": long_waits.count("true"),
+            "worker_not_started": long_waits.count("false"),
+            "worker_state_unreported": long_waits.count(None),
+        },
         "with_first_bind_size": len(sized),
         "with_first_bind_time": len(bind_lead),
         "median_seconds_first_drop_minus_first_bind": median(bind_lead) if bind_lead else None,
