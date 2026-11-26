@@ -24,9 +24,17 @@ Use the [accepted-present trace](https://github.com/UwUCammie/VIctory-7900XTX/co
 python3 benchmarks/cold_boot.py path/to/run path/to/launch.json --start 0 --stop 300
 ```
 
+On Linux, `cold_launch.py` creates the directories and records the metadata for a direct Wine launch. Use a dedicated offline prefix, export the settings from `radv_first_room.env` and pass the same timed input to each run. Supply a fresh output directory for every trial. The installed Wine prefix needs a working Z: mapping. For example, from the installed game's working directory:
+
+```sh
+python3 "$bench/cold_launch.py" --run "$results/trial-1" --profile "$player_data" -- \
+  bwrap --unshare-net --dev-bind / / -- wine "$runtime" run "$title" --execute --console series-x
+python3 "$bench/cold_boot.py" "$results/trial-1" "$results/trial-1/launch.json"
+```
+
 The denominator is the full interval from launcher start. A frame counts at the start boundary and is excluded at the end. Time before the first present, long freezes and time after the last frame all stay in the window. The longest hold and nearest-rank p95/p99 describe the positive gaps clipped to the window, including both edges. The time in holds over 100 ms includes the full length of those holds. Count a walking interval separately once input and movement are confirmed. The first accepted present can still be a blank screen.
 
-On a Ryzen 7 9700X and RX 7900 XT (RADV 26.3.1, Wine 11.22, vkd3d-proton 3.1), the initial completed run produced **4,063 presents in 300 seconds (13.54 FPS)**, including loading, the opening sequence and the diner. The first present was at 2.54 s, p99 was 268 ms, and the longest gap was 11.33 s. There were 27 holds over one second, including the initial wait. Holds over 100 ms took 138.90 s. The compute pipeline wait reached its ten-second frame budget in six distinct title frames. The settled diner view averaged 24.23 FPS over seconds 220–300; movement was not verified in that interval.
+On a Ryzen 7 9700X and RX 7900 XT (RADV 26.3.1, Wine 11.22, vkd3d-proton 3.1), the initial completed run produced **4,063 presents in 300 seconds (13.54 FPS)**, including loading, the opening sequence and the prison cell. The first present was at 2.54 s, p99 was 268 ms, and the longest gap was 11.33 s. There were 27 holds over one second, including the initial wait. Holds over 100 ms took 138.90 s. The compute pipeline wait reached its ten-second frame budget in six distinct title frames. The settled prison-cell view averaged 24.23 FPS over seconds 220–300; movement was not verified in that interval.
 
 ## Measurements
 
