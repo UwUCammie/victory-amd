@@ -10,6 +10,7 @@ from first_room import TIMESTAMP, session_lines
 
 SHADER = re.compile(r"\bhash=([0-9a-fA-F]+)\b")
 DROPPED_SHADER = re.compile(r"\bshaders=([0-9a-fA-F]+)\b")
+WORKER_STARTED = re.compile(r"\bworker_started=(true|false)\b")
 SIZE = re.compile(r"\bsize=(\d+)\b")
 
 
@@ -20,6 +21,7 @@ def summarize(lines, early_bytes):
     drops = {}
     translated = {}
     sizes = {}
+    worker_started = {}
     for line in session_lines(lines):
         if "victory_gpu::pipeline::make: a compute dispatch was dropped:" in line:
             table = drops
@@ -41,12 +43,18 @@ def summarize(lines, early_bytes):
             time = datetime.fromisoformat(stamp[0].replace("Z", "+00:00"))
             if key not in table or time < table[key]:
                 table[key] = time
+                if table is drops:
+                    state = WORKER_STARTED.search(line)
+                    worker_started[key] = state[1] if state else None
 
     matched = drops.keys() & translated.keys()
     lag = [(translated[key] - drops[key]).total_seconds() for key in matched]
     sized = drops.keys() & sizes.keys()
     return {
         "distinct_shaders_with_drop_notice": len(drops),
+        "worker_started_at_first_drop": sum(state == "true" for state in worker_started.values()),
+        "worker_not_started_at_first_drop": sum(state == "false" for state in worker_started.values()),
+        "worker_state_unreported_at_first_drop": sum(state is None for state in worker_started.values()),
         "with_first_bind_size": len(sized),
         "early_limit_bytes": early_bytes,
         "above_early_limit": sum(sizes[key] > early_bytes for key in sized),

@@ -24,6 +24,16 @@ class ComputeLagTests(unittest.TestCase):
         self.assertEqual(result["translation_after_first_drop"], 1)
         self.assertEqual(result["median_seconds_translation_minus_first_drop"], 0.5)
 
+    def test_worker_state_at_earliest_drop_in_mixed_logs(self):
+        drop = "::make: a compute dispatch was dropped: waited shaders="
+        events = [event(8, drop + "aa worker_started=true"), event(3, drop + "aa"),
+                  event(5, drop + "bb worker_started=false"), event(6, drop + "cc worker_started=true"),
+                  event(7, drop + "bb worker_started=true")]
+        result = summarize(events, 1024)
+        self.assertEqual(result["worker_started_at_first_drop"], 1)
+        self.assertEqual(result["worker_not_started_at_first_drop"], 1)
+        self.assertEqual(result["worker_state_unreported_at_first_drop"], 1)
+
     def test_no_drop_has_no_delay(self):
         self.assertIsNone(summarize([], 1024)["median_seconds_translation_minus_first_drop"])
 
