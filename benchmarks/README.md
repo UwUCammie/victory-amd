@@ -83,42 +83,19 @@ For Windows cross-builds from multiple worktrees, use a separate Cargo target di
 python3 benchmarks/verify_pdb_sources.py "$checkout" "$build/victory.exe" "$build/victory.pdb" crates/victory-shader/src/emit/lower.rs
 ```
 
-### Unskipped first story launch with the 720p HUD fix
+### Withdrawn cold-launch timings from November 26
 
-I timed one 12-minute launch of the desktop preset with five empty graphics caches and no story slot on the RX 7900 XT. The only confirmation inputs were in the first 20 seconds. The opening then played through to the prison, where timed movement inputs continued. The first successful present was 2.36 s from launch. The character was at the cell window around 445 s and moving through the room and corridor in subsequent captures. No foreground game or competing validation interrupted the run.
+I matched a second native renderer’s session times against the launcher metadata after finding two of its processes with the RX 7900 XT render node open. It renamed its main thread to `render`, which the foreground guard missed. The overlap started during some launches and was already in progress for others.
 
-| Interval from launch | Accepted presents | Average FPS | p99 frame gap | Longest hold |
-| --- | ---: | ---: | ---: | ---: |
-| First 300 s | 3,537 | 11.79 | 386 ms | 11.29 s |
-| Full 720 s | 12,611 | 17.52 | 163.5 ms | 11.29 s |
-| Prison movement, 490–565 s | 1,858 | 24.77 | 62 ms | 0.86 s |
+| Affected measurements | Status |
+| --- | --- |
+| 720p HUD fix, 12-minute opening and prison movement | Withdraw the full-run and both window averages, including 17.52 and 24.77 FPS. |
+| Separate UI plane, first 300 seconds | Withdraw the 14.01 FPS reference. UI pixel measurements are independent of this timing. |
+| Cached shader reuse, candidate and fresh control | Withdraw 9.42 and 7.49 FPS and their stall comparisons. |
+| Indexed shader values | Withdraw 8.33 FPS as a game timing. The separately tested shader outputs and translation workload have their own results. |
+| Stock and 16.667 ms title timer | Withdraw the FPS comparison for both settings. The title reported the configured intervals. |
 
-The first five minutes included 30 holds longer than one second and 169.49 seconds in gaps longer than 100 ms. This route leaves the opening credits running, which differs from the earlier timed-skip runs. It provides an end-to-end measurement for the [720p HUD change](https://github.com/avatarmanz/VIctory-7900XTX/pull/295).
-
-With the separate UI plane enabled I repeated the first 300 seconds from five empty graphics caches. The run recorded 4,202 accepted presents (14.01 FPS), first present at 3.01 s, p99 280.2 ms and longest hold 11.11 s. It used the same unskipped opening on the RX 7900 XT. Each UI mode has one clean observation on this route.
-
-
-### Reusing a translation after its cache write
-
-I ran the unskipped opening at 1280×720 on the RX 7900 XT with Wine 11.22 and RADV 26.3.1. Both builds used the separate UI plane, the same 1 KiB compute setting and the same input schedule. I started each launch with five empty graphics caches and no story slot. The cache change ran first. I excluded one overlapping control and restarted it from empty caches.
-
-| First 300 seconds from launch | Presents | Average FPS | p99 gap | Longest hold | Seconds in gaps over 100 ms |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Earlier control, same executable | 4,202 | 14.01 | 280 ms | 11.11 s | 146.82 |
-| Reuse newly translated shaders | 2,826 | 9.42 | 656 ms | 11.42 s | 190.18 |
-| Fresh control | 2,248 | 7.49 | 3,173 ms | 11.40 s | 210.51 |
-
-The candidate and fresh control both showed the same face at 160 s and the same credit at 295 s. They showed different shots at 115, 205 and 245 s. The candidate ended the 308 s launch with 2,710 shader cache entries totaling 170,699,798 bytes. It avoids reopening newly written entries, but the two control results bracket its FPS. Both fresh runs still had 27 holds over one second. I kept the installed preset. [Shader cache PR](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/8)
-
-Across the full 308 s, I matched each distinct compute shader’s first dropped-dispatch notice to its first successful translation message. All 371 matches in the candidate and 422 in the fresh control had inputs above the 1 KiB early-compute limit. The translation message followed the drop by a median 28.47 s in the candidate and 16.89 s in the control. These intervals include time in the compiler queue. The renderer emits the drop notice once per pipeline, so subsequent dropped dispatches can go unreported. To reproduce the counts and signed median from a saved log, run `python3 benchmarks/compute_lag.py path/to/run.log --early-bytes 1024`. The report includes the number of warnings with a matching size and translation.
-
-### Indexed shader values in the unskipped opening
-
-I also ran the [shader translator change](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/6) by itself on the native-interface build. The executable matched its PDB and all 168 runtime source checksums, including the changed translator. In the first 300 s it recorded **2,499 presents (8.33 FPS)**, with p99 2,620 ms, a longest hold of 11.40 s and 29 gaps over one second. The same control executable recorded 7.49 and 14.01 FPS on two clean launches. All used the same five empty caches, fresh story and timed input. The candidate showed different shots from the fresh control at 115, 160, 205 and 245 s. The gain measured on the translation workload has yet to show up as a repeatable cold-launch FPS gain.
-
-### Testing the title frame interval
-
-I compared the stock interval with the 16.667 ms setting on the same Windows binary and 1 KiB preset. The title timer confirmed 33,333 and 16,666 microseconds respectively. On the stock clock I counted 3,305 presents in the first 300 s (11.02 FPS) and 1,465 in the 75 s cell movement window (19.53 FPS). The longest hold was 11.95 s. The 16.667 ms launch counted 3,886 presents in 300 s (12.95 FPS), with an 11.44 s hold. Its late window was still cinematic. The title's secondary timer advanced 58.68 s over those 75 seconds, compared with 69.12 s in the stock run's cell. Those were different scenes, so this pair cannot establish a gameplay or simulation-rate improvement. The desktop retains the stock clock. [Upstream interval change](https://github.com/avatarmanz/VIctory-7900XTX/commit/49cb83b4)
+The cache candidate still wrote 2,710 shader entries totaling 170,699,798 bytes during its run. `compute_lag.py` can match first-drop warnings to successful translation messages in an existing log. The contaminated runs establish neither a normal queue delay nor a change in rendering performance. The desktop retains the separate 720p interface plane and the stock timer. [UI fix](https://github.com/avatarmanz/VIctory-7900XTX/pull/295) · [Cache change](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/8) · [Translator change](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/6)
 
 ### Verify pipeline-library persistence without the game
 
