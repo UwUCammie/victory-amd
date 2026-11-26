@@ -1922,8 +1922,8 @@ void main() {
     #[test]
     fn host_list_keeps_pipeline_objects_once_per_recording() {
         let Some(host) = super::host() else { return };
-        let a = compile_cs(&host.device, crate::host::CARD_COMPARE).unwrap();
-        let b = compile_cs(&host.device, crate::host::CARD_COMPARE_WIDE).unwrap();
+        let a = compile_cs(&host.device, WORKER_CS).unwrap();
+        let b = compile_cs(&host.device, CHECK_SOURCE).unwrap();
         let list = host.new_list().unwrap();
         list.keep_pipeline(&a.pso, &a.root);
         list.keep_pipeline(&b.pso, &b.root);
