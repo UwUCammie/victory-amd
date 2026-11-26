@@ -83,6 +83,12 @@ For Windows cross-builds from multiple worktrees, use a separate Cargo target di
 python3 benchmarks/verify_pdb_sources.py "$checkout" "$build/victory.exe" "$build/victory.pdb" crates/victory-shader/src/emit/lower.rs
 ```
 
+### Streaming the shader cache key
+
+The shader cache joins a 32-byte build fingerprint to each container before hashing it. I tried feeding those two slices to BLAKE3 separately. One local opening supplied 2,795 distinct input sizes. With synthetic buffers of those sizes, one pass avoided copying 40,097,932 bytes and produced identical keys for every input.
+
+In 12 alternating pairs on Linux, hashing the joined buffers took a median 18.28 ms of thread CPU time for the whole pass. Feeding the slices separately took 18.47 ms and was faster in two pairs. Both paths used the same cache-key implementation. This times key construction alone. Four Windows shader-cache tests and seven pipeline-cache tests passed under Wine, including a hit on an entry keyed by the old writer. I kept the experiment off the desktop build. [Trial patch](https://github.com/UwUCammie/VIctory-7900XTX/commit/278157c82bbff0c07d1f934bef8bb5b882ac7ee0)
+
 ### Withdrawn cold-launch timings from November 26
 
 I matched a second native renderer’s session times against the launcher metadata after finding two of its processes with the RX 7900 XT render node open. It renamed its main thread to `render`, which the foreground guard missed. The overlap started during some launches and was already in progress for others.
@@ -95,7 +101,7 @@ I matched a second native renderer’s session times against the launcher metada
 | Indexed shader values | Withdraw 8.33 FPS as a game timing. The separately tested shader outputs and translation workload have their own results. |
 | Stock and 16.667 ms title timer | Withdraw the FPS comparison for both settings. The title reported the configured intervals. |
 
-On Linux, `competing_gpu.py --executable OTHER_GAME` recognizes an independent game by its executable even when it renames its threads. For other graphics jobs in a known separate cgroup, add `--group OTHER_JOBS.slice --node /dev/dri/renderD128` with the benchmark GPU's render node. It returns zero while a matching game is running or a process in that cgroup holds that node. Use it before launch and throughout the measured run. The benchmark's own cgroup must be outside the selected group.
+On Linux, `competing_gpu.py --executable OTHER_GAME` recognizes an independent game by its executable even when it renames its threads. For other graphics jobs in a known separate cgroup, add `--group OTHER_JOBS.slice --node /dev/dri/renderD128` with the benchmark GPU's render node. It returns zero while a matching game is running or a process in that cgroup holds that node. Use it before launch and throughout the measured run. The benchmark's own cgroup must be outside the selected group. Some job launchers pass their idle render handle to every child. On a dedicated GPU, `--ignore-inherited-idle` allows a client shared with the launcher when it has zero resident VRAM and every reported engine counter is zero. A separate client on the same GPU still blocks the test. Use `--explain` to log the blocking PID.
 
 The cache candidate still wrote 2,710 shader entries totaling 170,699,798 bytes during its run. `compute_lag.py` can match first-drop warnings to successful translation messages in an existing log. The contaminated runs establish neither a normal queue delay nor a change in rendering performance. The desktop retains the separate 720p interface plane and the stock timer. [UI fix](https://github.com/avatarmanz/VIctory-7900XTX/pull/295) · [Cache change](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/8) · [Translator change](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/6)
 

@@ -27,3 +27,28 @@ class CompetingGpuTests(unittest.TestCase):
             self.assertTrue(busy(root, set(), {"other-jobs.slice"}, "/dev/dri/renderD128"))
             self.assertFalse(busy(root, set(), {"other-jobs.slice"}, "/dev/dri/renderD129"))
             self.assertFalse(busy(root, set(), {"jobs.slice"}, "/dev/dri/renderD128"))
+
+    def test_idle_inherited_client_and_a_separate_renderer(self):
+        node = "/dev/dri/renderD128"
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            launcher = root / "30"
+            worker = root / "41"
+            for process, group in [(launcher, "desktop"), (worker, "other-jobs.slice")]:
+                (process / "fd").mkdir(parents=True)
+                (process / "fdinfo").mkdir()
+                (process / "fd/42").symlink_to(node)
+                (process / "cgroup").write_text(f"0::/user.slice/{group}\n")
+                (process / "fdinfo/42").write_text("drm-client-id: 61\ndrm-resident-vram: 0 KiB\n")
+            (worker / "status").write_text("PPid:\t30\n")
+            def occupied():
+                return busy(root, set(), {"other-jobs.slice"}, node, ignore_inherited_idle=True)
+            self.assertFalse(occupied())
+            (worker / "fd/5").symlink_to(node)
+            self.assertTrue(occupied())  # Missing telemetry.
+            (worker / "fdinfo/5").write_text("drm-client-id: 70\ndrm-resident-vram: 0\n")
+            self.assertTrue(occupied())  # Independent client, even before its first allocation.
+            (worker / "fd/5").unlink()
+            for stats in ("drm-resident-vram: 8 KiB", "drm-resident-vram: 0\ndrm-engine-gfx: 1 ns"):
+                (worker / "fdinfo/42").write_text(f"drm-client-id: 61\n{stats}\n")
+                self.assertTrue(occupied())
