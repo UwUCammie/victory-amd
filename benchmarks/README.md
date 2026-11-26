@@ -14,6 +14,10 @@ python3 benchmarks/first_room.py path/to/run.log --start 150 --stop 225
 
 The time origin is the first timestamp in the log. Only complete present intervals inside the window count. Divide the total presents by total elapsed time. Confirm the room visually and check the full session for device loss before comparing runs.
 
+## HUD layout at 1280×720
+
+The 720p preset enables `VICTORY_UI_VIEWBOX=1` for builds carrying the [viewbox fix](https://github.com/avatarmanz/VIctory-7900XTX/pull/295). On Series X I measured one opening subtitle in the same 1280×690 capture area on the RX 7900 XT. At 720p its bright glyphs occupied 278×52 pixels and ended 71.0% down the frame. With uniform fitting they occupied 92×16 pixels and ended at 90.1%. The same cue at 4K, scaled into the same window, measured 92×17 pixels at 90.3%. The two-line movement hint also fits at the upper left. The right-hand mission options in the pause menu still appear oversized. These visual checks used copied caches. [Remaining 720p UI issues](https://github.com/avatarmanz/VIctory-7900XTX/issues/282)
+
 ## First boot at 1280×720
 
 Start the clock before launching Wine. Use an existing offline test prefix with the player's completed setup and settings and omit the story slot. Give each launch new empty directories for the runtime shader and pipeline cache (`VICTORY_CACHE_DIR`), vkd3d (`VKD3D_SHADER_CACHE_PATH`), Mesa (`MESA_SHADER_CACHE_DIR`), DXVK (`DXVK_STATE_CACHE_PATH`) and `XDG_CACHE_HOME`. Leave the player's normal caches and saves alone. This measures a first story launch with cold graphics caches. System file caches and the installed Wine prefix persist.
