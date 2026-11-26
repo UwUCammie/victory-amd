@@ -433,6 +433,30 @@ The gather and worker build then used the same early route to test card batching
 
 A separate build on fxceless main `c9092ec` used one timed input entry, `50:Enter:4.4`. Its prologue transition was visible at 65 s and the character and courtyard at 80, 110 and 220 s. This run also tested the new heap cutoff without a second launch. The setting alternated every 20 s. From 90–250 s, qualifying intervals gave 407 accepted presents in 70.99 s (5.73 FPS, 4,833 draws/frame) off and 420 in 70.97 s (5.92 FPS, 4,834 draws/frame) on. Median reported descriptor-sync time was 19.87 and 19.77 ms/frame, respectively. The difference is small in this one scene. Recalculate with `python3 benchmarks/gather_by_copy.py run.log --switch VICTORY_HEAP_SYNC_CUT --start 90 --stop 250`. [Timed input PR](https://github.com/fxceless/victory-fork/pull/1236) · [Build](https://github.com/UwUCammie/victory-amd/tree/beddd22)
 
+## Shadow buffer comparison under Wine
+
+[Avatar PR 376](https://github.com/avatarmanz/VIctory-7900XTX/pull/376) changes how `shadow::find_pieces` checks a 64 KiB piece against its snapshot. This fixture compares the original byte-slice inequality with the actual `safecopy::differ` from the runtime checkout. It checks agreement on unaligned buffers and lengths around the vector boundaries, then rotates over 128 generated pieces at a three-byte offset. The two comparison methods run in alternating order on the same buffers. A warmup pair is discarded.
+
+Optimized x86-64 MSVC executable under Wine 11.22, Ryzen 7 9700X, eight measured pairs. The executable imports `memcmp` from `VCRUNTIME140.dll`. Values are median nanoseconds per 64 KiB piece. The AVX2 check was quicker in all eight pairs for each case.
+
+| Contents | Slice comparison | AVX2 comparison |
+|---|---:|---:|
+| Equal | 1,599.5 | 990 |
+| First byte differs | 10 | 8 |
+| Middle byte differs | 824.5 | 565 |
+| Last byte differs | 1,614 | 1,013.5 |
+
+From a configured Windows MSVC Rust environment:
+
+```sh
+python benchmarks/shadow_compare.py prepare PATH_TO_RUNTIME shadow_compare.rs
+rustc --edition=2024 -O shadow_compare.rs -o shadow_compare.exe
+./shadow_compare.exe > pairs.txt
+python benchmarks/shadow_compare.py report pairs.txt
+```
+
+For a Wine comparison, cross-compile the same generated file with `--target x86_64-pc-windows-msvc` and run it with Wine. No GPU or game data is used. This isolates the byte comparison. The descriptor reference-count change and whole-frame time require separate measurements.
+
 ## AVX2 changed-run scan
 
 The same RX 7900 XT release build compared SSE2 and AVX2 over eight 20-second blocks. The character and courtyard were visible at 80 and 210 seconds. All eight blocks finished at 256.2 seconds. The SSE2 blocks produced 700 accepted presents in 77.39 s (9.05 FPS, 4,858 draws/frame). The AVX2 blocks produced 720 in 79.13 s (9.10 FPS, 4,805 draws/frame). The counter recorded 929 MiB going through the AVX2 scan with it enabled and zero with it disabled. On-minus-off differences for the four adjacent pairs were +0.07, +0.00, +0.08 and +0.06 FPS. The CPU fixture showed a larger improvement for sparse changes, but it barely moved frame rate in this room. [Benchmark build and reporter](https://github.com/UwUCammie/victory-amd/tree/d372cae/benchmarks) · [Upstream change](https://github.com/fxceless/victory-fork/pull/1233)
