@@ -123,3 +123,17 @@ The 0.06 FPS difference gives little reason to prefer either mode in this room. 
 The same executable and input route ran with in-place import off, then at level 4 with the pool enabled. The control reached the character and courtyard and recorded 356 accepted presents in 73.82 s (4.82 FPS, 5,032 draws/frame). The level-4 run was still on a white transition screen at the late visual check. It accepted six presents in 52.42 s of complete intervals inside the measurement window and is excluded from gameplay FPS.
 
 Level 4 exercised the import path. At the final report, the arenas held 9.99 GiB locked across two private parts and seven sections. The runtime reported 10,093 windows placed (1,728 MB cumulative) and zero title buffers placed. Both runs reached the 230-second timeout. The bounded synthetic GPU test separately passed reads and writes at a nonzero offset. [Build](https://github.com/UwUCammie/victory-amd/tree/bench/radv-inplace-first-room) · [Physical import test](https://github.com/sirrus98/victory-fork/pull/1)
+
+## Time to compare the cold-descriptor scan
+
+The fixed-setting reference ran the same binary in two 230-second sessions. It reached the first room in both by the 120-second private visual check. The 150–225 s windows gave 447 presents in 74.17 s (6.03 FPS) off and 421 in 74.08 s (5.68 FPS) on. The skipped-slot counter rose by 1,644,920 with the scan on and stayed at zero with it off.
+
+The one-launch trial used the same route, a 120-second warm-up, and 20-second blocks with the first reporting interval excluded from each. The room was visible at 120 and 246 seconds. Time to result is measured from the first logged timestamp to the last required block, or to the closing report of the second separate-process window. Both fixed runs together occupied 461.3 seconds between their first and last logged activity.
+
+| Method | Seconds to result | Measured seconds off / on | FPS off / on |
+| --- | ---: | ---: | ---: |
+| Two launches | 457.8 | 74.17 / 74.08 | 6.03 / 5.68 |
+| One launch, first four blocks | 203.5 | 39.20 / 39.29 | 5.79 / 5.50 |
+| Same launch, all eight blocks | 286.0 | 78.20 / 78.35 | 5.95 / 5.73 |
+
+The eight-block run saved 172 seconds (38%) and gave each setting four more measured seconds than the two-launch reference. On-minus-off differences for its four pairs were −0.39, −0.19, −0.16 and −0.12 FPS. The scan skipped 1,747,928 slots while enabled and zero while disabled. Synthetic sparse heaps benefited from the scan, but these gameplay trials favor leaving it off on this setup. [One-launch build and reporter](https://github.com/UwUCammie/victory-amd/tree/545ebe2/benchmarks) · [Portable regression](https://github.com/nicolasveilleux/victory-fork/pull/2) · [Separate-launch build](https://github.com/UwUCammie/victory-amd/tree/09e87b0)
