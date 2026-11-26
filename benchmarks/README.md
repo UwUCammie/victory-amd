@@ -212,6 +212,18 @@ The range-merge change alone presented 3,644 frames in the first 300 s (12.15 FP
 
 The range-merge repeat delivered 2,889 presents in 300 s (9.63 FPS). The second stock control gave 3,954 (13.18 FPS). P99 was 539 versus 362 ms, and >100 ms gaps took 187.92 versus 154.08 seconds. The earlier 12.15 versus 10.99 FPS result did not repeat. At 85 s a dark rectangular area covered most of the repeat's view. At 115 and 130 s a large stretched shape crossed the foreground. The first range trial had shown the diner at 100–115 s. These samples include different workloads and do not establish which change caused the bad frames. Three interrupted range repeats were excluded.
 
+### Card fills with buffer copies handled on the CPU
+
+On the same executable, the two stock runs used `VICTORY_CARD_STEPS=2`. Changing only that setting to `1` kept GPU fills and returned buffer copies to the CPU. Each measurement starts at the launcher with five empty caches, no story save, the same scripted inputs, a 1280×720 scene and the 3840×2160 interface plane. The first 300 seconds include loading and stalls.
+
+| Setting | Presents | FPS | P99 gap | Time spent in gaps over 100 ms | Intervals reporting GPU buffer copies |
+|---|---:|---:|---:|---:|---:|
+| Stage 2, first control | 3,298 | 10.99 | 1.743 s | 177.0 s | 4 / 163 |
+| Stage 2, second control | 3,954 | 13.18 | 0.362 s | 154.1 s | 3 / 181 |
+| Stage 1 | 2,480 | 8.27 | 2.545 s | 190.6 s | 0 / 148 |
+
+Stage 1 still recorded GPU fills in 117 of its 148 intervals. Its captures at 70, 85 and 100 seconds were black. The world was visible by 115 seconds, and the final captures showed a lit interior while both controls were still in the opening credits. The runs progressed through different scenes, so the FPS difference does not isolate the cost of a buffer copy. Eight interrupted attempts were excluded.
+
 ### Diner reflections at 720p
 
 Two 150-second warm starts on the RX 7900 XT reached the diner with the same executable and input sequence. Each used a private copy of the same application and vkd3d caches, no story slots and `VICTORY_AMBIENT=0.8`. The only switch changed was `VICTORY_AMBIENT_REFLECT`, from 0 to 1. The enabled run recorded a reflection pass at 853×480 within the 1280×720 output. I matched the shots by camera angle and pose because the opening advanced at different times.
