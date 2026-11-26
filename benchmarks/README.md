@@ -106,3 +106,14 @@ On the gather and worker integration, one executable ran the same first-room rou
 | Off | 731 | 73.57 | 9.94 | 0 | 0 |
 
 The sampler also counted 950,166 and 992,228 repeated pipeline-retain requests respectively. These are cumulative-counter differences over the measured intervals. The same GPU passed the target rewrite/replay, deferred CBV write and pipeline lifetime tests. [Build and counters](https://github.com/UwUCammie/victory-amd/tree/bench/radv-recording-reuse) · [Upstream results](https://github.com/fxceless/victory-fork/pull/1215#issuecomment-7178947611)
+
+## Gathering indirect arguments at copy time
+
+One 390-second run alternated the placement of the indirect-argument gather every 20 seconds. The character and courtyard were visible at 175 and 315 seconds. Between 150 and 385 seconds we counted complete present intervals inside each phase, excluding the first second after each switch.
+
+| Gather at copy time | Accepted presents | Seconds | FPS | Draws/frame |
+| --- | ---: | ---: | ---: | ---: |
+| Off | 701 | 106.06 | 6.61 | 4,781 |
+| On | 698 | 104.62 | 6.67 | 4,799 |
+
+The 0.06 FPS difference gives little reason to prefer either mode in this room. Recalculate with `python3 benchmarks/gather_by_copy.py run.log`. [Build and counters](https://github.com/UwUCammie/victory-amd/tree/bench/radv-indirect-by-copy) · [Upstream change](https://github.com/fxceless/victory-fork/commit/006c353)
