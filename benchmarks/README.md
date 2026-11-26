@@ -79,3 +79,11 @@ The integration build included [the indirect gather change](https://github.com/f
 | Reverse | On | 577 | 73.33 | 7.87 | 4,977 |
 
 In the reverse pair, the enabled build counted 24,231 gather passes and 1,974,917 records between the samples bounding the measured intervals. Both counters stayed at zero with gathering disabled. Pooling both pairs gives 8.51 FPS on and 7.32 off. The faster setting varied between pairs on this shared desktop.
+
+## November renderer trials
+
+With the November 26 renderer build, plain fills, indexed submission steps and fill waits enabled, the RX 7900 XT recorded 456 accepted presents in 73.86 s (6.17 FPS, 4,936 draws/frame). The character and courtyard were visible at 175 s. This build used the serial descriptor scan. [Build source](https://github.com/UwUCammie/victory-amd/tree/bench/fx-refresh-nov26)
+
+On the Series S profile with the interface compositor enabled, the unmodified upscaler showed the movement prompt over a black world. Its 532 accepted presents are excluded from gameplay FPS. Adding a packed RGB9E5 destination restored the character and courtyard in private checks at 175 and 217 s. Some scenery still shimmered. All 13 sampled dispatches wrote the stretched image. This first patched run omitted the interval sampler, so it establishes a rendering result only. [Series S fix and GPU pixel test](https://github.com/Tissma95/victory-fork/pull/1)
+
+The descriptor-table trial with scripted input enabled ended with a device removal during startup and produced no first-room sample. [Trial report](https://github.com/fxceless/victory-fork/pull/1192#issuecomment-7178160485)
