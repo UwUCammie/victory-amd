@@ -63,6 +63,12 @@ The six holds over ten seconds in the 1 KiB trial coincided with frames that exh
 
 A [reverse-use index in the shader translator](https://github.com/UwUCammie/VIctory-7900XTX/commit/1a90bf03) produced identical bytecode and metadata or the same translation error for a 256-input sample. A Windows build from a shared Cargo target directory still contained the previous translator. Its matching PDB recorded the baseline checksum for the changed source file. The 13.05 FPS from launch and 24.27 FPS while moving are additional control measurements. The two native comparison binaries did compile their respective translator sources.
 
+For Windows cross-builds from multiple worktrees, use a separate Cargo target directory for each candidate. Before testing, compare the executable's CodeView GUID and age with its PDB, then check the recorded Rust source hashes against the intended checkout. Pass a changed source path to require its presence. This takes well under a second on this system and caught the stale translator before another five-minute trial.
+
+```sh
+python3 benchmarks/verify_pdb_sources.py "$checkout" "$build/victory.exe" "$build/victory.pdb" crates/victory-shader/src/emit/lower.rs
+```
+
 ### Verify pipeline-library persistence without the game
 
 A separate [vkd3d-proton library fix](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/4) addresses repeat launches. On this branch the host refused its empty library, so it could not save pipeline entries or the list of pipelines to start early next time. The two independent control launches both reported the refusal. A small probe exercises the driver's empty-library calls and serialization without a game or shader compiler. Build `empty_pipeline_library.cpp` in a Windows developer prompt:
@@ -74,6 +80,8 @@ cl /EHsc empty_pipeline_library.cpp d3d12.lib
 Run the resulting executable against the same D3D12 implementation as the game. Here the non-null pointer with zero length gave `80070057`, the null pointer gave `00000000`, and the resulting 56-byte serialized library reopened successfully. First-boot trials always start with an empty pipeline directory.
 
 With the fix in the runtime, two first story launches wrote pipeline libraries from empty directories. At 1 KiB the library reached 426,680 bytes and the early list had 2,348 entries. The launch averaged 13.27 FPS, with a 396 ms p99 and an 11.27 s hold. The opening cinematic continued through the movement window. At 2 KiB the library reached 456,248 bytes with 2,269 early entries. The launch averaged 13.75 FPS (4,125 frames) and the verified cell movement averaged 25.59 FPS (1,919 frames). P99 was 279 ms and the longest hold was 11.12 s. The face pipeline was ready before its first bind in both runs.
+
+A separate process started with a copy of only the application pipeline directory from the 1 KiB run. The saved library reopened at its original size. By its second save the runtime reported 2,228 library loads and three new builds. This 45-second diagnostic is excluded from every first-boot FPS figure. The desktop now uses the library fix with the 1 KiB preset. A cold control using the same executable without small-compute scheduling still showed the eyes and teeth without facial skin, so persistence alone does not fix the first launch.
 
 ## Measurements
 
