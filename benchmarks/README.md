@@ -16,7 +16,11 @@ The time origin is the first timestamp in the log. Only complete present interva
 
 ## HUD layout at 1280×720
 
-The 720p preset enables `VICTORY_UI_VIEWBOX=1` for builds carrying the [viewbox fix](https://github.com/avatarmanz/VIctory-7900XTX/pull/295). On Series X I measured one opening subtitle in the same 1280×690 capture area on the RX 7900 XT. At 720p its bright glyphs occupied 278×52 pixels and ended 71.0% down the frame. With uniform fitting they occupied 92×16 pixels and ended at 90.1%. The same cue at 4K, scaled into the same window, measured 92×17 pixels at 90.3%. The two-line movement hint also fits at the upper left. The right-hand mission options in the pause menu still appear oversized. These visual checks used copied caches. [Remaining 720p UI issues](https://github.com/avatarmanz/VIctory-7900XTX/issues/282)
+The Radeon 720p preset enables `VICTORY_UI_PLANE_720=1` on builds carrying the [interface fix](https://github.com/avatarmanz/VIctory-7900XTX/pull/295). The Series X scene output and Windows swap chain are 1280×720. The title lays out its interface on a separate 3840×2160 plane, which the compositor scales onto the scene. The preset also enables `VICTORY_UI_VIEWBOX=1` so that turning the separate plane off selects the single-plane subtitle and HUD fix.
+
+I compared the same elements in private 1280×690 window captures on the RX 7900 XT. One line of dialogue measured 467×20 pixels at (406, 606) with the separate plane and at the same size and position in the 4K reference. The same credit measured 219×33 pixels at (898, 532) versus 218×33 at (899, 532). The Retry Checkpoint label measured 186×19 versus 186×20, both at (1056, 172). The left pause-menu panel uses 28% of the window on both. I opened, closed and reopened the menu.
+
+With only the single-plane HUD fix, the movement hint and the bottom action bar fit. The same credit still measured 655×102 and the pause panel occupied 85% of the window. On an earlier subtitle cue, the HUD fix brought the glyphs from 278×52 at 71.0% down the frame to 92×16 at 90.1%. [Matched UI captures, aggregate measurements](https://github.com/avatarmanz/VIctory-7900XTX/issues/282#issuecomment-7196096753)
 
 ## First boot at 1280×720
 
@@ -88,6 +92,8 @@ I timed one 12-minute launch of the desktop preset with five empty graphics cach
 | Prison movement, 490–565 s | 1,858 | 24.77 | 62 ms | 0.86 s |
 
 The first five minutes included 30 holds longer than one second and 169.49 seconds in gaps longer than 100 ms. This route leaves the opening credits running, which differs from the earlier timed-skip runs. It provides an end-to-end measurement for the [720p HUD change](https://github.com/avatarmanz/VIctory-7900XTX/pull/295).
+
+With the separate UI plane enabled I repeated the first 300 seconds from five empty graphics caches. The run recorded 4,202 accepted presents (14.01 FPS), first present at 3.01 s, p99 280.2 ms and longest hold 11.11 s. It used the same unskipped opening on the RX 7900 XT. Each UI mode has one clean observation on this route.
 
 
 ### Testing the title frame interval
