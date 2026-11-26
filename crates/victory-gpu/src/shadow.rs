@@ -6869,6 +6869,11 @@ static LAZY_FLUSH_TOTAL: AtomicU64 = AtomicU64::new(0);
 /// [3]=veh_write_faults, [4]=explicit_flushes, [5]=bytes_flushed`.
 static LAZY_STATS: [AtomicU64; 6] = [const { AtomicU64::new(0) }; 6];
 
+/// Cumulative page and byte counts for the release benchmark's present intervals.
+pub(crate) fn lazy_counts() -> [u64; 6] {
+    LAZY_STATS.each_ref().map(|counter| counter.load(Ordering::Relaxed))
+}
+
 /// Dedicated single-piece GPU readback context (Level 2), pre-allocated before
 /// any `PAGE_NOACCESS` page is ever armed so VEH never allocates D3D12 objects.
 struct LazyReadback {

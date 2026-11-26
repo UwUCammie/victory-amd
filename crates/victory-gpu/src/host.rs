@@ -8620,6 +8620,10 @@ impl Meter {
             draws = drawn - self.drawn,
             "presents"
         );
+        if crate::shadow::lazy_copyback() {
+            let [armed, hits, reads, writes, flushes, bytes] = crate::shadow::lazy_counts();
+            tracing::info!(target: "victory_bench", armed, hits, reads, writes, flushes, bytes, "lazy copy-back totals");
+        }
         let fps = f64::from(std::mem::take(&mut self.accepted)) / elapsed.as_secs_f64();
         crate::fpsbox::set(fps);
         let ms = elapsed.as_secs_f64() * 1000.0 / frames;
