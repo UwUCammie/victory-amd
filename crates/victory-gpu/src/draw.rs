@@ -24,6 +24,8 @@ use crate::host::HostList;
 use crate::object::This;
 use crate::pipeline::host::HostPipeline;
 
+pub(crate) static TARGET_BIND_HITS: AtomicU64 = AtomicU64::new(0);
+
 type TargetView<'a> = (Option<&'a ID3D12Resource>, crate::descriptor::RtvRecord);
 
 struct BoundTarget {
@@ -1018,6 +1020,7 @@ impl State {
         if reuse && self.host_targets.as_ref().is_some_and(|previous| {
             previous.matches(&views[..view_count], dsv.as_ref())
         }) {
+            TARGET_BIND_HITS.fetch_add(1, Ordering::Relaxed);
             return false;
         }
         self.host_targets = reuse.then(|| BoundTargets::new(&views[..view_count], dsv.as_ref()));

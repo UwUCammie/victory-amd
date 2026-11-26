@@ -5,7 +5,7 @@
 //! (unless `VICTORY_LATE_WAIT=1`, see [`late`]);
 //! overlap them with per-submission fences once more than clears run.
 
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicU32, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use windows::Win32::Foundation::{HANDLE, HWND, LPARAM, LRESULT, RECT, WPARAM};
@@ -586,6 +586,10 @@ pub(crate) fn fail(what: std::fmt::Arguments) -> ! {
         None => std::process::abort(),
     }
 }
+
+// Cumulative hits are sampled alongside accepted presents in this benchmark build.
+static ROOT_CBV_HITS: AtomicU64 = AtomicU64::new(0);
+static PIPELINE_KEEP_HITS: AtomicU64 = AtomicU64::new(0);
 
 /// The host GPU, created on first use; `None` without one (a run then
 /// behaves as before: nothing executes).
@@ -7107,6 +7111,7 @@ impl HostList {
     pub(crate) fn fill_root_cbv(&self, src: *const u8, len: u64, reuse: bool) -> Option<(u64, *mut u8)> {
         let key = (src as usize, len);
         if reuse && let Some(&(gpu, to)) = self.deferred().filled_root_cbvs.get(&key) {
+            ROOT_CBV_HITS.fetch_add(1, Ordering::Relaxed);
             return Some((gpu, to as *mut u8));
         }
         let (gpu, to) = self.scratch(len)?;
@@ -7449,6 +7454,8 @@ impl HostList {
         if deferred.kept_pipelines.insert((pso.as_raw() as usize, root.as_raw() as usize)) {
             deferred.kept.push(pso.clone().into());
             deferred.kept.push(root.clone().into());
+        } else {
+            PIPELINE_KEEP_HITS.fetch_add(1, Ordering::Relaxed);
         }
     }
 
@@ -8306,6 +8313,12 @@ impl Meter {
         let passes = run_counts[0].load(std::sync::atomic::Ordering::Relaxed);
         let records = run_counts[1].load(std::sync::atomic::Ordering::Relaxed);
         tracing::info!(target: "victory_gather_bench", passes, records, "run totals");
+        tracing::info!(target: "victory_recording_bench",
+            root_cbv_hits = ROOT_CBV_HITS.load(Ordering::Relaxed),
+            target_bind_hits = crate::draw::TARGET_BIND_HITS.load(Ordering::Relaxed),
+            pipeline_keep_hits = PIPELINE_KEEP_HITS.load(Ordering::Relaxed),
+            "cumulative recording cache hits"
+        );
         tracing::info!(target: "victory_bench", frames = self.frames, interval_us = elapsed.as_micros() as u64, draws = drawn - self.drawn, relay_avx = crate::shadow::relay_merge_simd::enabled(), refresh_group = refresh_group_limit(), clean_guard_read = crate::watch::clean_guard_read(), "presents");
         let fps = frames / elapsed.as_secs_f64();
         let ms = elapsed.as_secs_f64() * 1000.0 / frames;
