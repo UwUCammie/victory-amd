@@ -14,6 +14,10 @@ class SavedRouteTests(unittest.TestCase):
     def test_wrapper_success_cannot_hide_failure(self):
         self.assertEqual(self.result(self.present, "VIctory: unhandled exception 0x80000003", code=0), "renderer-failure")
 
+    def test_wine_assertion_is_a_failure_even_with_timeout_exit(self):
+        message = "app.exe: ../wine/dlls/win32u/sysparams.c:352: user_check_not_lock: Assertion `0' failed."
+        self.assertEqual(self.result(self.present, message), "renderer-failure")
+
     def test_overlap_is_excluded_even_if_termination_looks_like_a_crash(self):
         self.assertEqual(self.result("VIctory: unhandled exception 0", overlap=True), "interrupted")
 

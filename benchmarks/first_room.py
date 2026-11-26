@@ -38,6 +38,8 @@ def session_lines(lines):
             raise SessionFailed("A runtime thread panicked during this session.")
         if line.startswith("VIctory: unhandled exception "):
             raise SessionFailed("The runtime reported an unhandled exception during this session.")
+        if re.search(r"/wine/dlls/[^:]+:\d+: [^:]+: Assertion .+ failed\.\s*$", line):
+            raise SessionFailed("Wine reported an internal assertion during this session.")
         yield line
 
 
