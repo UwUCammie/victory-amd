@@ -185,9 +185,13 @@ The submission profile included samples in SipHash, so I tested the per-command-
 
 On the Ryzen 7 9700X, seven alternating native release pairs per size gave median times per list of 2.45 → 0.75 µs for 32 keys, 19.31 → 5.64 µs for 256, and 159.07 → 47.27 µs for 2,048. Each pair favored the address hasher. The fixture measures map operations and excludes the driver and rendering. Run `python benchmarks/root_slot_hash.py /path/to/victory` with a Rust toolchain to reproduce it.
 
+The published fixture's second run gave 2.08 → 0.81 µs, 16.52 → 5.60 µs, and 134.81 → 46.86 µs. All 21 pairs favored the address hasher again. The Windows MSVC check passed on the PR head. [Root slot cache change](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/28)
+
 ### Isolated compiler thread dispatch
 
 The two full selective-heap launches below recorded 1,559 and 1,579 successful host pipeline creations. With `VICTORY_PIPE_FIX=1` the AMD branch launches a Windows thread for each compile attempt. I measured the cost of just handing a trivial job to a fresh or reused isolated compiler on the Ryzen 7 9700X under Wine 11.22. Seven alternating pairs of 128 jobs gave median elapsed times of 17.763 ms for fresh threads and 0.390 ms for reuse, including startup. All seven pairs favored reuse. The fixture checks every reply and uses the same stack reservation and priority in both paths. These are debug fixture measurements without a driver compile. [Worker change and test command](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/24)
+
+The fresh compiler-reuse control disabled reuse on the same 720p release executable reserved for the enabled run. It accepted 3,878 presents in the first 300 seconds (12.93 FPS), with P99 of 580 ms, a longest hold of 11.13 s, and 161.59 seconds in gaps over 100 ms. The first five minutes included menus and the opening montage, with six compiles recovered through an alternate form. The 300-second comparison starts before the first present, with five empty graphics caches and no story save.
 
 ### Direct heap requirements in the cold shader cache
 
