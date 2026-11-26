@@ -73,8 +73,12 @@ pub(crate) enum Role {
 
 /// The program's part in this, by its name in the container.
 pub(crate) fn role(container: &[u8]) -> Option<Role> {
+    classify(container, reflect() > 0.0)
+}
+
+fn classify(container: &[u8], reflections: bool) -> Option<Role> {
     let has = |name: &[u8]| container.windows(name.len()).any(|w| w == name);
-    if has(b"CS_TemporalResolve2_Opaque") || has(b"CS_TemporalResolve1_Alpha") {
+    if reflections && (has(b"CS_TemporalResolve2_Opaque") || has(b"CS_TemporalResolve1_Alpha")) {
         Some(Role::Reflect)
     } else if has(b"CS_ScreenProbes_TemporalResolve") {
         Some(Role::Resolve)
@@ -636,8 +640,9 @@ mod tests {
         assert_eq!(role(b"..CS_CacheScreenSpaceRadiance_eed2fc35.."), Some(Role::Radiance));
         assert_eq!(role(b"CS_AccumulateLocalLightInscatteringVolume_7e2f5eef"), Some(Role::Air));
         let opaque = b"CS_TemporalResolve2_Opaque_FrameStatistics_357e0818";
-        assert_eq!(role(opaque), Some(Role::Reflect));
-        assert_eq!(role(b"CS_TemporalResolve1_Alpha_68979fba"), Some(Role::Reflect));
+        assert_eq!(classify(opaque, false), None);
+        assert_eq!(classify(opaque, true), Some(Role::Reflect));
+        assert_eq!(classify(b"CS_TemporalResolve1_Alpha_68979fba", true), Some(Role::Reflect));
         assert_eq!(role(b"CS_TemporalResolve"), None);
     }
 
@@ -647,6 +652,7 @@ mod tests {
         let Some(host) = host() else {
             return;
         };
-        make(&host.device, |bytes| host.uav_buffer(bytes)).expect("the passes");
+        let pass = make(&host.device, |bytes| host.uav_buffer(bytes)).expect("the passes");
+        assert_eq!(pass.hold.is_some(), reflect() > 0.0);
     }
 }
