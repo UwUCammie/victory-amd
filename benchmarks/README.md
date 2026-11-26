@@ -14,6 +14,20 @@ python3 benchmarks/first_room.py path/to/run.log --start 150 --stop 225
 
 The time origin is the first timestamp in the log. Only complete present intervals inside the window count. Divide the total presents by total elapsed time. Confirm the room visually and check the full session for device loss before comparing runs.
 
+## First boot at 1280×720
+
+Start the clock before launching Wine. Use an existing offline test prefix with the player's completed setup and settings and omit the story slot. Give each launch new empty directories for the runtime shader and pipeline cache (`VICTORY_CACHE_DIR`), vkd3d (`VKD3D_SHADER_CACHE_PATH`), Mesa (`MESA_SHADER_CACHE_DIR`), DXVK (`DXVK_STATE_CACHE_PATH`) and `XDG_CACHE_HOME`. Leave the player's normal caches and saves alone. This measures a first story launch with cold graphics caches. System file caches and the installed Wine prefix persist.
+
+Use the [accepted-present trace](https://github.com/UwUCammie/VIctory-7900XTX/commit/cc16d08e) with `VICTORY_FRAME_TRACE=1`, Series X and `VICTORY_OUTPUT=1280x720`. Record launch and exit UTC timestamps in `launch.json` as `start_utc` and `end_utc`, the timeout in seconds as `timeout`, the initial number of story slots as `story_slots`, and the initial entry counts for `cache`, `vkd3dcache`, `mesa`, `xdg`, `dxvk` in `empty_cache_directories`. Store the timeout command's exit status in `exit-code` next to `run.log`. Mark runs interrupted by another game with `foreground-overlap` next to the metadata. Keep the logs and any scene captures local.
+
+```sh
+python3 benchmarks/cold_boot.py path/to/run path/to/launch.json --start 0 --stop 300
+```
+
+The denominator is the full interval from launcher start. A frame counts at the start boundary and is excluded at the end. Time before the first present, long freezes and time after the last frame all stay in the window. The longest hold and nearest-rank p95/p99 describe the positive gaps clipped to the window, including both edges. The time in holds over 100 ms includes the full length of those holds. Count a walking interval separately once input and movement are confirmed. The first accepted present can still be a blank screen.
+
+On a Ryzen 7 9700X and RX 7900 XT (RADV 26.3.1, Wine 11.22, vkd3d-proton 3.1), the initial completed run produced **4,063 presents in 300 seconds (13.54 FPS)**, including loading, the opening sequence and the diner. The first present was at 2.54 s, p99 was 268 ms, and the longest gap was 11.33 s. There were 27 holds over one second, including the initial wait. Holds over 100 ms took 138.90 s. The compute pipeline wait reached its ten-second frame budget in six distinct title frames. The settled diner view averaged 24.23 FPS over seconds 220–300; movement was not verified in that interval.
+
 ## Measurements
 
 Ryzen 7 9700X, RX 7900 XT, RADV 26.3.1, Wine 11.22, vkd3d-proton v3.1-83. I used the Series X profile, the first room, a warmed cache and a separate offline test prefix. Each session lasted 230 seconds. The table includes changes under test in an integration build. A successful present confirms that the swapchain accepted a frame. Draw count and occasional private stills are separate checks on the workload.
