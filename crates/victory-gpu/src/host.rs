@@ -773,6 +773,21 @@ pub(crate) fn warp_adapter() -> windows::core::Result<IDXGIAdapter> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    #[ignore = "requires a D3D12 adapter"]
+    fn reset_requires_the_same_texture_alias_to_be_copied_again() {
+        let host = super::host().expect("a D3D12 device");
+        let list = host.new_list().unwrap();
+        let (view, _) = host.upload_buffer(256).unwrap();
+        let (source, _) = host.upload_buffer(256).unwrap();
+        assert!(list.alias_source_changed(&view, &source));
+        assert!(!list.alias_source_changed(&view, &source));
+        list.close();
+        host.execute(&[&list]);
+        list.reset();
+        assert!(list.alias_source_changed(&view, &source));
+    }
+
     /// Run once with VICTORY_CARD_SYNC_BATCH=0 and once with it set to 1.
     #[test]
     #[ignore = "requires a D3D12 adapter and the card hash pipeline; run alone"]
@@ -2228,6 +2243,7 @@ impl Deferred {
         self.refreshed.clear();
         self.filled_root_cbvs.clear();
         self.textures.clear();
+        self.texture_aliases.clear();
         self.writes.clear();
         self.backs.clear();
         self.budget_zeroed = false;
