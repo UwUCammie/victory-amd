@@ -212,6 +212,27 @@ The range-merge change alone presented 3,644 frames in the first 300 s (12.15 FP
 
 The range-merge repeat delivered 2,889 presents in 300 s (9.63 FPS). The second stock control gave 3,954 (13.18 FPS). P99 was 539 versus 362 ms, and >100 ms gaps took 187.92 versus 154.08 seconds. The earlier 12.15 versus 10.99 FPS result did not repeat. At 85 s a dark rectangular area covered most of the repeat's view. At 115 and 130 s a large stretched shape crossed the foreground. The first range trial had shown the diner at 100–115 s. These samples include different workloads and do not establish which change caused the bad frames. Three interrupted range repeats were excluded.
 
+### Texture write-history query
+
+The normal texture refresh asks whether any page was written since it last read the texture. The upload worker's first read needs only the asking number. With write history already available, this fixture compares building the page list and checking it with asking that question directly. It takes the two query functions from the supplied revision and checks their answers against independently generated write history. OS write-watch calls, locks, hashing, detiling and GPU uploads are outside this measurement.
+
+Run this from the runtime checkout with the candidate revision available. The fixture runs natively with an optimizing Rust compiler and needs no game files or GPU.
+
+```sh
+python3 "$bench/texture_query.py" e6b99130 --pairs 7
+```
+
+| Range | Condition | Page list | Direct query |
+|---|---|---:|---:|
+| 1 page | All clean | 18 ns | 14 ns |
+| 16 pages | All clean | 80 ns | 23 ns |
+| 256 pages | All clean | 459 ns | 184 ns |
+| 256 pages | Some writes newer than the last read | 310 ns | 45 ns |
+| 1,024 pages | All clean | 1,178 ns | 640 ns |
+| 1,024 pages | Some writes newer than the last read | 952 ns | 53 ns |
+
+These are median times per query across seven alternating pairs. Each pair used 193 starting addresses. The direct query stops at the first newer write and skips the scan entirely on a first refresh. In a separate 32-minute saved session at 720p, the median reporting interval after the first two minutes attributed 9.5 ms/frame across all threads to the entire write-watch and guard step. That counter includes kernel and guard work and overlap between threads. It cannot be used as a prediction of FPS.
+
 ### Card fills with buffer copies handled on the CPU
 
 On the same executable, the two stock runs used `VICTORY_CARD_STEPS=2`. Changing only that setting to `1` kept GPU fills and returned buffer copies to the CPU. Each measurement starts at the launcher with five empty caches, no story save, the same scripted inputs, a 1280×720 scene and the 3840×2160 interface plane. The first 300 seconds include loading and stalls.
