@@ -73,6 +73,10 @@ For Windows cross-builds from multiple worktrees, use a separate Cargo target di
 python3 benchmarks/verify_pdb_sources.py "$checkout" "$build/victory.exe" "$build/victory.pdb" crates/victory-shader/src/emit/lower.rs
 ```
 
+### Testing the title frame interval
+
+I compared the stock interval with the 16.667 ms setting on the same Windows binary and 1 KiB preset. The title timer confirmed 33,333 and 16,666 microseconds respectively. On the stock clock I counted 3,305 presents in the first 300 s (11.02 FPS) and 1,465 in the 75 s cell movement window (19.53 FPS). The longest hold was 11.95 s. The 16.667 ms launch counted 3,886 presents in 300 s (12.95 FPS), with an 11.44 s hold. Its late window was still cinematic. The title's secondary timer advanced 58.68 s over those 75 seconds, compared with 69.12 s in the stock run's cell. Those were different scenes, so this pair cannot establish a gameplay or simulation-rate improvement. The desktop retains the stock clock. [Upstream interval change](https://github.com/avatarmanz/VIctory-7900XTX/commit/49cb83b4)
+
 ### Verify pipeline-library persistence without the game
 
 A separate [vkd3d-proton library fix](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/4) addresses repeat launches. On this branch the host refused its empty library, so it could not save pipeline entries or the list of pipelines to start early next time. The two independent control launches both reported the refusal. A small probe exercises the driver's empty-library calls and serialization without a game or shader compiler. Build `empty_pipeline_library.cpp` in a Windows developer prompt:
