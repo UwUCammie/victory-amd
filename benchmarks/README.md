@@ -61,7 +61,7 @@ The follow-up 2 KiB run measured 13.18 FPS over the first 300 s and 24.15 FPS in
 
 The six holds over ten seconds in the 1 KiB trial coincided with frames that exhausted the compute wait budget. The first bind of 1,051 distinct compute shaders appeared in the log. Of those, 314 reported a dropped dispatch while waiting. None of the 52 shaders of 1 KiB or less reported one. This count is per shader because the runtime logs its first drop only.
 
-A [reverse-use index in the shader translator](https://github.com/UwUCammie/VIctory-7900XTX/commit/1a90bf03) produced identical bytecode and metadata or the same translation error for a 256-input sample. A cold run with the 1 KiB preset gave 13.05 FPS across 300 s and 24.27 FPS while moving, with an 11.28 s hold. This run showed no gameplay improvement.
+A [reverse-use index in the shader translator](https://github.com/UwUCammie/VIctory-7900XTX/commit/1a90bf03) produced identical bytecode and metadata or the same translation error for a 256-input sample. A Windows build from a shared Cargo target directory still contained the previous translator. Its matching PDB recorded the baseline checksum for the changed source file. The 13.05 FPS from launch and 24.27 FPS while moving are additional control measurements. The two native comparison binaries did compile their respective translator sources.
 
 ### Verify pipeline-library persistence without the game
 
