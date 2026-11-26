@@ -4206,8 +4206,7 @@ fn buffer_for(map: &BTreeMap<(u64, usize), Entry>, address: u64, end: u64) -> Op
 /// this comes from the table's mutex was 32 ms a frame of those threads,
 /// 15 of them waiting for one another.
 fn lookup_cache() -> bool {
-    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var_os("VICTORY_SHADOW_CACHE").is_some_and(|v| v == "1"))
+    crate::bench_trial::cache_enabled()
 }
 
 /// An answer [`lookup`] gave from a buffer's copy: the ask, the count of
@@ -4267,6 +4266,7 @@ fn lookup_as(address: u64, len: u64, any: bool, cache: bool) -> Option<Arc<Shado
     let end = address.checked_add(len.max(1))?;
     if cache {
         if let Some(shadow) = answered(address, end) {
+            crate::bench_trial::cache_hit();
             return Some(shadow);
         }
         // Shared, for the ask whose buffer has its copy already (all but

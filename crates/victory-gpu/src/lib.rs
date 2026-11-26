@@ -20,6 +20,8 @@ mod backreads;
 #[cfg(all(windows, feature = "diagnostics"))]
 mod capture;
 #[cfg(windows)]
+mod bench_trial;
+#[cfg(windows)]
 mod cardmeter;
 #[cfg(all(windows, feature = "diagnostics"))]
 mod renderdoc;
