@@ -196,6 +196,14 @@ On the Ryzen 7 9700X, seven alternating native release pairs per size gave media
 
 The published fixture's second run gave 2.08 → 0.81 µs, 16.52 → 5.60 µs, and 134.81 → 46.86 µs. All 21 pairs favored the address hasher again. The Windows MSVC check passed on the PR head. [Root slot cache change](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/28)
 
+### Relay flags before copy-back
+
+The relay first collected every candidate flag in a vector, then collected the flagged keys in a second vector before sorting and deduplicating them. Supplying the flags directly to the collector removes the first vector. Both revisions returned the same sorted keys in the generated cases, including duplicates and partial overlap in the existing relay tests.
+
+Seven alternating pairs per case ran on one Ryzen 7 9700X core. All 56 favored the streamed collector. With a quarter of the flags wanted, the median times went from 1.033 to 0.865 µs at 512 flags, 11.084 to 9.793 µs at 4,096, and 41.343 to 36.426 µs at 16,384. With all 16,384 wanted, they went from 122.440 to 108.874 µs. The two existing relay tests passed under Wine in the Windows MSVC build.
+
+From the source checkout, run `python3 /path/to/benchmarks/stream_relay_flags.py 830dc191 2b8bce96`. The fixture measures the flag collection and sort, including the removed temporary allocation.
+
 ### Last changed byte during copy-back
 
 A sampled 720p run put 57 of the relay thread's 997 on-CPU samples inside the runtime image in the reverse byte scan. The AVX2 variant finds the last unequal byte from a comparison mask. It keeps the scalar tail, short-range and non-AVX2 paths.
