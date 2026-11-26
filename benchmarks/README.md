@@ -137,3 +137,14 @@ The one-launch trial used the same route, a 120-second warm-up, and 20-second bl
 | Same launch, all eight blocks | 286.0 | 78.20 / 78.35 | 5.95 / 5.73 |
 
 The eight-block run saved 172 seconds (38%) and gave each setting four more measured seconds than the two-launch reference. On-minus-off differences for its four pairs were −0.39, −0.19, −0.16 and −0.12 FPS. The scan skipped 1,747,928 slots while enabled and zero while disabled. Synthetic sparse heaps benefited from the scan, but these gameplay trials favor leaving it off on this setup. [One-launch build and reporter](https://github.com/UwUCammie/victory-amd/tree/545ebe2/benchmarks) · [Portable regression](https://github.com/nicolasveilleux/victory-fork/pull/2) · [Separate-launch build](https://github.com/UwUCammie/victory-amd/tree/09e87b0)
+
+## Card upload batching
+
+A second use of the one-launch method tested the upload and hash ordering from PR #1227. This build used the 64 KiB card-buffer threshold, a 120-second warm-up and eight 20-second blocks. First-room checks at 120 and 246 seconds showed the character and courtyard. The four-pair result was available at 286.2 seconds.
+
+| Batch uploads and hashes | Accepted presents | Seconds | FPS | Draws/frame | Buffers in groups of two or more |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Off | 335 | 77.46 | 4.33 | 4,834 | 0 |
+| On | 423 | 78.77 | 5.37 | 4,866 | 190,194 |
+
+Each adjacent pair favored batching by 0.99–1.10 FPS. The two-buffer GPU fixture checks four read-back dwords and four before-hashes over two submissions. It passed in both fixed modes. [Build and reporter](https://github.com/UwUCammie/victory-amd/tree/0454795/benchmarks) · [Fixture](https://github.com/KyleS98/victory-fork/pull/4)
