@@ -85,6 +85,30 @@ For Windows cross-builds from multiple worktrees, use a separate Cargo target di
 python3 benchmarks/verify_pdb_sources.py "$checkout" "$build/victory.exe" "$build/victory.pdb" crates/victory-shader/src/emit/lower.rs
 ```
 
+### Texture copy order at 720p
+
+The 308-second archived opening reported successful texture readbacks, so both tiling and detiling are relevant. I compared the AMD branch at `830dc191` with the combined texture-copy change at `acbaed74`. Each pair used the same input and destination allocations. The figures are median Linux thread CPU microseconds per copy on a Ryzen 7 9700X over 15 alternating pairs. Only mip zero was timed. Five mip levels per surface were checked byte for byte, including padding.
+
+| Surface | Original detile | Combined detile | Original tile | Combined tile |
+| --- | ---: | ---: | ---: | ---: |
+| 1280×720 RGBA, 64 KiB S | 145.31 | 126.74 | 179.00 | 94.15 |
+| 1280×720, 16-byte 4×4 blocks, 64 KiB S | 42.53 | 34.86 | 37.27 | 22.15 |
+| 1279×719 single channel, 4 KiB S | 40.44 | 33.92 | 126.84 | 32.36 |
+| 32×32 RGBA, 64 KiB S | 0.289 | 0.367 | 0.314 | 0.364 |
+
+The upstream fixed-width copy loop alone took 281.0 µs to tile the 720p RGBA surface, up from 190.0 µs in that pair. Visiting one destination block at a time brought that down to 91.7 µs from 287.6 µs in a separate direct comparison. The 32×32 regression remains in the combined change. An independent trial that cached the run width brought that small detile from 0.356 to 0.217 µs, but the compressed 720p detile went from 32.50 to 36.45 µs. I left the cached-width trial out of the combined branch. These are synthetic copy timings. [AMD PR](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/12) · [Upstream follow-up](https://github.com/brainbudt/VIctory-7900XTX/pull/1) · [Cached-width trial](https://github.com/UwUCammie/VIctory-7900XTX/commit/248ac514)
+
+To repeat the combined comparison from this benchmark checkout on 64-bit Linux, set `port` to a VIctory checkout containing the two commits. The harness emits the case, direction, pair, version, copy count and elapsed thread CPU nanoseconds. Divide by the copy count before taking each median.
+
+```sh
+trial=$(mktemp -d)
+cp benchmarks/texture_copy.rs "$trial/main.rs"
+git -C "$port" show 830dc191:crates/victory-formats/src/texture.rs > "$trial/reference.rs"
+git -C "$port" show acbaed74:crates/victory-formats/src/texture.rs > "$trial/candidate.rs"
+rustc --edition 2024 -O "$trial/main.rs" -o "$trial/texture-copy"
+"$trial/texture-copy"
+```
+
 ### Classifying shader memory writes after translation
 
 After host translation the runtime classifies writes to buffers and writes through raw addresses. Both checks decoded the same GFX10 program. I tested a version that shares one decode between them. It produced the same pair of flags for every one of 26,503 local containers. Of those, 4,231 could write buffers and none reported raw-address writes. A separate Windows test under Wine 11.22 covered a synthetic raw write and the conservative fallback for missing and truncated programs.
