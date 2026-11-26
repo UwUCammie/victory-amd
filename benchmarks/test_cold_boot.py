@@ -5,7 +5,7 @@ from tempfile import TemporaryDirectory
 import json
 import unittest
 
-from cold_boot import accepted_frames, report, window
+from cold_boot import accepted_frames, loaded_vkd3d_build, report, window
 from first_room import SessionFailed
 
 
@@ -14,6 +14,15 @@ def trace(offset):
 
 
 class ColdBootTests(unittest.TestCase):
+    def test_driver_build_verifies_loaded_revision_and_rejects_mixed_logs(self):
+        old = "info: vkd3d-proton - build: abcd012345+ (custom)."
+        new = "info: vkd3d-proton - build: 98765432."
+        version = "vkd3d-proton - applicationVersion: 3.2.0"
+        self.assertEqual(loaded_vkd3d_build([version, old, old], "ABCD012"), "abcd012345")
+        for lines in ([version], [new], [old, new], [old, "vkd3d-proton - build: unknown"]):
+            with self.subTest(lines=lines), self.assertRaises(ValueError):
+                loaded_vkd3d_build(lines, "abcd012")
+
     launched = datetime(2026, 11, 26, tzinfo=timezone.utc)
 
     def test_edges_count_against_fps(self):

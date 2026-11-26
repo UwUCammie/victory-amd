@@ -134,7 +134,27 @@ def check_overlap(run, metadata):
         raise ValueError("external validation or profiling overlapped this run")
 
 
-def report(run, metadata, start, stop, *, stalls=0, expected_output=None, expected_interface=None, progress=False):
+def loaded_vkd3d_build(lines, expected):
+    """Verify the build actually loaded by the process against a commit prefix."""
+    if not re.fullmatch(r"[0-9a-f]{7,40}", expected.lower()):
+        raise ValueError("expected a vkd3d-proton commit prefix of 7 to 40 hex digits")
+    builds = set()
+    for line in lines:
+        if "vkd3d-proton - build:" in line:
+            match = re.search(r"vkd3d-proton - build: ([0-9a-fA-F]{7,40})(?=[+.\s]|$)", line)
+            if not match:
+                raise ValueError("unrecognized vkd3d-proton build line")
+            builds.add(match[1].lower())
+    if len(builds) != 1:
+        raise ValueError("expected one distinct vkd3d-proton build in the driver log")
+    build = builds.pop()
+    if not build.startswith(expected.lower()):
+        raise ValueError(f"loaded vkd3d-proton build {build}, expected {expected}")
+    return build
+
+
+def report(run, metadata, start, stop, *, stalls=0, expected_output=None, expected_interface=None,
+           expected_vkd3d=None, progress=False):
     launch = json.loads(metadata.read_text())
     check_overlap(run, metadata)
     live = progress and "end_utc" not in launch
@@ -160,6 +180,9 @@ def report(run, metadata, start, stop, *, stalls=0, expected_output=None, expect
     if duration is not None and frames[-1] > duration:
         raise ValueError("frame trace extends beyond launcher metadata")
     result = {"first_present_seconds": frames[0] / 1e6, **window(frames, start, stop, stalls=stalls, compute_drops=drops)}
+    if expected_vkd3d is not None:
+        with (run / "vkd3d.log").open(errors="replace") as log:
+            result["vkd3d_build"] = loaded_vkd3d_build(log, expected_vkd3d)
     if live:
         check_overlap(run, metadata)
         result["provisional"] = True
@@ -177,6 +200,7 @@ if __name__ == "__main__":
     parser.add_argument("--start", type=int, default=0, help="seconds after launcher start")
     parser.add_argument("--stop", type=int, default=300, help="seconds after launcher start")
     parser.add_argument("--progress", action="store_true", help="allow a provisional reading after a live trace crosses --stop")
+    parser.add_argument("--expect-vkd3d", metavar="COMMIT", help="verify the loaded vkd3d-proton revision from the driver log")
     parser.add_argument("--stalls", type=int, default=0, help="list the N longest gaps and compute-drop notices in each")
     parser.add_argument("--expect-output", type=output_size, metavar="WIDTHxHEIGHT",
                         help="require this host swap-chain size throughout the run")
@@ -185,7 +209,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
     try:
         result = report(args.run, args.metadata, args.start * 1_000_000, args.stop * 1_000_000, stalls=args.stalls,
-                        expected_output=args.expect_output, expected_interface=args.expect_interface, progress=args.progress)
+                        expected_output=args.expect_output, expected_interface=args.expect_interface,
+                        expected_vkd3d=args.expect_vkd3d, progress=args.progress)
     except (ValueError, KeyError, OSError) as error:
         parser.exit(1, f"{error}\n")
     print(json.dumps(result, indent=2))
