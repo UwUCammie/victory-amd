@@ -157,6 +157,12 @@ I also replayed a short walk past the porch door with asynchronous texture uploa
 
 For fixed-camera video checks, `python3 benchmarks/flicker.py clip.mkv X Y WIDTH HEIGHT` reports the decoded frames where the largest fraction of a selected region briefly changed brightness. Use `--start-frame` and `--stop-frame` to isolate a parked camera between movements. It ignores exact repeated grayscale frames. A pixel must change by at least 24 levels on either side of a frame and return within six levels of its initial value. Inspect the neighboring frames to distinguish a surface disappearing from motion, water animation or a passing shadow. This helper needs NumPy, FFmpeg and ffprobe.
 
+### Diner reflections at 720p
+
+Two 150-second warm starts on the RX 7900 XT reached the diner with the same executable and input sequence. Each used a private copy of the same application and vkd3d caches, no story slots and `VICTORY_AMBIENT=0.8`. The only switch changed was `VICTORY_AMBIENT_REFLECT`, from 0 to 1. The enabled run recorded a reflection pass at 853×480 within the 1280×720 output. I matched the shots by camera angle and pose because the opening advanced at different times.
+
+With the pass off, blue-white glare obscured both irises in the close-up. With it on, both irises were visible. In a second shot, mean luma in a 59×13 patch of the reflective floor went from 59 to 24 (0–255). In the same two frames the server's shirt read 170 and 171 and a ceiling light read 177 and 175. These are decoded video samples from comparable shots. They establish a visible change to these surfaces. Geometry flicker and cold-start frame time need their own checks. [AMD pull request](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/14)
+
 ### November 26 fork check
 
 I kept the Linux/RADV tests on [linux-amd-best](https://github.com/jtrudeau1530/VIctory-7900XTX/tree/830dc191d749f6e9d30226a0a87dbb20607fcc40). One new [PortWatch](https://portwatch-vi.xyz/) lead, [VIctory-leonida](https://github.com/lepotane/VIctory-leonida/tree/c6c9da9f), reports 18.1 native average FPS in the world at 1080p on an RTX 4060 Ti under Windows. Its higher output figure uses NVIDIA Smooth Motion. Its shared-upload pool is worth measuring separately on RADV, but the host allocation patch needs a port to this branch. [Source change](https://github.com/lepotane/VIctory-leonida/commit/c6c9da9f)
