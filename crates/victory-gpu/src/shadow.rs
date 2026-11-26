@@ -3134,7 +3134,31 @@ pub(crate) fn find_all(work: &[(Arc<Shadow>, usize, usize)]) -> Vec<Vec<(usize, 
             }
         })
         .collect();
-    find_pieces_wc(scans)
+    let mut found = find_pieces_wc(scans);
+    if !lazy_copyback() {
+        return found;
+    }
+    for ((shadow, address, end), pieces) in work.iter().zip(&mut found) {
+        // A pending lazy page's last flush can supersede the pooled
+        // snapshot. Even an equal byte range needs the normal merge to
+        // compare it against that baseline under the snapshot lock.
+        let (mut at, to) = shadow.inside(*address, end.saturating_sub(*address));
+        let start = shadow.start as usize;
+        let scanned = pieces.len();
+        while at < to {
+            let size = (PIECE - (start + at) % PIECE).min(to - at);
+            let page = (start + at) / PAGE - start / PAGE;
+            if shadow.lazy_state[page].load(Ordering::Acquire) != LAZY_EAGER {
+                pieces.push((at, size));
+            }
+            at += size;
+        }
+        if pieces.len() != scanned {
+            pieces.sort_unstable();
+            pieces.dedup();
+        }
+    }
+    found
 }
 
 #[cfg(test)]
@@ -9552,7 +9576,7 @@ void main(uint3 tid : SV_DispatchThreadID) {
     fn lazy_copyback_resyncs_a_declared_range_in_a_shared_snapshot() {
         let _guard = LazyTestGuard::enable();
         let Some(h) = host() else { return };
-        for relay in [false, true] {
+        for mode in ["direct", "relay", "wide", "wide-relay"] {
             let block = VirtualBlock::new(PAGE, true);
             let shadow = make_test_shadow(h, block.addr() as u64, PAGE as u64, false).expect("shared copy");
             let at = 510;
@@ -9574,15 +9598,29 @@ void main(uint3 tid : SV_DispatchThreadID) {
             unsafe {
                 *block.ptr.add(at) = 0x55;
                 *shadow.data.add(at) = 0x22;
-                *shadow.data.add(at + 1) = 0x77;
+                *shadow.data.add(at + 1) = 0x11;
             }
-            if relay {
-                shadow.relay_merge(at, 2, &mut Vec::new(), &mut Vec::new());
-            } else {
-                shadow.copy_back(block.addr() + at, 2);
+            let address = block.addr() + at;
+            match mode {
+                "direct" => { shadow.copy_back(address, 2); }
+                "relay" => { shadow.relay_merge(at, 2, &mut Vec::new(), &mut Vec::new()); }
+                _ => {
+                    // Scan the bytes separately. Byte 1 matches the old snapshot
+                    // but differs from the bytes already written to title memory.
+                    let work = [(shadow.clone(), address, address + 1), (shadow.clone(), address + 1, address + 2)];
+                    for ((_, from, to), found) in work.iter().zip(find_all(&work)) {
+                        if mode == "wide" {
+                            shadow.copy_back_with(*from, to - from, Some(found));
+                        } else {
+                            for (at, n) in found {
+                                shadow.relay_merge(at, n, &mut Vec::new(), &mut Vec::new());
+                            }
+                        }
+                    }
+                }
             }
             // SAFETY: these two bytes belong to the committed title page.
-            assert_eq!(unsafe { std::slice::from_raw_parts(block.ptr.add(at), 2) }, &[0x55, 0x77]);
+            assert_eq!(unsafe { std::slice::from_raw_parts(block.ptr.add(at), 2) }, &[0x55, 0x11], "{mode}");
             shadow.copy_back_done(&[(block.addr() + at, block.addr() + at + 2)]);
         }
     }
