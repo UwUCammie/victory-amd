@@ -163,6 +163,8 @@ The runtime records elapsed worker build time for pipelines that took at least o
 
 The delay before the measured build merits testing separately from the cost inside the driver and translator. To repeat this on local runs, install the Python `blake3` package and run `python3 benchmarks/compute_build_time.py RUN_DIR METADATA_DIR/launch.json`. The report emits aggregate counts and timings.
 
+For the first and second stock runs, the translation-complete message fell inside the estimated worker interval for all 182 and 183 matched slow builds. The median time from that message to successful host pipeline creation was 1.70 s and 1.66 s. The median share of each worker interval spent after translation was 65.2% and 65.5%. That interval includes host setup, pipeline library access, driver compilation and time descheduled. The logs cannot apportion it between those costs.
+
 Binding often gave very little advance notice. In the first cold control, 307 of 344 distinct compute shaders with a first-drop notice were logged as bound less than one millisecond before that notice. In the second control it was 283 of 306. The median signed time between the log records was 24 and 18 microseconds respectively. Only four and two first binds were at least ten seconds earlier. Two first-drop messages in the first run even preceded the corresponding first-bind message. These are timestamp differences between messages from multiple threads; they measure the opportunity visible at the first-bind hook, not the execution time of either call. To reproduce from a local log, run `python3 benchmarks/compute_lag.py RUN_DIR/run.log --early-bytes 1024`.
 
 ### Saved waterfront lighting at 720p

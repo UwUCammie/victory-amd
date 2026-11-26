@@ -12,6 +12,14 @@ class BuildTimeTests(unittest.TestCase):
         self.assertEqual(got["median_estimated_seconds_drop_to_build_start"], 5.5)
         self.assertEqual(got["estimated_build_start_over_10s_after_drop"], 1)
 
+    def test_translation_must_land_inside_the_estimated_worker_interval(self):
+        drops = dict.fromkeys(("a", "b", "c"), 0)
+        finished = dict.fromkeys(drops, 10)
+        got = estimate(drops, finished, dict.fromkeys(drops, 2000), 13, str, {"a": 9, "b": 7, "c": 11})
+        self.assertEqual(got["translations_observed_within_estimated_build"], 1)
+        self.assertEqual(got["median_seconds_translation_to_host_completion"], 1)
+        self.assertEqual(got["median_fraction_of_build_after_translation"], 0.5)
+
     def test_repeated_host_messages_use_the_earliest_timestamp(self):
         log = [f"2030-01-01T00:00:0{n}Z INFO victory_gpu::pipeline::host: host pipeline shaders=[compute bbaa]"
                for n in (4, 2)]

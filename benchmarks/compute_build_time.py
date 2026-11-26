@@ -7,18 +7,20 @@ import re
 from statistics import median
 
 from cold_boot import report
-from compute_lag import DROPPED_SHADER
+from compute_lag import DROPPED_SHADER, SHADER
 from first_room import TIMESTAMP, session_lines
 
 
 HOST = re.compile(r"victory_gpu::pipeline::host: host pipeline shaders=\[compute ([0-9a-fA-F]+)\]")
 
 
-def first_events(lines):
+def first_events(lines, translated=None):
     dropped, finished = {}, {}
     for line in session_lines(lines):
         if "victory_gpu::pipeline::make: a compute dispatch was dropped:" in line:
             events, match = dropped, DROPPED_SHADER.search(line)
+        elif translated is not None and "victory_gpu::pipeline: shader translated " in line and 'stage="compute"' in line:
+            events, match = translated, SHADER.search(line)
         else:
             events, match = finished, HOST.search(line)
         if match and (stamp := TIMESTAMP.search(line)):
@@ -28,11 +30,12 @@ def first_events(lines):
     return dropped, finished
 
 
-def estimate(dropped, finished, slow, snapshot, pipeline_key):
+def estimate(dropped, finished, slow, snapshot, pipeline_key, translated=None):
     # Pending::new hashes the stage string, hexadecimal shader hash and empty graphics state.
     # note_time keeps the longest measured build per key. Use only positively matched durations.
     matched = dropped.keys() & finished.keys()
     after_drop, compile_ms, before_build = [], [], []
+    after_translation, after_share = [], []
     for shader in matched:
         cost = slow.get(pipeline_key(shader))
         if cost is None or finished[shader] > snapshot - 2:
@@ -41,7 +44,12 @@ def estimate(dropped, finished, slow, snapshot, pipeline_key):
         after_drop.append(lag)
         compile_ms.append(cost)
         before_build.append(lag - cost / 1000)
-    return {
+        if translated is not None and shader in translated and cost > 0:
+            remaining = finished[shader] - translated[shader]
+            if 0 <= remaining <= cost / 1000:
+                after_translation.append(remaining)
+                after_share.append(remaining * 1000 / cost)
+    result = {
         "shaders_with_first_drop": len(dropped),
         "also_logged_host_completion": len(matched),
         "matched_to_slow_build_before_snapshot": len(before_build),
@@ -50,6 +58,13 @@ def estimate(dropped, finished, slow, snapshot, pipeline_key):
         "median_estimated_seconds_drop_to_build_start": median(before_build) if before_build else None,
         "estimated_build_start_over_10s_after_drop": sum(delta > 10 for delta in before_build),
     }
+    if translated is not None:
+        result.update(
+            translations_observed_within_estimated_build=len(after_translation),
+            median_seconds_translation_to_host_completion=median(after_translation) if after_translation else None,
+            median_fraction_of_build_after_translation=median(after_share) if after_share else None,
+        )
+    return result
 
 
 if __name__ == "__main__":
@@ -70,9 +85,10 @@ if __name__ == "__main__":
             raise ValueError("the slow pipeline snapshot was not written during this launch")
         slow = {key: int(ms) for key, ms in (row.split() for row in cache.read_text().splitlines())}
         with (args.run / "run.log").open(encoding="utf-8", errors="replace") as log:
-            drops, done = first_events(log)
+            translated = {}
+            drops, done = first_events(log, translated)
         def pipeline_key(shader):
             return blake3(("compute" + shader).encode("ascii")).hexdigest()[:32]
-        print(json.dumps(estimate(drops, done, slow, snapshot, pipeline_key), indent=2))
+        print(json.dumps(estimate(drops, done, slow, snapshot, pipeline_key, translated), indent=2))
     except (OSError, ValueError) as error:
         parser.exit(1, f"{error}\n")
