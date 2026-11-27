@@ -1075,6 +1075,8 @@ The returned start and stop times work with `first_room.py`. Missing captures mo
 
 The guarded launcher uses `guard_quiet.sh` after polling both resources. A parallel CPU build starts a five-second quiet period, and GPU activity starts a separate 45-second period. The launcher still yields immediately on either active resource and excludes the attempt from full scoring. A CPU build never extends the GPU's recovery period.
 
+CPU-only cross-builds can prepare an executable while another process holds the GPU. Use one low-priority compiler job and hold the CPU validation lock while staging the executable and checking its PDB. A competing parallel build pauses the cross-build. The launcher checks foreground GPU activity before the validation lock, then uses the five-second CPU quiet period when the lock is the only active resource.
+
 The first repeat after the separate build timer took effect verified its executable 6.71 s after the last parallel-build notice and reached 107.77 s before yielding to a new build. The next 95 s diagnostic completed without overlap. These checks measure available test time.
 
 The 1280×720 output test used the same display-patch executable as the 1080p run. It began with a 19,319 MiB local GPU budget. The standing character and window were visible at 115, 125, 142 and 149 s. From 115–149 s the complete intervals added up to **784 successful presents in 32.70 s (23.98 FPS)** at 4,883 draws/frame. The two independent motion samples measured 23.75 and 24.56 changes/s. Submission preparation averaged 40.25 ms/frame. The GPU queue was empty for 17.52 ms/frame. The setting changes the title's output to 1280×720; the original desktop run used 3840×2160. The startup budgets differ from the earlier 1080p measurement.
@@ -1416,7 +1418,7 @@ Against the earlier verified 21.93 FPS release, the updated compiler/cache attem
 
 Thin command lists buffer commands until a chunk fills or the list closes. The experiment starts a compute pipeline on the existing early queue when a direct nonzero dispatch or supported indirect compute dispatch is recorded. Replay keeps its current ordering and wait rules. All five focused Windows MSVC tests passed under headless Wine with 114 verified source checksums.
 
-The capture-free diagnostic pair uses one executable and changes only `VICTORY_EARLY_RECORDED_COMPUTE`. Both timings start at cold launch, with a 75 s observation window inside an 82 s run. The trace checks time from first recording to first replay use and counts pipelines already ready at that point. These short runs are for deciding whether the head start is worth a full 300 s trial. [Runtime experiment](https://github.com/UwUCammie/VIctory-7900XTX/commit/60901cf7)
+The capture-free diagnostic pair uses one executable and changes only `VICTORY_EARLY_RECORDED_COMPUTE`. Its release binary passed 178 source checksums and was staged with only CPU access. Both timings start at cold launch, with a 75 s observation window inside an 82 s run. The trace checks time from first recording to first replay use and counts pipelines already ready at that point. These short runs are for deciding whether the head start is worth a full 300 s trial. [Runtime experiment](https://github.com/UwUCammie/VIctory-7900XTX/commit/60901cf7)
 
 ### General pipeline workers in the opening
 
