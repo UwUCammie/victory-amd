@@ -1,0 +1,11 @@
+{
+    "file_format_version": "1.2.0",
+    "layer": {
+        "name": "VK_LAYER_VICTORY_compute_compile",
+        "type": "GLOBAL",
+        "library_path": "./libgoal30_radv_compute_compile.so",
+        "api_version": "1.4.330",
+        "implementation_version": "1",
+        "description": "Victory compute pipeline compilation benchmark"
+    }
+}

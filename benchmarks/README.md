@@ -1106,6 +1106,26 @@ Two further off-card comparisons ran the three translator settings in opposite o
 
 Compaction was slower in both off-card orders and in the first physical pair. Wider raw loads saved 0.11–0.23 s on these 16 fixtures. Their gameplay effect is open. The benchmark keeps the standard settings for cold first boot. The full fixture took 41–42 s per arm, including translation, DXC validation and startup. The device namespace leaves the physical card available throughout.
 
+#### Measuring the Vulkan compute compile flag
+
+The explicit test layer lets the same vkd3d-proton executable request faster compilation for compute pipelines. It adds Vulkan's `DISABLE_OPTIMIZATION` flag to single-pipeline calls. It uses the flags2 structure when vkd3d supplies it and preserves the descriptor heap flag and the rest of the chain. The layer counts batched calls or a flags2 structure deeper in the chain as bypassed. The generated native smoke test created a pipeline through the legacy and flags2 forms in both modes and observed two flagged calls when enabled. [Vulkan pipeline flags](https://docs.vulkan.org/refpages/latest/refpages/source/VkPipelineCreateFlagBits2.html)
+
+Build with Vulkan 1.4 headers and put the shared library next to the layer manifest in a private directory.
+
+```sh
+mkdir -p "$layer_directory"
+cc -std=c11 -O2 -fPIC -fvisibility=hidden -pthread -shared \
+  -I "$mesa/include" benchmarks/radv_compute_compile_layer.c \
+  -o "$layer_directory/libgoal30_radv_compute_compile.so"
+cp benchmarks/radv_compute_compile_layer.json "$layer_directory/"
+python -I benchmarks/radv_compile_only.py --work "$fixture_directory" \
+  --shim "$build/src/amd/drm-shim/libamdgpu_noop_drm_shim.so" -- env \
+  VK_LAYER_PATH="$layer_directory" VK_INSTANCE_LAYERS=VK_LAYER_VICTORY_compute_compile \
+  VICTORY_BENCH_FAST_COMPUTE=0 "$fixture_executable"
+```
+
+Run the same fixture with `VICTORY_BENCH_FAST_COMPUTE=1` and a fresh vkd3d cache directory. The off-card comparison measures pipeline creation time. Frame timing, shader execution cost and rendering quality need a separate physical run.
+
 The first repeat after the separate build timer took effect verified its executable 6.71 s after the last parallel-build notice and reached 107.77 s before yielding to a new build. The next 95 s diagnostic completed without overlap. These checks measure available test time.
 
 The 1280×720 output test used the same display-patch executable as the 1080p run. It began with a 19,319 MiB local GPU budget. The standing character and window were visible at 115, 125, 142 and 149 s. From 115–149 s the complete intervals added up to **784 successful presents in 32.70 s (23.98 FPS)** at 4,883 draws/frame. The two independent motion samples measured 23.75 and 24.56 changes/s. Submission preparation averaged 40.25 ms/frame. The GPU queue was empty for 17.52 ms/frame. The setting changes the title's output to 1280×720; the original desktop run used 3840×2160. The startup budgets differ from the earlier 1080p measurement.
