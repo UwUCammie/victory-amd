@@ -19,6 +19,7 @@ from avatar_wine_profile import AVATAR_WINE_WRITE_WATCH_GAPS, verify_write_watch
 from avatar_wine_profile import AVATAR_WINE_WORKER_PRIORITY_SCORES, verify_pipeline_worker_priorities
 from avatar_wine_profile import AVATAR_WINE_REQUESTED_WORKER_SCORES, verify_requested_worker
 from avatar_wine_profile import AVATAR_WINE_NO_MOVEMENT, scripted_story_input
+from avatar_wine_profile import AVATAR_WINE_FIXES_COLD, AVATAR_WINE_FIXES_VISUAL
 from avatar_wine_profile import (AVATAR_WINE_RECORDED_COMPUTE, AVATAR_WINE_RECORDED_SCREEN,
                                  AVATAR_WINE_FULL_DIRTY_SCAN_MODES, AVATAR_WINE_FULL_DIRTY_SCAN_SCORES,
                                  AVATAR_WINE_LATE_SUBMIT_PROFILES,
@@ -180,6 +181,12 @@ class AvatarWineProfileTests(unittest.TestCase):
         lowest = next(iter(AVATAR_WINE_WORKER_PRIORITY_SCORES))
         self.assertEqual(benchmark_flags(AVATAR_WINE_NO_MOVEMENT), benchmark_flags(lowest))
         self.assertFalse(AVATAR_WINE_CAPTURE_OBSERVERS[AVATAR_WINE_NO_MOVEMENT])
+
+    def test_combined_fix_build_preserves_the_priority_control_profile(self):
+        lowest = next(iter(AVATAR_WINE_WORKER_PRIORITY_SCORES))
+        for mode, capture in ((AVATAR_WINE_FIXES_COLD, False), (AVATAR_WINE_FIXES_VISUAL, True)):
+            self.assertEqual(benchmark_flags(mode), benchmark_flags(lowest))
+            self.assertEqual(AVATAR_WINE_CAPTURE_OBSERVERS[mode], capture)
 
     def test_observer_pair_uses_the_same_runtime_flags(self):
         off = benchmark_flags(AVATAR_WINE_OBSERVERS_OFF)

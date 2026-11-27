@@ -74,6 +74,8 @@ AVATAR_WINE_WORKER_PRIORITY_SCORES = {
     "vkd3d-master-avatar-wine-440-cold-worker-below-normal": "0",
 }
 AVATAR_WINE_NO_MOVEMENT = "vkd3d-master-avatar-wine-440-cold-worker-no-movement"
+AVATAR_WINE_FIXES_COLD = "vkd3d-master-avatar-wine-440-verified-fixes-cold"
+AVATAR_WINE_FIXES_VISUAL = "vkd3d-master-avatar-wine-440-verified-fixes-visual"
 AVATAR_WINE_REQUESTED_WORKER_SCORES = {
     "vkd3d-master-avatar-wine-440-cold-requested-worker-off": "0",
     "vkd3d-master-avatar-wine-440-cold-requested-worker-on": "1",
@@ -100,6 +102,7 @@ AVATAR_WINE_CAPTURE_OBSERVERS = {
     **dict.fromkeys(AVATAR_WINE_FULL_DIRTY_SCAN_SCORES, False),
     **dict.fromkeys(AVATAR_WINE_WORKER_PRIORITY_SCORES, False),
     AVATAR_WINE_NO_MOVEMENT: False,
+    AVATAR_WINE_FIXES_COLD: False, AVATAR_WINE_FIXES_VISUAL: True,
     **dict.fromkeys(AVATAR_WINE_REQUESTED_WORKER_SCORES, False),
     **dict.fromkeys(AVATAR_WINE_SCREEN_WAITER_SCORES, False),
     **dict.fromkeys(AVATAR_WINE_WRITE_WATCH_GAPS, False),
@@ -309,7 +312,8 @@ def benchmark_flags(mode):
     if mode in full_scan:
         flags.update(VICTORY_CARD_TOUCHED="0",
                      VICTORY_CARD_SKIP_CLEAN_UPGRADES=full_scan[mode])
-    if mode in (*AVATAR_WINE_WORKER_PRIORITY_SCORES, *AVATAR_WINE_REQUESTED_WORKER_SCORES, AVATAR_WINE_NO_MOVEMENT):
+    if mode in (*AVATAR_WINE_WORKER_PRIORITY_SCORES, *AVATAR_WINE_REQUESTED_WORKER_SCORES,
+                AVATAR_WINE_NO_MOVEMENT, AVATAR_WINE_FIXES_COLD, AVATAR_WINE_FIXES_VISUAL):
         flags.update(VICTORY_PIPELINE_WORKERS="10",
                      VICTORY_PIPELINE_LOWEST=AVATAR_WINE_WORKER_PRIORITY_SCORES.get(mode, "1"))
     if mode in AVATAR_WINE_REQUESTED_WORKER_SCORES:
