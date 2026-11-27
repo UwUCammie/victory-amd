@@ -212,6 +212,8 @@ Both showed a very dark sample at 100 seconds and later returned to visible scen
 
 In the reverse-order repeat, the combined build delivered 3,147 presents in the first 300 seconds (10.49 FPS), with a 592 ms P99, an 11.20 s longest gap and 180.27 seconds in gaps over 100 ms. The matching stock run stopped advancing after about 113 seconds and Wine exited during the scheduled window. A core dump was registered at about 185 seconds. This incomplete run has no 300-second score. The first combined attempt was also excluded after a concurrent build started. The stock retry uses five fresh caches.
 
+The stock retry then delivered 2,651 presents (8.84 FPS), with a 1,840 ms P99, an 11.39 s longest gap and 199.23 seconds in gaps over 100 ms. There were 31 gaps over one second on stock and 28 on the combined build. Both runs showed a face in the car and reached the same couch shot by the 255 s capture. At 85 and 100 s, the stock capture had subtitles over a black view while the combined capture showed the exterior. Later shots still differed. Across both clean pairs, stock accepted 5,240 presents in 600 s (8.73 FPS) and the combined build accepted 6,121 (10.20 FPS). The two run orders favor the combination on this five-minute workload. The timing does not isolate one optimization or compare identical shots.
+
 ### Relay flags before copy-back
 
 The relay first collected every candidate flag in a vector, then collected the flagged keys in a second vector before sorting and deduplicating them. Supplying the flags directly to the collector removes the first vector. Both revisions returned the same sorted keys in the generated cases, including duplicates and partial overlap in the existing relay tests.
