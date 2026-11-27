@@ -405,6 +405,17 @@ python3 "$bench/texture_query.py" e6b99130 --pairs 7
 
 These are median times per query across seven alternating pairs. Each pair used 193 starting addresses. The direct query stops at the first newer write and skips the scan entirely on a first refresh. In a separate 32-minute saved session at 720p, the median reporting interval after the first two minutes attributed 9.5 ms/frame across all threads to the entire write-watch and guard step. That counter includes kernel and guard work and overlap between threads. It cannot be used as a prediction of FPS.
 
+### Reserved VirtualQuery ranges
+
+I tried adapting the reserved-range cache from [Avatar #377](https://github.com/avatarmanz/VIctory-7900XTX/pull/377) to the AMD runtime. Both runs started with five empty graphics caches, no story slot and the same verified 1280×720 release and vkd3d-proton GE `cae8353ed7959c4`. The only setting changed was `VICTORY_QUERY_HOLE_FRAMES`.
+
+| First 300 seconds | Presents | Average FPS | P99 gap | Longest gap | Time in gaps over 100 ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Off | 2,442 | 8.14 | 2,769 ms | 11.41 s | 202.97 s |
+| 30 frames | 2,187 | 7.29 | 3,690 ms | 11.59 s | 209.50 s |
+
+The enabled run showed the exterior clearly at 85–115 s. The off run was mostly dark during two of those captures and washed out at 115 s. Both later displayed faces in the car and showed the same tower at 295 s. The cuts and early visible work differed. The cache stays opt-in after this slower pair. An ordinary commit outside the runtime can also leave a reserved-range answer stale for the configured lifetime. This release comparison did not collect per-site query counts. The expiry and overlap-invalidation test passed on Windows MSVC under Wine. [Tested build](https://github.com/UwUCammie/VIctory-7900XTX/commit/87689ad3)
+
 ### Yielding a compile to other work
 
 `competing_build.py` counts compiler processes and also recognizes parallel make/ninja invocations. For timing the game, run it with no arguments so every build counts. For guarding a compile, start that compile in its own session (Python's `subprocess.Popen(..., start_new_session=True)`) and pass its PID to `--exclude-session` while it runs. This excludes the compiler and build driver in that dedicated session. Two outside compiler processes plus a serial compiler of our own previously looked like three outside compilers and could cancel the serial job. Three outside compilers, or a parallel make/ninja invocation outside that session, still trigger a yield. GPU ownership is checked separately.
