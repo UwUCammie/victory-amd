@@ -15,7 +15,13 @@ def kernel(checkout, revision, name):
     merge = re.search(r"^fn merge_piece\(now: &\[u8\].*?^}", source, re.M | re.S)
     if merge is None:
         raise ValueError(f"shadow merge is missing at {revision}")
-    return "#[inline(never)]\n" + merge[0].replace("fn merge_piece(", f"fn {name}(")
+    function = merge[0].replace("fn merge_piece(", f"fn {name}(", 1)
+    if "DIFF_CHUNK" in function:
+        chunk = re.search(r"^const DIFF_CHUNK: usize = \d+;", source, re.M)
+        if chunk is None:
+            raise ValueError(f"literal DIFF_CHUNK is missing at {revision}")
+        function = function.replace(" {\n", f" {{\n    {chunk[0]}\n", 1)
+    return "#[inline(never)]\n" + function
 
 
 if __name__ == "__main__":

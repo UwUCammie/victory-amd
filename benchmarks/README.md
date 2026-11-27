@@ -371,6 +371,15 @@ At 64 KiB, median elapsed-time changes within seven alternating native pairs per
 
 The changed inputs regressed on both targets and the port stays outside the gameplay build. Run `python3 benchmarks/shadow_merge.py CHECKOUT 830dc191 8c6e2a3e` with Rust 1.98.1, adding `--cpu x86-64-v3` for the second target. Results are from generated buffers on one Ryzen 7 9700X core. [Tested source](https://github.com/UwUCammie/VIctory-7900XTX/commit/8c6e2a3e)
 
+I reran the fixture on the revised upstream commit `e8fc662e`, which trims all slices to their common prefix and uses the real 32-byte `DIFF_CHUNK` with a scalar merge for changed blocks. The shared-prefix and byte-output checks passed. At 64 KiB the median paired time changes against the AMD scalar loop were:
+
+| Target | Equal | Sparse writes | Dense writes |
+| --- | ---: | ---: | ---: |
+| Default x86-64 | −16.23% | +75.88% | +522.20% |
+| x86-64-v3 | −44.86% | +153.44% | +800.87% |
+
+The revised loop stayed outside the AMD gameplay build. The harness now reads each revision’s own chunk constant. To reproduce, fetch fxceless PR #1421 and pass `e8fc662e` as the candidate revision. These are synthetic merge timings without a game launch. [Revised upstream commit](https://github.com/fxceless/victory-fork/commit/e8fc662e)
+
 ### Isolated compiler thread dispatch
 
 The two full selective-heap launches below recorded 1,559 and 1,579 successful host pipeline creations. With `VICTORY_PIPE_FIX=1` the AMD branch launches a Windows thread for each compile attempt. I measured the cost of just handing a trivial job to a fresh or reused isolated compiler on the Ryzen 7 9700X under Wine 11.22. Seven alternating pairs of 128 jobs gave median elapsed times of 17.763 ms for fresh threads and 0.390 ms for reuse, including startup. All seven pairs favored reuse. The fixture checks every reply and uses the same stack reservation and priority in both paths. These are debug fixture measurements without a driver compile. [Worker change and test command](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/24)
