@@ -1284,7 +1284,21 @@ The Wine port of Peppacodes's constant-compare fix passed 16 generated f16 and f
 
 The opt-in scheduler experiment places a compute or screen request ahead of ordinary work while a title caller still has time left to wait. The original queue keeps ownership of each request, so hint expiry preserves the earlier order and a job can only be claimed once. Eight focused Windows MSVC queue tests passed under Wine 11.22 with the option off and on. The executable and PDB matched 108 source checksums. The 100 s timing diagnostic records how long requests wait before a worker claims them, with the priority option off. It is excluded from cold FPS scoring. The staged release matched 171 source checksums. Its first diagnostic launch confirmed the expected driver and setting, then yielded to another build at 32.46 s. The completed portion had 29 recorded claims and no compute wait reports, so it did not cover the stalls this test is intended to measure. Both full comparisons use the same binary with timing disabled and differ only in the priority option.
 
-The second timing launch completed its 105 s timeout without overlap, with priority disabled. Its first 100 s contained 1,665 worker claims, including 990 that followed a request by more than 100 ms. The longest delay was 39.86 s. The trace matched all 342 compute wait reports to unique claims. Time before a worker claimed a matching job overlapped 30.97 s of complete frame gaps of at least one second. Waits can overlap, and queue time alone cannot establish how much time a scheduler change will recover. A matching 105 s launch uses the same binary and timing instrumentation with priority enabled. [Experimental source](https://github.com/UwUCammie/VIctory-7900XTX/commit/b004cdec)
+The second timing launch completed its 105 s timeout without overlap, with priority disabled. Its first 100 s contained 1,665 worker claims, including 990 that followed a request by more than 100 ms. The longest delay was 39.86 s. The trace matched all 342 compute wait reports to unique claims. Time before a worker claimed a matching job overlapped 30.97 s of complete frame gaps of at least one second. Waits can overlap, and queue time alone cannot establish how much time a scheduler change will recover. The matching 105 s launch completed without overlap with priority enabled. It used the same binary, driver files and loaded driver, input, timing instrumentation, cold caches and fresh story profile. The priority switch was the only runtime setting changed.
+
+| First 100 s | Priority off | Priority on |
+| --- | ---: | ---: |
+| Recorded worker claims | 1,665 | 1,665 |
+| Claims after 100 ms | 990 | 824 |
+| Longest request-to-worker delay | 39.86 s | 40.60 s |
+| Compute wait reports matched to a unique claim | 342 | 437 |
+| Time queued before a claim overlapping complete gaps of at least 1 s | 30.97 s | 7.10 s |
+| Accepted presents with timing enabled | 1,556 | 1,513 |
+| P99 frame interval | 300.20 ms | 271.15 ms |
+| Longest frame gap | 19.97 s | 10.36 s |
+| Time in gaps above 100 ms | 72.76 s | 72.90 s |
+
+Waits after the last shader translation was logged overlapped 26.60 s of complete long gaps with priority off and 52.58 s with priority on. The scheduler shortened the longest gap and moved more waiting after translation in this pair. Both launches remain diagnostic, with full 300 s comparison pending. [Experimental source](https://github.com/UwUCammie/VIctory-7900XTX/commit/b004cdec)
 
 ### Reusing command lists at thin replay construction
 
