@@ -52,11 +52,16 @@ class AvatarWineProfileTests(unittest.TestCase):
         })
 
     def test_writeback_arms_change_only_the_writeback_switch(self):
-        off, on = map(benchmark_flags, AVATAR_WINE_WRITEBACK_SWITCHES)
-        self.assertEqual(off.pop("VICTORY_WC_NO_BACK"), "0")
-        self.assertEqual(on.pop("VICTORY_WC_NO_BACK"), "1")
-        self.assertEqual(off, on)
-        self.assertEqual(on["VICTORY_WC_CENSUS"], "0")
+        for mode, value in AVATAR_WINE_WRITEBACK_SWITCHES.items():
+            if value == "1":
+                continue
+            with self.subTest(mode=mode):
+                off = benchmark_flags(mode)
+                on = benchmark_flags(mode.removesuffix("off") + "on")
+                self.assertEqual(off.pop("VICTORY_WC_NO_BACK"), "0")
+                self.assertEqual(on.pop("VICTORY_WC_NO_BACK"), "1")
+                self.assertEqual(off, on)
+                self.assertEqual(on["VICTORY_WC_CENSUS"], "0")
 
     def test_notification_arms_change_only_the_verified_switch(self):
         shared, local = map(benchmark_flags, AVATAR_WINE_NOTIFY_SWITCHES)
@@ -116,7 +121,8 @@ class AvatarWineProfileTests(unittest.TestCase):
             writeback_activity([counters, kept.replace("64 KiB", "32 KiB")], started, 2_000_000, True)
 
     def test_early_compute_flags_and_runtime_confirmation(self):
-        off, on, wider, shorter, larger = map(benchmark_flags, AVATAR_WINE_EARLY_LIMITS)
+        off, on, wider, shorter, larger, legacy_fma = map(benchmark_flags, AVATAR_WINE_EARLY_LIMITS)
+        self.assertEqual(legacy_fma, larger)
         self.assertEqual(larger.pop("VICTORY_EARLY_COMPUTE_MAX_BYTES"), "3072")
         self.assertEqual(larger, {key: value for key, value in shorter.items()
                                   if key != "VICTORY_EARLY_COMPUTE_MAX_BYTES"})

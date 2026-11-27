@@ -12,13 +12,17 @@ AVATAR_WINE_COMPUTE_BUDGETS = {
 AVATAR_WINE_WRITEBACK_SWITCHES = {
     "vkd3d-master-avatar-wine-440-wc-off": "0",
     "vkd3d-master-avatar-wine-440-wc-on": "1",
+    "vkd3d-master-avatar-wine-440-wc-bounds-off": "0",
+    "vkd3d-master-avatar-wine-440-wc-bounds-on": "1",
 }
+AVATAR_WINE_LEGACY_FMA = "vkd3d-master-avatar-wine-440-legacy-fma-3072"
 AVATAR_WINE_EARLY_LIMITS = {
     "vkd3d-master-avatar-wine-440-early-off": 0,
     "vkd3d-master-avatar-wine-440-early-1k": 1024,
     "vkd3d-master-avatar-wine-440-early-2560": 2560,
     "vkd3d-master-avatar-wine-440-early-2560-wait2000": 2560,
     "vkd3d-master-avatar-wine-440-early-3072-wait2000": 3072,
+    AVATAR_WINE_LEGACY_FMA: 3072,
 }
 AVATAR_WINE_NOTIFY_SWITCHES = {
     "vkd3d-master-avatar-wine-440-notify-global": "0",
@@ -31,7 +35,7 @@ AVATAR_WINE_SCREEN_LIMITS = {
 AVATAR_WINE_MODES = AVATAR_WINE_COMPUTE_BUDGETS | dict.fromkeys(
     (*AVATAR_WINE_WRITEBACK_SWITCHES, *AVATAR_WINE_EARLY_LIMITS, *AVATAR_WINE_NOTIFY_SWITCHES), 10000
 ) | dict.fromkeys((*AVATAR_WINE_SCREEN_LIMITS, "vkd3d-master-avatar-wine-440-early-2560-wait2000",
-                   "vkd3d-master-avatar-wine-440-early-3072-wait2000"), 2000)
+                   "vkd3d-master-avatar-wine-440-early-3072-wait2000", AVATAR_WINE_LEGACY_FMA), 2000)
 
 # Source profile: avatarmanz/VIctory-7900XTX#440, b2bf3d99, play.sh and play-1080p.sh.
 # Use the benchmark's scene and UI dimensions, render offline, and keep the
