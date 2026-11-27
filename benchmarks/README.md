@@ -304,6 +304,8 @@ The [texture copy-back writer change](https://github.com/jtrudeau1530/VIctory-79
 
 Over approximately 171–180 seconds I checked the same 114×76 image-space crop containing the reflective floor in each recording at 15 Hz. Across 138 distinct middle frames per run, no pixels crossed the one-frame reversal threshold in either crop. The camera headings differed inside the room, so the crops cover different floor details. The replay exercised the dependency check and did not reproduce the reported geometry flicker in these crops.
 
+A separate pair flipped `VICTORY_AMBIENT_REFLECT` using the same UI build and saved inputs in both arms. The pass recorded at 853×480 in the enabled arm. Both runs missed the glass door and ended up in the water, with different movement and camera angles. These recordings do not establish an indoor lighting comparison. The next pair starts from the autosave written on a disposable copy of the slot after the earlier route reached the room and uses only menu inputs.
+
 ### Desktop play profile at 720p
 
 The interactive session that produced the waterfront save reported 32,585 presents in 1,948.58 seconds of complete reporting intervals (16.72 FPS and 5,043 draws/frame). It includes menus and gameplay. The submission thread worked 53.46 ms/frame. The GPU queue was empty for 35.25 ms/frame, including 31.05 ms while that thread was working. This points to CPU submission work as a candidate in this session. The interactive timing uses the desktop caches and is separate from the clean first-boot baseline.
