@@ -6,7 +6,7 @@ from avatar_wine_profile import (AVATAR_WINE_COMPILER_CACHE, AVATAR_WINE_EARLY_L
                                  AVATAR_WINE_SCREEN_WORKERS, AVATAR_WINE_VALUE_USE_INDEX,
                                  AVATAR_WINE_WRITEBACK_SWITCHES, benchmark_flags, compute_wait_activity,
                                  early_compute_activity, early_screen_activity, observed_profile,
-                                 pipeline_wait_gap_totals, screen_wait_coverage, screen_worker_activity,
+                                 pipeline_wait_gap_totals, pipeline_wait_group_coverage, screen_wait_coverage, screen_worker_activity,
                                  verify_notification_mode, writeback_activity)
 from cold_boot import verify_wait_budgets
 
@@ -150,6 +150,24 @@ class AvatarWineProfileTests(unittest.TestCase):
             "screen_overlap_seconds": 1.4,
             "compute_overlap_seconds": 1.5,
             "either_overlap_seconds": 2.4,
+        })
+
+    def test_long_gap_wait_groups_union_reports_with_matching_shader_lists_and_classes(self):
+        started = datetime(2026, 11, 27, 8, tzinfo=timezone.utc)
+        logs = [
+            "2026-11-27T08:00:02.2Z INFO a compute pass was waited for ms=1200 made=true shaders=[a]",
+            "2026-11-27T08:00:02.5Z INFO a compute pass was waited for ms=1000 made=true shaders=[a]",
+            "2026-11-27T08:00:03Z INFO a pass over the screen was waited for ms=700 made=false shaders=[a]",
+            "2026-11-27T08:00:04Z INFO a compute pass was waited for ms=500 made=true shaders=[b]",
+            "2026-11-27T08:00:08Z INFO a compute pass was waited for ms=4000 made=true shaders=[b]",
+        ]
+        frames = [1_000_000, 3_000_000, 3_500_000, 4_500_000, 8_000_000]
+        self.assertEqual(pipeline_wait_group_coverage(logs, started, 6_000_000, frames), {
+            "gaps_at_least_one_second": 2,
+            "gap_seconds": 3.0,
+            "any_wait_overlap_seconds": 2.5,
+            "largest_group_overlap_seconds": 2.0,
+            "gaps_with_one_group_covering_at_least_80_percent": 0,
         })
 
     def test_writeback_activity_rejects_a_wrong_mode_or_threshold(self):

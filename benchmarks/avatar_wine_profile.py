@@ -210,15 +210,20 @@ def screen_worker_activity(lines, launched, stop, expected):
     return {"reserved": expected, "first_claim_seconds": claims[0] / 1e6 if claims else None}
 
 
-def _pipeline_wait_spans(lines, launched, stop):
+def _pipeline_wait_reports(lines, launched, stop):
     labels = {"a pass over the screen was waited for": "screen", "a compute pass was waited for": "compute"}
-    spans = {kind: [] for kind in labels.values()}
     for end, line in windowed_log_lines(lines, launched, stop, tuple(labels)):
         match = re.search(r"\bms=(\d+)\s+made=(true|false)\b", line)
         if match is None:
             raise ValueError("pipeline wait result has no duration or pipeline status")
         kind = next(kind for label, kind in labels.items() if label in line)
-        spans[kind].append((end - int(match[1]) * 1000, end))
+        yield kind, end - int(match[1]) * 1000, end, line
+
+
+def _pipeline_wait_spans(lines, launched, stop):
+    spans = {"screen": [], "compute": []}
+    for kind, start, end, _ in _pipeline_wait_reports(lines, launched, stop):
+        spans[kind].append((start, end))
     return {kind: sorted(waits) for kind, waits in spans.items()}
 
 
@@ -252,6 +257,34 @@ def pipeline_wait_gap_totals(lines, launched, stop, frames):
     return {"long_gap_seconds": sum(b - a for a, b in gaps) / 1e6,
             **{f"{kind}_overlap_seconds": sum(_wait_overlap(waits, a, b) for a, b in gaps) / 1e6
                for kind, waits in spans.items()}}
+
+
+def pipeline_wait_group_coverage(lines, launched, stop, frames):
+    """Aggregate wait groups in complete present gaps lasting at least a second.
+
+    A group shares both its shader list and its compute/screen wait class.
+    Several pipeline configurations can use the same shader list.
+    """
+    groups = {}
+    for kind, start, end, line in _pipeline_wait_reports(lines, launched, stop):
+        match = re.search(r"\bshaders=(\[[^\]]+\])", line)
+        if match is None:
+            raise ValueError("pipeline wait result has no shader list")
+        groups.setdefault((kind, match[1]), []).append((start, end))
+
+    group_spans = [sorted(waits) for waits in groups.values()]
+    all_spans = sorted(span for waits in group_spans for span in waits)
+    gaps = [(a, b) for a, b in zip(frames, frames[1:]) if 0 <= a < b <= stop and b - a >= 1_000_000]
+    largest_per_gap = [max((_wait_overlap(waits, a, b) for waits in group_spans), default=0) for a, b in gaps]
+    return {
+        "gaps_at_least_one_second": len(gaps),
+        "gap_seconds": sum(b - a for a, b in gaps) / 1e6,
+        "any_wait_overlap_seconds": sum(_wait_overlap(all_spans, a, b) for a, b in gaps) / 1e6,
+        "largest_group_overlap_seconds": sum(largest_per_gap) / 1e6,
+        "gaps_with_one_group_covering_at_least_80_percent": sum(
+            5 * overlap >= 4 * (b - a) for (a, b), overlap in zip(gaps, largest_per_gap)
+        ),
+    }
 
 
 def verify_notification_mode(lines, launched, stop, expected):
