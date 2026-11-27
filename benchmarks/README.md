@@ -1410,9 +1410,9 @@ On the ten-worker release, the first two complete long gaps lasted 10.31 and 10.
 | Time in gaps over 100 ms | 50.54 s | 50.50 s |
 | Compute waits without a result | 25 | 52 |
 
-The shorter compute wait left about the same total time in gaps over 100 ms. The private capture showed character skin earlier in the scene, and the run ended before the matching face close-up. This prefix leaves the rendering comparison and full cold score open.
+The shorter compute wait left about the same total time in gaps over 100 ms. The private capture showed character skin earlier in the scene, and the run ended before the matching face close-up. This prefix leaves the rendering comparison and full cold score open. For the two longest screen waits in the 2 s arm, 10.489 and 10.000 s of overlap were before the last shader translation was logged. Less than 3 ms was after it. That interval includes time waiting for a worker, so it cannot establish how much time the translator spent working.
 
-The indexed CPU profile also sampled register renaming and live-out lookup. An independent source experiment reuses a predecessor's live-out values when the incoming register set matches. It also keys the existing sorted live-out lists by numeric register index. Native output comparison and timing are queued. [Experimental source](https://github.com/UwUCammie/VIctory-7900XTX/commit/a9912f37)
+The indexed CPU profile also sampled register renaming and live-out lookup. An independent source experiment reuses a predecessor's live-out values when the incoming register set matches. It also keys the existing sorted live-out lists by numeric register index. Eight alternating native passes matched all 254 DXIL and host metadata outputs and both translation errors in a stratified 256-input sample. Median summed translation time was 2.558 s on the control and 2.504 s on the experiment. A second sample used the 18 stages selected from the most overlapping wait groups in the longest complete gaps of two earlier traces. All 18 outputs matched across eight passes. Median summed time was 5.025 and 5.006 s, respectively. The native translator suite passed 211 tests with two ignored. The targeted sample showed little change in translation time. [Experimental source](https://github.com/UwUCammie/VIctory-7900XTX/commit/a9912f37)
 
 ### Legacy save migration under Wine
 
