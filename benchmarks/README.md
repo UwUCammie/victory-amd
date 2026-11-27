@@ -1146,6 +1146,10 @@ The #440 author reproduced the shorter-wait tradeoff with empty caches on a 7900
 
 The 2.5 KiB run made the facial-deformation pipeline at 2.54 s and showed both faces in the private car samples. Over the first 220 s it accepted 4,143 presents versus 3,853 on the same executable with early compilation off. P99 went from 200 to 220 ms. The longest gap remained about 20 s. The enabled run logged device removal at 261.92 s. The overlap guard fired 658 ms later, so the full run is excluded. The launcher now preserves a timestamped device loss that precedes an overlap marker. The next wait-budget test keeps the 2.5 KiB cutoff and changes only the 10 s compute wait to 2 s.
 
+Another 2.5 KiB launch made the same pipeline at 2.63 s and also showed both faces, including the matching driver close-up. This run yielded to a parallel build at 253.70 s. Its repeated visual result supports moving the 2 s trial ahead of the remaining 10 s retries. Full 300 s timing is still pending for both settings.
+
 ### Null constant-buffer descriptors
 
 Adapted the stale-slot fix from fxceless #304 to the Wine build. The Windows MSVC tests verified that null writes replace an existing descriptor in both title record formats. The RX 7900 XT test under Wine 11.22 and vkd3d-proton `71cae091b06571e` also replaced live host views with typed null views, cleared their raw twins, and confirmed that the device remained available. The executable and PDB matched 108 runtime source checksums. [Upstream fix](https://github.com/fxceless/victory-fork/pull/304), [Wine test source](https://github.com/UwUCammie/VIctory-7900XTX/commit/0989cf16)
+
+The three checks passed again on the exact Avatar main-based PR head `82313d59`, with 111 source checksums and confirmation that the raw twins were active on the physical device. [Avatar PR #446](https://github.com/avatarmanz/VIctory-7900XTX/pull/446)
