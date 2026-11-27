@@ -1658,6 +1658,8 @@ A separate device-loss diagnostic reuses the priority −2 executable and driver
 
 The menu-only launch accepted a present at 305.74 s and reached the 310 s timeout without a device loss. The matched walking launch lost the device at 263.15 s. The executable and all three driver DLL hashes matched, both loaded vkd3d-proton `71cae091b06571e`, and the scripted keys were the only runtime flag difference. Both used five empty graphics caches, a fresh story, and native 720p output with the 4K interface. This single diagnostic leaves the cause of the loss open.
 
+The follow-up uses the same executable and menu keys, and delays every movement key by 30 s on the game's input clock. Compare any device loss with the earlier walking launch. The game starts its input clock at the first poll, so a 30 s change in that schedule need not produce an exact 30 s shift in time from process launch. The delayed route also stays out of FPS scoring.
+
 ### Keeping a compiler worker available for requests
 
 One experiment keeps the last of ten general workers available for pipelines the title has already requested. The other nine can still compile speculative work, and the two priority workers keep their existing queues. The requested worker keeps the normal order of already-requested jobs, including jobs promoted out of the early queue. Both worker recovery paths preserve that assignment. The switch is off by default.

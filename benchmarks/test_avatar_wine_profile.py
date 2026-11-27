@@ -18,7 +18,7 @@ from avatar_wine_profile import AVATAR_WINE_SCREEN_WAITER_DIAGNOSTICS, AVATAR_WI
 from avatar_wine_profile import AVATAR_WINE_WRITE_WATCH_GAPS, verify_write_watch_gap
 from avatar_wine_profile import AVATAR_WINE_WORKER_PRIORITY_SCORES, verify_pipeline_worker_priorities
 from avatar_wine_profile import AVATAR_WINE_REQUESTED_WORKER_SCORES, verify_requested_worker
-from avatar_wine_profile import AVATAR_WINE_NO_MOVEMENT, scripted_story_input
+from avatar_wine_profile import AVATAR_WINE_DELAYED_MOVEMENT, AVATAR_WINE_INPUT_DIAGNOSTICS, AVATAR_WINE_NO_MOVEMENT, scripted_story_input
 from avatar_wine_profile import AVATAR_WINE_FIXES_COLD, AVATAR_WINE_FIXES_VISUAL
 from avatar_wine_profile import (AVATAR_WINE_RECORDED_COMPUTE, AVATAR_WINE_RECORDED_SCREEN,
                                  AVATAR_WINE_FULL_DIRTY_SCAN_MODES, AVATAR_WINE_FULL_DIRTY_SCAN_SCORES,
@@ -181,6 +181,19 @@ class AvatarWineProfileTests(unittest.TestCase):
         lowest = next(iter(AVATAR_WINE_WORKER_PRIORITY_SCORES))
         self.assertEqual(benchmark_flags(AVATAR_WINE_NO_MOVEMENT), benchmark_flags(lowest))
         self.assertFalse(AVATAR_WINE_CAPTURE_OBSERVERS[AVATAR_WINE_NO_MOVEMENT])
+
+    def test_delayed_movement_changes_only_the_route_timing(self):
+        self.assertEqual(AVATAR_WINE_INPUT_DIAGNOSTICS[AVATAR_WINE_DELAYED_MOVEMENT], 30)
+        walk = scripted_story_input().split(",")
+        delayed = scripted_story_input(movement_delay=30).split(",")
+        self.assertEqual(delayed[:3], walk[:3])
+        for (earlier, later) in zip(walk[3:], delayed[3:], strict=True):
+            bounds, key = earlier.split(":")
+            start, stop = map(int, bounds.split("-"))
+            self.assertEqual(later, f"{start + 30}-{stop + 30}:{key}")
+        lowest = next(iter(AVATAR_WINE_WORKER_PRIORITY_SCORES))
+        self.assertEqual(benchmark_flags(AVATAR_WINE_DELAYED_MOVEMENT), benchmark_flags(lowest))
+        self.assertFalse(AVATAR_WINE_CAPTURE_OBSERVERS[AVATAR_WINE_DELAYED_MOVEMENT])
 
     def test_combined_fix_build_preserves_the_priority_control_profile(self):
         lowest = next(iter(AVATAR_WINE_WORKER_PRIORITY_SCORES))

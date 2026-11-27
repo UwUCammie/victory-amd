@@ -74,6 +74,8 @@ AVATAR_WINE_WORKER_PRIORITY_SCORES = {
     "vkd3d-master-avatar-wine-440-cold-worker-below-normal": "0",
 }
 AVATAR_WINE_NO_MOVEMENT = "vkd3d-master-avatar-wine-440-cold-worker-no-movement"
+AVATAR_WINE_DELAYED_MOVEMENT = "vkd3d-master-avatar-wine-440-cold-worker-delayed-movement"
+AVATAR_WINE_INPUT_DIAGNOSTICS = {AVATAR_WINE_NO_MOVEMENT: None, AVATAR_WINE_DELAYED_MOVEMENT: 30}
 AVATAR_WINE_FIXES_COLD = "vkd3d-master-avatar-wine-440-verified-fixes-cold"
 AVATAR_WINE_FIXES_VISUAL = "vkd3d-master-avatar-wine-440-verified-fixes-visual"
 AVATAR_WINE_REQUESTED_WORKER_SCORES = {
@@ -101,7 +103,7 @@ AVATAR_WINE_CAPTURE_OBSERVERS = {
     **dict.fromkeys(AVATAR_WINE_LATE_SUBMIT_MODES, False),
     **dict.fromkeys(AVATAR_WINE_FULL_DIRTY_SCAN_SCORES, False),
     **dict.fromkeys(AVATAR_WINE_WORKER_PRIORITY_SCORES, False),
-    AVATAR_WINE_NO_MOVEMENT: False,
+    **dict.fromkeys(AVATAR_WINE_INPUT_DIAGNOSTICS, False),
     AVATAR_WINE_FIXES_COLD: False, AVATAR_WINE_FIXES_VISUAL: True,
     **dict.fromkeys(AVATAR_WINE_REQUESTED_WORKER_SCORES, False),
     **dict.fromkeys(AVATAR_WINE_SCREEN_WAITER_SCORES, False),
@@ -197,7 +199,8 @@ AVATAR_WINE_MODES = AVATAR_WINE_COMPUTE_BUDGETS | dict.fromkeys(
      AVATAR_WINE_LATEST_SHADERS, AVATAR_WINE_FACES, *AVATAR_WINE_FACE_TRACE_LIMITS, *AVATAR_WINE_CONSTRUCTOR_POOLS,
      *AVATAR_WINE_WAITER_SWITCHES, *AVATAR_WINE_QUEUE_TIMINGS, *AVATAR_WINE_STAGE_TIMINGS,
      *AVATAR_WINE_RECORDED_SCREEN_SCORES, *AVATAR_WINE_LATE_SUBMIT_MODES, *AVATAR_WINE_FULL_DIRTY_SCAN_SCORES,
-     *AVATAR_WINE_WORKER_PRIORITY_SCORES, *AVATAR_WINE_REQUESTED_WORKER_SCORES, AVATAR_WINE_NO_MOVEMENT), 10000
+     *AVATAR_WINE_WORKER_PRIORITY_SCORES, *AVATAR_WINE_REQUESTED_WORKER_SCORES,
+     *AVATAR_WINE_INPUT_DIAGNOSTICS), 10000
 ) | dict.fromkeys((*AVATAR_WINE_SCREEN_LIMITS, *AVATAR_WINE_SCREEN_WORKERS, "vkd3d-master-avatar-wine-440-early-2560-wait2000",
                    "vkd3d-master-avatar-wine-440-early-3072-wait2000", AVATAR_WINE_LEGACY_FMA,
                    AVATAR_WINE_FACES_2S, AVATAR_WINE_SCREEN_QUEUE_TRACE, AVATAR_WINE_UPSTREAM_2S), 2000)
@@ -245,13 +248,13 @@ AVATAR_WINE_720 = {
 }
 
 
-def scripted_story_input(movement=True):
+def scripted_story_input(movement=True, *, movement_delay=0):
     """Start story mode without skip buttons, then follow the walking route."""
     keys = ["5:Enter", "12:Enter", "20:Enter"]
     if movement:
         directions = ("W", "D", "W", "A")
-        keys.extend(f"{start}-{start + 3}:{directions[index % 4]}"
-                    for index, start in enumerate(range(235, 706, 15)))
+        for index, start in enumerate(range(235 + movement_delay, 706 + movement_delay, 15)):
+            keys.append(f"{start}-{start + 3}:{directions[index % len(directions)]}")
     return ",".join(keys)
 
 
@@ -313,7 +316,7 @@ def benchmark_flags(mode):
         flags.update(VICTORY_CARD_TOUCHED="0",
                      VICTORY_CARD_SKIP_CLEAN_UPGRADES=full_scan[mode])
     if mode in (*AVATAR_WINE_WORKER_PRIORITY_SCORES, *AVATAR_WINE_REQUESTED_WORKER_SCORES,
-                AVATAR_WINE_NO_MOVEMENT, AVATAR_WINE_FIXES_COLD, AVATAR_WINE_FIXES_VISUAL):
+                *AVATAR_WINE_INPUT_DIAGNOSTICS, AVATAR_WINE_FIXES_COLD, AVATAR_WINE_FIXES_VISUAL):
         flags.update(VICTORY_PIPELINE_WORKERS="10",
                      VICTORY_PIPELINE_LOWEST=AVATAR_WINE_WORKER_PRIORITY_SCORES.get(mode, "1"))
     if mode in AVATAR_WINE_REQUESTED_WORKER_SCORES:
