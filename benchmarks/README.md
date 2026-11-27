@@ -1274,7 +1274,15 @@ A second matched pair extended the common cold window to 105 s. With the cutoff 
 
 The first dispatch trace ran with the cutoff off and the 10 s wait. Another build interrupted it at 63.37 s. In the first 60 s, all four selected compute shaders were requested. Three recorded their first dispatch by 28.24 s. The fourth was requested twice without a ready pipeline and had no recorded dispatch in that window. The trace measures command-list recording. The queued diagnostic repeats the measurement with a 3 KiB cutoff on the same executable. [Wine PR update](https://github.com/borntofrag34/VIctory-7900XTX/pull/11#issuecomment-7220506173)
 
-The second cutoff-off trace completed its 95 s run without a resource overlap. Each of the four selected shaders encountered an unavailable pipeline on its first recorded attempt. All four had recorded a dispatch by 72.97 s. Of 33 events logged through 88 s, 20 attempts found no pipeline and 13 recorded a dispatch, all on the direct route. The matching 3 KiB launch on the same executable yielded at about 22 s. It left the full trace comparison pending.
+The second cutoff-off trace completed its 95 s run without a resource overlap. Each of the four selected shaders encountered an unavailable pipeline on its first recorded attempt. All four had recorded a dispatch by 72.97 s. Of 33 events logged through 88 s, 20 attempts found no pipeline and 13 recorded a dispatch, all on the direct route. The first matched 3 KiB launch on the same executable yielded at about 22 s. The retry completed its 95 s run without overlap. The two completed traces used the same executable, input, five initially empty caches, output sizes, ten general workers and loaded vkd3d-proton `71cae091b06571e`. The cutoff was the only changed setting, and early work first started at 1.95 s in the 3 KiB arm.
+
+| First 88 s of the dispatch trace | Cutoff off | 3 KiB cutoff |
+| --- | ---: | ---: |
+| Tracked shaders that recorded on their first attempt | 0 of 4 | 4 of 4 |
+| Latest first successful recording | 72.97 s | 47.81 s |
+| Logged attempts without a pipeline | 20 | 0 |
+
+The trace stops at command-list recording. GPU execution, the full cold FPS score and the reported mouth and indoor rendering issues still need separate evidence. A full run with the 3 KiB cutoff and tracing disabled is next in the guarded queue.
 
 The next pipeline creation experiment hashes the borrowed translation bytes directly and queries the host's anisotropic point-mip capability once. It keeps the same hash inputs, including an empty slice for a missing stage, and passes the same shader bytes to the driver. The Windows checks and matched cold run are queued with the 3 KiB cutoff and 10 s wait. [Experiment source](https://github.com/UwUCammie/VIctory-7900XTX/commit/31127dcf)
 
