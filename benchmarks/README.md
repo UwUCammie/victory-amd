@@ -334,6 +334,19 @@ Seven alternating native release pairs per case ran on one Ryzen 7 9700X core. T
 
 Run `python3 benchmarks/landing_ranges.py CHECKOUT 830dc191 9615ecdb` with Rust 1.98.1. This fixture excludes the GPU fetch and the memory writes. [Candidate source](https://github.com/UwUCammie/VIctory-7900XTX/commit/9615ecdb)
 
+### Buffer-view alignment without a temporary backing reference
+
+The SRV and UAV creation paths formerly cloned the backing `Arc` before checking alignment, then dropped it if they kept the same copy. The candidate borrows that copy until a distinct one is needed. The fixture made 648 checks across aligned and unaligned views, raw twins, offsets into placed memory, aliasing results and out-of-range addresses. Both selectors chose the same buffer. Three Windows MSVC descriptor tests passed on the RX 7900 XT under Wine with `VICTORY_RAW_VIEWS=0`. The physical test reached the view-relative structured slot and the PDB matched 106 source files.
+
+| Generated selector call | Stock median | Candidate median |
+| --- | ---: | ---: |
+| Aligned raw | 8.74 ns | 1.37 ns |
+| Aligned typed | 8.65 ns | 3.41 ns |
+| Misaligned raw, separate copy returned | 16.39 ns | 8.68 ns |
+| Raw, outside the backing range | 8.49 ns | 1.02 ns |
+
+Fifteen alternating pairs per case on one Ryzen 7 9700X core. These timings cover the selection logic with a stub for the exact-copy lookup. Run `python3 benchmarks/buffer_view_shadow.py CHECKOUT 830dc191 49a89606` with Rust 1.98.1. [Candidate source](https://github.com/UwUCammie/VIctory-7900XTX/commit/49a89606)
+
 ### Selecting due texture uploads
 
 A normal texture pass limits the due list to 4,096 slots. The control sorted every due record before taking its share. The candidate keeps the newest retries, then selects and sorts the two ends of the fresh list that can fit. It keeps the same alternating newest and oldest order. I checked 50,625 generated combinations of shuffled queues and limits against the stock implementation. Two Windows MSVC queue tests also passed under Wine, and the executable matched 106 source checksums in its PDB.
