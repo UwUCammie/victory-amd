@@ -1539,6 +1539,8 @@ Both launches started from five empty graphics caches and a fresh story, loaded 
 
 The scan accounted for 16.86% versus 11.89% of the sampled submission thread, with nearly the same number of presents during those six seconds. In the first 235 s before sampling began, the two launches accepted 3,782 and 3,622 presents. They spent 131.08 and 134.90 s in gaps above 100 ms, of which 114.47 and 119.15 s overlapped completed pipeline waits. This pair shows a smaller local CPU cost and no overall frame-count increase in the measured prefix. The next pair uses the same release and switch with CPU profiling and captures off, from launch through the full 300-second cold window.
 
+The unprofiled launches both reported Vulkan device loss, at 170.53 s with the switch off and 265.15 s with it on. There was no recorded foreground overlap. The same executable, driver files and scripted input were verified, with only the clean-reference switch changed and both requested modes confirmed in the runtime log. The first 160 s had 2,214 and 2,486 accepted presents and 106.65 and 96.09 s in gaps above 100 ms. Both runs reached past that cutoff before losing the device. The larger prefix count in this launch does not establish a repeatable gain. Both failed sessions are excluded from the full cold score.
+
 Wine PRs #16–20 were merged. The new cold reference uses `linux-wine-pr` at `45ef07e5` with the same present trace, scripted input and separate 4K interface overlay as the earlier control. The launch keeps native 720p and the same capture-free flags, without enabling the new FidelityFX preset. The full-scan experiment was also ported onto this base. [Upstream merge](https://github.com/borntofrag34/VIctory-7900XTX/commit/45ef07e5) · [Maintainer update](https://github.com/borntofrag34/VIctory-7900XTX/pull/20#issuecomment-7226501908)
 
 The merged reference lost the device at 265.03 s with a ten-second compute wait. The same executable with a two-second wait lost the device at 302.84 s, before the harness ended its observation. Both runs had five empty graphics caches, a fresh story, matching scripted input, no capture observers and no recorded overlap. The verified host and interface sizes were 1280×720 and 3840×2160. Both loaded vkd3d-proton `71cae091b06571e` and reported Vulkan device loss. The full scoring harness excludes both failed sessions, including the one that made it past the 300-second measurement boundary.
@@ -1551,8 +1553,9 @@ Both had a verified accepted present past 250 s and before the loss. The first 2
 | P99 gap | 349 ms | 510 ms |
 | Longest gap | 20.06 s | 11.96 s |
 | Total time in gaps over 100 ms | 140.67 s | 128.31 s |
+| Compute wait reports without a pipeline result | 30 | 117 |
 
-The shorter wait traded the longest single gap and less time in long gaps for more frequent interruptions. It did not resolve device loss. This comparison uses one launch per setting. [Exact benchmark build](https://github.com/UwUCammie/VIctory-7900XTX/commit/2e14c7f5)
+The shorter wait cut the longest gap and increased waits that ended without a pipeline. Both launches spent most of the interval from 30 to 75 s without presenting, with only 6 and 12 accepted frames. This comparison uses one launch per setting. [Exact benchmark build](https://github.com/UwUCammie/VIctory-7900XTX/commit/2e14c7f5)
 
 Two changes are filed against `linux-wine`. The scalar-code bounds backport passed all ten native IR tests. The write-watch iterator removes the intermediate allocation in every short shard scan and preserves range order and locking. Its boundary and range-equivalence fixture passed under Wine 11.22 with 115 verified source checksums, and gameplay impact remains unmeasured. [Scalar-code fix](https://github.com/borntofrag34/VIctory-7900XTX/pull/21) · [Write-watch iterator](https://github.com/borntofrag34/VIctory-7900XTX/pull/22)
 
