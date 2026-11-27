@@ -1626,7 +1626,17 @@ The Wine maintainer found that saving frames inside the runtime affected their e
 
 The first two launches yielded to other builds at 62.89 s with observers off and 121.17 s with observers on. The matched first 55 s accepted 1,444 and 1,466 presents and spent 31.08 and 30.78 s in gaps over 100 ms. The clip started around 54 s, which leaves only about one second of clip capture inside the common window. The comparison verifies activation and still leaves the clip's performance impact open. Full observer-on runs also require the clip recorder to finish its requested capture window.
 
-The second capture-free launch completed the 300 s window with 5,733 accepted presents (19.11 FPS), a P99 gap of 201.51 ms and 142.31 s in gaps above 100 ms. Logged pipeline waits overlapped 122.92 s of those gaps. Its longest gap lasted 19.95 s from 49.10 to 69.05 s. It used the 3 KiB early compute cutoff and a 10 s wait, with vkd3d-proton `71cae091b06571e`. A complete observer-on match is pending.
+The second launches completed the full 300 s. They used the same executable, the same three driver DLLs and loaded vkd3d-proton `71cae091b06571e`, matching inputs and runtime flags, five empty caches and a fresh story. Both rendered the native 720p scene with the separate 4K interface. The external clip finished normally in the enabled launch.
+
+| First 300 s | Capture off | Capture on |
+| --- | ---: | ---: |
+| Accepted presents | 5,733 | 5,029 |
+| FPS including stalls | 19.11 | 16.76 |
+| P99 gap | 201.51 ms | 335.74 ms |
+| Time in gaps over 100 ms | 142.31 s | 163.00 s |
+| Time in those gaps overlapping logged pipeline waits | 122.92 s | 130.88 s |
+
+The capture-free run averaged 30.92 FPS in its final minute. Its longest gap was 19.95 s from 49.10 to 69.05 s. The two full runs progressed through the story at different rates. Keep captures off for FPS scoring and use a separate launch for visual inspection.
 
 ### Compiler thread priority at cold start
 
