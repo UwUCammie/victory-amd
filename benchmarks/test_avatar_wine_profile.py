@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 import unittest
 
-from avatar_wine_profile import (AVATAR_WINE_EARLY_LIMITS, AVATAR_WINE_KEEP_TRANSLATED,
+from avatar_wine_profile import (AVATAR_WINE_COMPILER_CACHE, AVATAR_WINE_EARLY_LIMITS, AVATAR_WINE_KEEP_TRANSLATED,
                                  AVATAR_WINE_NOTIFY_SWITCHES, AVATAR_WINE_SCREEN_LIMITS, AVATAR_WINE_SINGLE_PARSE,
                                  AVATAR_WINE_SCREEN_WORKERS, AVATAR_WINE_VALUE_USE_INDEX,
                                  AVATAR_WINE_WRITEBACK_SWITCHES, benchmark_flags, compute_wait_activity,
@@ -13,7 +13,8 @@ from cold_boot import verify_wait_budgets
 
 class AvatarWineProfileTests(unittest.TestCase):
     def test_shader_source_comparisons_use_reference_flags(self):
-        for mode in (AVATAR_WINE_VALUE_USE_INDEX, AVATAR_WINE_KEEP_TRANSLATED, AVATAR_WINE_SINGLE_PARSE):
+        for mode in (AVATAR_WINE_VALUE_USE_INDEX, AVATAR_WINE_KEEP_TRANSLATED,
+                     AVATAR_WINE_SINGLE_PARSE, AVATAR_WINE_COMPILER_CACHE):
             with self.subTest(mode=mode):
                 self.assertEqual(benchmark_flags(mode), benchmark_flags("vkd3d-master-avatar-wine-440"))
 
