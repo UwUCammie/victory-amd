@@ -13,7 +13,13 @@ AVATAR_WINE_WRITEBACK_SWITCHES = {
     "vkd3d-master-avatar-wine-440-wc-off": "0",
     "vkd3d-master-avatar-wine-440-wc-on": "1",
 }
-AVATAR_WINE_MODES = AVATAR_WINE_COMPUTE_BUDGETS | dict.fromkeys(AVATAR_WINE_WRITEBACK_SWITCHES, 10000)
+AVATAR_WINE_EARLY_LIMITS = {
+    "vkd3d-master-avatar-wine-440-early-off": 0,
+    "vkd3d-master-avatar-wine-440-early-1k": 1024,
+}
+AVATAR_WINE_MODES = AVATAR_WINE_COMPUTE_BUDGETS | dict.fromkeys(
+    (*AVATAR_WINE_WRITEBACK_SWITCHES, *AVATAR_WINE_EARLY_LIMITS), 10000
+)
 
 # Source profile: avatarmanz/VIctory-7900XTX#440, b2bf3d99, play.sh and play-1080p.sh.
 # Use the benchmark's scene and UI dimensions, render offline, and keep the
@@ -63,6 +69,8 @@ def benchmark_flags(mode):
     if mode in AVATAR_WINE_WRITEBACK_SWITCHES:
         flags.update(VICTORY_WC_STATS="1", VICTORY_WC_NO_BACK=AVATAR_WINE_WRITEBACK_SWITCHES[mode],
                      VICTORY_WC_NO_BACK_MIN_KB="64", VICTORY_WC_KEEP_STORES="0", VICTORY_WC_CENSUS="0")
+    if mode in AVATAR_WINE_EARLY_LIMITS:
+        flags["VICTORY_EARLY_COMPUTE_MAX_BYTES"] = str(AVATAR_WINE_EARLY_LIMITS[mode])
     return flags
 
 
@@ -119,3 +127,22 @@ def writeback_activity(lines, launched, stop, enabled):
         raise ValueError("write-back diagnostics do not match the requested mode")
     return {"statistics_intervals": stats_count, "kept_intervals": kept_count,
             "intervals_with_kept_declarations": positive_count}
+
+
+def early_compute_activity(lines, launched, stop, expected_limit):
+    limit_label = "cold compute pipeline byte limit"
+    start_label = "first small compute pipeline started at creation"
+    limits = set()
+    first_started = None
+    for at, line in windowed_log_lines(lines, launched, stop, (limit_label, start_label)):
+        if limit_label in line:
+            match = re.search(r"\bbytes=(\d+)\b", line)
+            if match is None:
+                raise ValueError("compute size limit has no byte value")
+            limits.add(int(match[1]))
+        else:
+            first_started = at
+    if limits != {expected_limit} or (first_started is not None) != bool(expected_limit):
+        raise ValueError("early compute diagnostics do not match the requested mode")
+    return {"limit_bytes": expected_limit,
+            "first_early_compute_seconds": None if first_started is None else first_started / 1e6}

@@ -1,7 +1,8 @@
 from datetime import datetime, timezone
 import unittest
 
-from avatar_wine_profile import AVATAR_WINE_WRITEBACK_SWITCHES, benchmark_flags, compute_wait_activity, observed_profile, writeback_activity
+from avatar_wine_profile import (AVATAR_WINE_EARLY_LIMITS, AVATAR_WINE_WRITEBACK_SWITCHES, benchmark_flags,
+                                 compute_wait_activity, early_compute_activity, observed_profile, writeback_activity)
 from cold_boot import verify_wait_budgets
 
 
@@ -67,3 +68,22 @@ class AvatarWineProfileTests(unittest.TestCase):
             writeback_activity([counters, kept], started, 2_000_000, False)
         with self.assertRaises(ValueError):
             writeback_activity([counters, kept.replace("64 KiB", "32 KiB")], started, 2_000_000, True)
+
+    def test_early_compute_flags_and_runtime_confirmation(self):
+        off, on = map(benchmark_flags, AVATAR_WINE_EARLY_LIMITS)
+        self.assertEqual(off.pop("VICTORY_EARLY_COMPUTE_MAX_BYTES"), "0")
+        self.assertEqual(on.pop("VICTORY_EARLY_COMPUTE_MAX_BYTES"), "1024")
+        self.assertEqual(off, on)
+        started = datetime(2026, 11, 27, 8, tzinfo=timezone.utc)
+        limit = "2026-11-27T08:00:01Z INFO cold compute pipeline byte limit bytes=\x1b[3m1024\x1b[0m"
+        event = "2026-11-27T08:00:02Z INFO first small compute pipeline started at creation"
+        self.assertEqual(early_compute_activity([limit, event], started, 3_000_000, 1024), {
+            "limit_bytes": 1024, "first_early_compute_seconds": 2,
+        })
+        self.assertEqual(early_compute_activity([limit.replace("1024", "0")], started, 3_000_000, 0), {
+            "limit_bytes": 0, "first_early_compute_seconds": None,
+        })
+        with self.assertRaises(ValueError):
+            early_compute_activity([limit, event], started, 2_000_000, 1024)
+        with self.assertRaises(ValueError):
+            early_compute_activity([limit, limit.replace("1024", "0"), event], started, 3_000_000, 1024)
