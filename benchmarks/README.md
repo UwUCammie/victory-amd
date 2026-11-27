@@ -48,6 +48,8 @@ In a separate experiment, I changed the frame-wide compute budget and kept the p
 
 Both shorter budgets reduced the worst hold and produced more holds over one second and more first-drop notices. The four-second trial averaged fewer presents than the ten-second run. Faces and skin were visible in later shots in all three launches. Several cuts differed at fixed timestamps and one run per budget leaves visual equivalence and the FPS differences unconfirmed. See the [experiment source](https://github.com/UwUCammie/victory-amd/commit/a8343791).
 
+For a runtime with `VICTORY_FRAME_HEALTH`, run `python3 benchmarks/frame_health.py --seconds 270 OFF.csv ON.csv` to get aggregate pipeline misses and texture or memory peaks from the same duration after each first accepted present. The helper rejects files that end before that duration. The 270-second window leaves room for buffered CSV rows near timeout. Keep the individual rows local and use the accepted-present trace for FPS from launch.
+
 On Linux, `cold_launch.py` creates the directories and records the metadata for a direct Wine launch. Use a dedicated offline prefix, export the settings from `radv_first_room.env` and pass the same timed input to each run. Supply a fresh output directory for every trial. The installed Wine prefix needs a working Z: mapping. For example, from the installed game's working directory:
 
 ```sh
