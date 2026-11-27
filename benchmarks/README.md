@@ -649,7 +649,22 @@ This run used the revised [Avatar #166](https://github.com/avatarmanz/VIctory-79
 
 The clean run accepted **2,610 presents in the first 300 seconds (8.70 FPS)**, with a 627 ms P99 and a 2.51 s longest gap. It spent 210.75 seconds in gaps over 100 ms. Eight overlapping control attempts were excluded. The first enabled attempt yielded to another GPU client and was excluded. The enabled runtime logged both 500 ms budgets before it yielded.
 
-The control accepted 566 presents between 30 and 220 seconds (2.98 FPS). Across three subdivisions of that interval, median reported preparation was 111–150 ms/frame, with copies accounting for 60–92 ms/frame. Those are medians of renderer samples. The full-window FPS is from the accepted-present trace. A private close-up around 190 seconds showed eyes and teeth with the facial surface missing, reproducing the earlier observation on a clean run. The matched compute-on timing and visual checks are pending. [Upstream discussion](https://github.com/avatarmanz/VIctory-7900XTX/pull/166#issuecomment-7211416953)
+The control accepted 566 presents between 30 and 220 seconds (2.98 FPS). Across three subdivisions of that interval, median reported preparation was 111–150 ms/frame, with copies accounting for 60–92 ms/frame. Those are medians of renderer samples. The full-window FPS is from the accepted-present trace. A private close-up around 190 seconds showed eyes and teeth with the facial surface missing, reproducing the earlier observation on a clean run. The same car close-up showed facial skin at about 192 seconds with compute wait enabled. The enabled capture predates that attempt’s build overlap by about 24 seconds. Both launches used the same executable, driver files and inputs. A complete enabled timing is pending. [Upstream discussion](https://github.com/avatarmanz/VIctory-7900XTX/pull/166#issuecomment-7211416953)
+
+### Keeping one general pipeline worker available for compute
+
+The default revised scheduler lets a screen pass use the last general worker. The [strict reserve experiment](https://github.com/UwUCammie/VIctory-7900XTX/commit/2c7a51f0) leaves screen work to its dedicated workers when only the reserved general worker is available. In both arms, compute and graphics waits stay at 500 ms. The only switch changes from `VICTORY_COMPUTE_STRICT_RESERVE=0` to `1`.
+
+The [native fixture](compute_reserve_fixture.py) extracts the queue implementation and seven of its tests. It supplies ready-to-use dummy pipeline records and runs without the Windows SDK or a game. All seven passed, including the check for urgent compute with a screen job simultaneously queued.
+
+```sh
+python -B benchmarks/compute_reserve_fixture.py PATH_TO_RESERVE_CHECKOUT
+python -B benchmarks/cold_boot.py RUN_DIR LAUNCH_JSON --stop 300 \
+  --expect-output 1280x720 --expect-interface 3840x2160 --expect-vkd3d 71cae091 \
+  --expect-graphics-wait-ms 500 --expect-compute-wait-ms 500 --expect-compute-reserve 1
+```
+
+Use `--expect-compute-reserve 0` for the control. The scorer reads the startup worker configuration and records whether a screen compile took the reserved worker. The cold gameplay results are pending.
 
 ### Late card-step fills on the AMD branch
 

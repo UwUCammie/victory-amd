@@ -6,7 +6,7 @@ import json
 import unittest
 
 from cold_boot import (
-    accepted_frames, buffer_prefetch_activity, loaded_vkd3d_build, report, upload_pool_activity,
+    accepted_frames, buffer_prefetch_activity, compute_reserve_activity, loaded_vkd3d_build, report, upload_pool_activity,
     verify_wait_budgets, window,
 )
 from first_room import SessionFailed
@@ -84,6 +84,21 @@ class ColdBootTests(unittest.TestCase):
         for lines, mode in (([enabled, disabled], 1), ([early], 1), ([disabled, early], 0)):
             with self.subTest(lines=lines, mode=mode), self.assertRaises(ValueError):
                 buffer_prefetch_activity(lines, self.launched, 300_000_000, mode)
+
+    def test_compute_reserve_checks_policy_and_observed_screen_borrowing(self):
+        prefix = "2026-11-26T00:00:01Z INFO "
+        normal = prefix + "pipeline workers \x1b[3mworkers\x1b[0m=10 strict_compute_reserve=false"
+        strict = normal.replace("false", "true")
+        event = prefix + "a screen pass took the last general pipeline worker"
+        late = event.replace("00:00:01", "00:05:00")
+        self.assertEqual(compute_reserve_activity([normal, event], self.launched, 300_000_000, 0),
+                         {"general_workers": 10, "strict": False, "screen_borrowed_reserve": True})
+        self.assertEqual(compute_reserve_activity([strict, late], self.launched, 300_000_000, 1),
+                         {"general_workers": 10, "strict": True, "screen_borrowed_reserve": False})
+        for lines in ([normal], [strict, event], [strict.replace("=10", "=3")],
+                      [strict, prefix + "no pipeline worker"], [strict, normal]):
+            with self.subTest(lines=lines), self.assertRaises(ValueError):
+                compute_reserve_activity(lines, self.launched, 300_000_000, 1)
 
     def test_edges_count_against_fps(self):
         frames = accepted_frames([trace(t) for t in (0, 50_000, 200_000, 250_000, 2_000_000)], self.launched)

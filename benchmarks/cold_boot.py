@@ -258,10 +258,34 @@ def buffer_prefetch_activity(lines, launched, stop, expected):
     return {"enabled": bool(expected), "activity": activity}
 
 
+def compute_reserve_activity(lines, launched, stop, expected):
+    """Read the general-worker reserve policy and any observed screen borrowing."""
+    marker = "a screen pass took the last general pipeline worker"
+    worker_configs = set()
+    borrowed = False
+    for _, line in windowed_log_lines(lines, launched, stop, ("strict_compute_reserve=", "no pipeline worker", marker)):
+        if "no pipeline worker" in line:
+            raise ValueError("a pipeline worker could not be started")
+        if marker in line:
+            borrowed = True
+            continue
+        count = re.search(r"\bworkers=(\d+)\b", line)
+        strict = re.search(r"\bstrict_compute_reserve=(true|false)\b", line)
+        if count is None or strict is None:
+            raise ValueError("incomplete compute reserve configuration")
+        worker_configs.add((int(count[1]), strict[1] == "true"))
+    if len(worker_configs) != 1:
+        raise ValueError("expected one general-worker reserve configuration")
+    count, strict = worker_configs.pop()
+    if strict != bool(expected) or count < 4 or (strict and borrowed):
+        raise ValueError("unexpected compute worker reserve behavior")
+    return {"general_workers": count, "strict": strict, "screen_borrowed_reserve": borrowed}
+
+
 def report(run, metadata, start, stop, *, stalls=0, expected_output=None, expected_interface=None,
            expected_vkd3d=None, progress=False, compute_gap_ms=None,
            expected_graphics_wait_ms=None, expected_compute_wait_ms=None, expected_upload_pool=None,
-           expected_buffer_prefetch=None):
+           expected_buffer_prefetch=None, expected_compute_reserve=None):
     launch = json.loads(metadata.read_text())
     check_overlap(run, metadata)
     live = progress and "end_utc" not in launch
@@ -297,6 +321,9 @@ def report(run, metadata, start, stop, *, stalls=0, expected_output=None, expect
     if expected_buffer_prefetch is not None:
         with (run / "run.log").open(encoding="utf-8", errors="replace") as log:
             result["buffer_prefetch"] = buffer_prefetch_activity(log, launched, stop, expected_buffer_prefetch)
+    if expected_compute_reserve is not None:
+        with (run / "run.log").open(encoding="utf-8", errors="replace") as log:
+            result["compute_reserve"] = compute_reserve_activity(log, launched, stop, expected_compute_reserve)
     if expected_vkd3d is not None:
         with (run / "vkd3d.log").open(errors="replace") as log:
             result["vkd3d_build"] = loaded_vkd3d_build(log, expected_vkd3d)
@@ -326,6 +353,8 @@ if __name__ == "__main__":
                         help="verify the upload switch and report mapping and pool counters")
     parser.add_argument("--expect-buffer-prefetch", type=int, choices=(0, 1),
                         help="verify the buffer prefetch setting and report observable reuse")
+    parser.add_argument("--expect-compute-reserve", type=int, choices=(0, 1),
+                        help="verify the general pipeline worker reserve policy")
     parser.add_argument("--stalls", type=int, default=0, help="list the N longest gaps and compute-drop notices in each")
     parser.add_argument("--compute-gap-ms", type=int, metavar="MS",
                         help="count gaps at least this long and how many include a compute-drop notice")
@@ -340,7 +369,7 @@ if __name__ == "__main__":
                         expected_vkd3d=args.expect_vkd3d, progress=args.progress, compute_gap_ms=args.compute_gap_ms,
                         expected_graphics_wait_ms=args.expect_graphics_wait_ms,
                         expected_compute_wait_ms=args.expect_compute_wait_ms, expected_upload_pool=args.expect_upload_pool,
-                        expected_buffer_prefetch=args.expect_buffer_prefetch)
+                        expected_buffer_prefetch=args.expect_buffer_prefetch, expected_compute_reserve=args.expect_compute_reserve)
     except (ValueError, KeyError, OSError) as error:
         parser.exit(1, f"{error}\n")
     print(json.dumps(result, indent=2))
