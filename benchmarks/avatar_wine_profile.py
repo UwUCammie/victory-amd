@@ -2,6 +2,7 @@
 
 import ast
 import re
+from statistics import median
 
 from cold_boot import windowed_log_lines
 from first_room import session_lines
@@ -38,6 +39,10 @@ AVATAR_WINE_OBSERVERS_OFF = "vkd3d-master-avatar-wine-440-observers-off"
 AVATAR_WINE_OBSERVERS_ON = "vkd3d-master-avatar-wine-440-observers-on"
 AVATAR_WINE_MERGED_COLD = "vkd3d-master-avatar-wine-440-merged-cold"
 AVATAR_WINE_WRITE_WATCH_INDEX = "vkd3d-master-avatar-wine-440-write-watch-index"
+AVATAR_WINE_RECORDED_COMPUTE = {
+    "vkd3d-master-avatar-wine-440-recorded-compute-off": "0",
+    "vkd3d-master-avatar-wine-440-recorded-compute-on": "1",
+}
 AVATAR_WINE_SCREEN_WAITER_SCORES = {
     "vkd3d-master-avatar-wine-440-merged-screen-waiter-off": "0",
     "vkd3d-master-avatar-wine-440-merged-screen-waiter-on": "screen",
@@ -49,6 +54,7 @@ AVATAR_WINE_WRITE_WATCH_GAPS = {
 AVATAR_WINE_CAPTURE_OBSERVERS = {
     AVATAR_WINE_OBSERVERS_OFF: False, AVATAR_WINE_OBSERVERS_ON: True, AVATAR_WINE_MERGED_COLD: False,
     AVATAR_WINE_WRITE_WATCH_INDEX: False,
+    **dict.fromkeys(AVATAR_WINE_RECORDED_COMPUTE, False),
     **dict.fromkeys(AVATAR_WINE_SCREEN_WAITER_SCORES, False),
     **dict.fromkeys(AVATAR_WINE_WRITE_WATCH_GAPS, False),
 }
@@ -229,6 +235,9 @@ def benchmark_flags(mode):
         flags["VICTORY_PIPELINE_WORKERS"] = str(AVATAR_WINE_FACE_WORKER_COUNTS[mode])
     if mode in AVATAR_WINE_WRITE_WATCH_GAPS:
         flags["VICTORY_AHEAD_GAP_KIB"] = str(AVATAR_WINE_WRITE_WATCH_GAPS[mode])
+    if mode in AVATAR_WINE_RECORDED_COMPUTE:
+        flags.update(VICTORY_EARLY_RECORDED_COMPUTE=AVATAR_WINE_RECORDED_COMPUTE[mode],
+                     VICTORY_RECORDED_COMPUTE_TRACE="1")
     return flags
 
 
@@ -274,6 +283,41 @@ def write_watch_index_activity(lines, launched, stop):
             raise ValueError("malformed write-watch range index marker")
         return {"first_us": elapsed, "requests": int(match[1]), "remaining": int(match[2])}
     return None
+
+
+def recorded_compute_activity(lines, launched, stop, enabled):
+    """Measure the first recorded dispatch to first replay use of each pipeline."""
+    settings = "recorded compute pipeline lookahead"
+    queued = "first recorded compute pipeline queued before replay"
+    replay = "recorded compute pipeline reached replay"
+    mode = []
+    leads = []
+    ready = 0
+    first_queued = None
+    for elapsed, line in windowed_log_lines(lines, launched, stop, (settings, queued, replay)):
+        if settings in line:
+            mode.append(line.rsplit(settings, 1)[1].strip())
+        elif queued in line and first_queued is None:
+            first_queued = elapsed
+        elif replay in line:
+            match = re.search(r"us=(\d+)\s+ready=(true|false)", line)
+            if match is None:
+                raise ValueError("malformed recorded compute replay marker")
+            leads.append(int(match[1]))
+            ready += match[2] == "true"
+    if mode != [f"enabled={str(enabled).lower()} trace=true"] or (not enabled and first_queued is not None):
+        raise ValueError("recorded compute pipeline setting did not match")
+    if not leads:
+        raise ValueError("no recorded compute pipelines reached replay")
+    return {
+        "count": len(leads),
+        "ready_at_first_replay": ready,
+        "lead_median_us": median(leads),
+        "lead_p95_us": sorted(leads)[(95 * len(leads) + 99) // 100 - 1],
+        "lead_max_us": max(leads),
+        "lead_over_100ms": sum(us > 100_000 for us in leads),
+        "first_queued_us": first_queued,
+    }
 
 
 def verify_pipeline_workers(lines, launched, stop, expected):

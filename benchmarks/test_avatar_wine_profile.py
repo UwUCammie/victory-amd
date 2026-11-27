@@ -16,9 +16,30 @@ from avatar_wine_profile import AVATAR_WINE_CARD_TOUCHED, AVATAR_WINE_SCREEN_WAI
 from avatar_wine_profile import AVATAR_WINE_CAPTURE_OBSERVERS, AVATAR_WINE_MERGED_COLD, AVATAR_WINE_OBSERVERS_OFF, AVATAR_WINE_OBSERVERS_ON, verify_capture_observers
 from avatar_wine_profile import AVATAR_WINE_SCREEN_WAITER_DIAGNOSTICS, AVATAR_WINE_SCREEN_WAITER_SCORES, verify_screen_waiter_priority
 from avatar_wine_profile import AVATAR_WINE_WRITE_WATCH_GAPS, verify_write_watch_gap
+from avatar_wine_profile import AVATAR_WINE_RECORDED_COMPUTE, recorded_compute_activity
 
 
 class AvatarWineProfileTests(unittest.TestCase):
+    def test_recorded_compute_pair_changes_only_lookahead_and_clips_replay(self):
+        for arm, value in AVATAR_WINE_RECORDED_COMPUTE.items():
+            self.assertEqual(benchmark_flags(arm), dict(benchmark_flags(AVATAR_WINE_MERGED_COLD),
+                                 VICTORY_EARLY_RECORDED_COMPUTE=value, VICTORY_RECORDED_COMPUTE_TRACE="1"))
+        start = datetime(2026, 11, 27, 8, tzinfo=timezone.utc)
+        lines = [
+            "2026-11-27T08:00:00Z INFO recorded compute pipeline lookahead enabled=true trace=true",
+            "2026-11-27T08:00:01Z INFO first recorded compute pipeline queued before replay",
+            "2026-11-27T08:00:02Z INFO recorded compute pipeline reached replay us=150000 ready=true",
+            "2026-11-27T08:00:03Z INFO recorded compute pipeline reached replay us=40000 ready=false",
+            "2026-11-27T08:00:04Z INFO recorded compute pipeline reached replay us=400000 ready=true",
+        ]
+        self.assertEqual(recorded_compute_activity(lines, start, 4_000_000, True), {
+            "count": 2, "ready_at_first_replay": 1, "lead_median_us": 95_000,
+            "lead_p95_us": 150_000, "lead_max_us": 150_000, "lead_over_100ms": 1,
+            "first_queued_us": 1_000_000,
+        })
+        with self.assertRaises(ValueError):
+            recorded_compute_activity(lines, start, 4_000_000, False)
+
     def test_write_watch_gap_pair_uses_the_same_cold_profile(self):
         for mode, gap in AVATAR_WINE_WRITE_WATCH_GAPS.items():
             self.assertEqual(benchmark_flags(mode), dict(benchmark_flags(AVATAR_WINE_MERGED_COLD),

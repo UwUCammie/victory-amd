@@ -1412,6 +1412,12 @@ The second updated Wine control and the second updated compiler/cache attempt bo
 
 Against the earlier verified 21.93 FPS release, the updated compiler/cache attempt accepted 3,105 versus 2,903 presents in the first 170 s and spent 87.22 versus 97.83 s in gaps above 100 ms. P99 increased from 226.09 to 245.92 ms. The driver files, input, runtime flags and initially empty caches matched. Several runtime changes separate these builds, and this longer prefix ends before the interruption. It cannot isolate the indexed lookup's effect or supply a five-minute score.
 
+### Compute pipelines before thin-list replay
+
+Thin command lists buffer commands until a chunk fills or the list closes. The experiment starts a compute pipeline on the existing early queue when a direct nonzero dispatch or supported indirect compute dispatch is recorded. Replay keeps its current ordering and wait rules. All five focused Windows MSVC tests passed under headless Wine with 114 verified source checksums.
+
+The capture-free diagnostic pair uses one executable and changes only `VICTORY_EARLY_RECORDED_COMPUTE`. Both timings start at cold launch, with a 75 s observation window inside an 82 s run. The trace checks time from first recording to first replay use and counts pipelines already ready at that point. These short runs are for deciding whether the head start is worth a full 300 s trial. [Runtime experiment](https://github.com/UwUCammie/VIctory-7900XTX/commit/60901cf7)
+
 ### General pipeline workers in the opening
 
 The six-, ten- and fourteen-worker launches used the same Wine executable, input, three driver DLLs and loaded vkd3d-proton `71cae091b06571e`. Each used 1280×720 with a 4K interface, a fresh story, five empty graphics caches, two priority workers, a 3 KiB early compute cutoff and a 10 s compute wait. The runtime reported the requested general worker count. Separate builds interrupted the three launches at 208.78 s, 80.54 s and 60.81 s, respectively. Every prefix below ended before its interruption and had a subsequent accepted present before the guard fired.
