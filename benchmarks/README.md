@@ -661,6 +661,16 @@ The native check extracts the budget function and its regression. It verifies ol
 python -B benchmarks/compute_reserve_fixture.py PATH_TO_BUDGET_CHECKOUT --graphics-budget
 ```
 
+### Measuring compute waits against the frame deadline
+
+The revised scheduler calculates a 500 ms deadline when the first compute wait starts. The caller previously converted that deadline to a duration before taking the priority queue lock, then started a second timer after it got through the lock. That could add lock and scheduling time to the allowed wait. The [follow-up](https://github.com/UwUCammie/VIctory-7900XTX/commit/ab9c444a) carries the absolute deadline into the wait loop.
+
+The native check passed on the extracted deadline code. It verifies that a delayed caller gets the same deadline, that a wait begun late has only the remainder available, and that later and older frame numbers follow the existing frame ordering.
+
+```sh
+python -B benchmarks/compute_reserve_fixture.py PATH_TO_DEADLINE_CHECKOUT --compute-deadline
+```
+
 ### Keeping one general pipeline worker available for compute
 
 The default revised scheduler lets a screen pass use the last general worker. The [strict reserve experiment](https://github.com/UwUCammie/VIctory-7900XTX/commit/2c7a51f0) leaves screen work to its dedicated workers when only the reserved general worker is available. In both arms, compute and graphics waits stay at 500 ms. The only switch changes from `VICTORY_COMPUTE_STRICT_RESERVE=0` to `1`.

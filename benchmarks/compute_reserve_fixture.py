@@ -78,10 +78,23 @@ def budget_fixture(source):
     return "use std::time::Duration;\n" + source[start:end] + "\nmod tests {\n    use super::*;\n" + test + "\n}\n"
 
 
+def deadline_fixture(source):
+    start = source.index("const COMPUTE_BUDGET:")
+    end = source.index("/// A wait at least this long", start)
+    test = test_function(source, "compute_waits_end_with_the_frames_budget")
+    return ("use std::time::{Duration, Instant};\n" + source[start:end]
+            + "\nmod tests {\n    use super::*;\n" + test + "\n}\n")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("checkout", type=Path, help="checkout containing the pipeline scheduler patch")
-    parser.add_argument("--graphics-budget", action="store_true", help="test the late graphics wait budget instead of the queue")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--graphics-budget", action="store_const", dest="fixture", const=budget_fixture,
+                      help="test the late graphics wait budget instead of the queue")
+    mode.add_argument("--compute-deadline", action="store_const", dest="fixture", const=deadline_fixture,
+                      help="test the absolute deadline instead of the queue")
+    parser.set_defaults(fixture=queue_fixture)
     parser.add_argument("--scratch", type=Path, help="existing directory for the temporary native test executable")
     args = parser.parse_args()
     source = (args.checkout / "crates/victory-gpu/src/pipeline/make.rs").read_text(encoding="utf-8")
@@ -90,7 +103,7 @@ def main():
         generated = root / "queue.rs"
         binary = root / ("queue.exe" if os.name == "nt" else "queue")
         with generated.open("w", encoding="utf-8", newline="\n") as output:
-            output.write(budget_fixture(source) if args.graphics_budget else queue_fixture(source))
+            output.write(args.fixture(source))
         subprocess.run(["rustc", "--edition=2024", "--test", str(generated), "-o", str(binary)], check=True)
         environment = dict(os.environ, VICTORY_PIPELINE_WORKERS="16")
         subprocess.run([str(binary), "--nocapture", "--test-threads=1"], env=environment, check=True)
