@@ -6,13 +6,33 @@ from avatar_wine_profile import (AVATAR_WINE_BOOL_SIMPLIFY, AVATAR_WINE_COMPILER
                                  AVATAR_WINE_QUEUE_TIMING, AVATAR_WINE_QUEUE_TIMINGS, AVATAR_WINE_SCREEN_WORKERS, AVATAR_WINE_VALUE_USE_INDEX, AVATAR_WINE_WAITER_SWITCHES,
                                  AVATAR_WINE_WRITEBACK_SWITCHES, benchmark_flags, compute_wait_activity,
                                  early_compute_activity, early_screen_activity, observed_profile,
-                                 pipeline_wait_gap_totals, pipeline_wait_group_coverage, pipeline_wait_translation_coverage,
+                                 pipeline_stage_activity, pipeline_wait_gap_totals, pipeline_wait_group_coverage, pipeline_wait_translation_coverage,
                                  screen_wait_coverage, screen_worker_activity,
                                  queue_claim_activity, verify_constructor_pool, verify_notification_mode, verify_waiter_priority, writeback_activity)
 from cold_boot import verify_wait_budgets
 
 
 class AvatarWineProfileTests(unittest.TestCase):
+    def test_compute_stage_overlap_uses_unique_traces_and_unions_repeated_waits(self):
+        started = datetime(2026, 11, 27, 8, tzinfo=timezone.utc)
+        phases = 'phases=[("bindings", 0), ("root_signature", 200000), ("driver_create", 400000)]'
+        logs = [
+            f"2026-11-27T08:00:04Z INFO host pipeline timing us=2000000 shaders=[compute a] {phases}",
+            f"2026-11-27T08:00:04Z INFO host pipeline timing us=2000000 shaders=[compute b] {phases}",
+            f"2026-11-27T08:00:05Z INFO host pipeline timing us=2000000 shaders=[compute b] {phases}",
+            "2026-11-27T08:00:04Z INFO a compute pass was waited for ms=1900 made=true shaders=[compute a]",
+            "2026-11-27T08:00:04Z INFO a compute pass was waited for ms=1500 made=true shaders=[compute a]",
+            "2026-11-27T08:00:05Z INFO a compute pass was waited for ms=2500 made=false shaders=[compute b]",
+        ]
+        result = pipeline_stage_activity(logs, started, 6_000_000, [1_000_000, 4_500_000])
+        self.assertEqual(result["compute_pipeline_traces"], 3)
+        self.assertEqual(result["compute_wait_reports"], 3)
+        self.assertEqual(result["matched_compute_wait_reports"], 2)
+        self.assertEqual(result["overlap_by_stage_seconds"]["bindings"], 0.1)
+        self.assertEqual(result["overlap_by_stage_seconds"]["root_signature"], 0.2)
+        self.assertEqual(result["overlap_by_stage_seconds"]["driver_create"], 1.6)
+        self.assertEqual(result["any_stage_overlap_seconds"], 1.9)
+
     def test_shader_source_comparisons_use_reference_flags(self):
         for mode in (AVATAR_WINE_VALUE_USE_INDEX, AVATAR_WINE_KEEP_TRANSLATED,
                      AVATAR_WINE_SINGLE_PARSE, AVATAR_WINE_COMPILER_CACHE, AVATAR_WINE_BOOL_SIMPLIFY):

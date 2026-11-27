@@ -1,5 +1,6 @@
 """Reproduce the Wine launcher's fast settings in the cold 720p protocol."""
 
+import ast
 import re
 
 from cold_boot import windowed_log_lines
@@ -54,11 +55,15 @@ AVATAR_WINE_QUEUE_TIMINGS = {
     AVATAR_WINE_QUEUE_TIMING: "0",
     "vkd3d-master-avatar-wine-440-queue-timing-on": "1",
 }
+AVATAR_WINE_STAGE_TIMINGS = {
+    "vkd3d-master-avatar-wine-440-stage-timing-off": "0",
+    "vkd3d-master-avatar-wine-440-stage-timing-on": "1",
+}
 AVATAR_WINE_MODES = AVATAR_WINE_COMPUTE_BUDGETS | dict.fromkeys(
     (*AVATAR_WINE_WRITEBACK_SWITCHES, *AVATAR_WINE_EARLY_LIMITS, *AVATAR_WINE_NOTIFY_SWITCHES,
      AVATAR_WINE_VALUE_USE_INDEX, AVATAR_WINE_KEEP_TRANSLATED, AVATAR_WINE_SINGLE_PARSE,
      AVATAR_WINE_COMPILER_CACHE, AVATAR_WINE_BOOL_SIMPLIFY, *AVATAR_WINE_CONSTRUCTOR_POOLS,
-     *AVATAR_WINE_WAITER_SWITCHES, *AVATAR_WINE_QUEUE_TIMINGS), 10000
+     *AVATAR_WINE_WAITER_SWITCHES, *AVATAR_WINE_QUEUE_TIMINGS, *AVATAR_WINE_STAGE_TIMINGS), 10000
 ) | dict.fromkeys((*AVATAR_WINE_SCREEN_LIMITS, *AVATAR_WINE_SCREEN_WORKERS, "vkd3d-master-avatar-wine-440-early-2560-wait2000",
                    "vkd3d-master-avatar-wine-440-early-3072-wait2000", AVATAR_WINE_LEGACY_FMA), 2000)
 
@@ -127,6 +132,9 @@ def benchmark_flags(mode):
         flags.update(VICTORY_PIPELINE_WAITERS_FIRST=AVATAR_WINE_WAITER_SWITCHES[mode], VICTORY_PIPELINE_QUEUE_TIMING="0")
     if mode in AVATAR_WINE_QUEUE_TIMINGS:
         flags.update(VICTORY_PIPELINE_WAITERS_FIRST=AVATAR_WINE_QUEUE_TIMINGS[mode], VICTORY_PIPELINE_QUEUE_TIMING="1")
+    if mode in AVATAR_WINE_STAGE_TIMINGS:
+        flags.update(VICTORY_PIPELINE_WAITERS_FIRST=AVATAR_WINE_STAGE_TIMINGS[mode],
+                     VICTORY_PIPELINE_QUEUE_TIMING="1", VICTORY_PIPELINE_STAGE_TIMING="1")
     return flags
 
 
@@ -408,6 +416,65 @@ def queue_claim_activity(lines, launched, stop, frames):
         "compute_wait_reports": len(waits),
         "matched_compute_wait_reports": matched,
         "queued_compute_overlap_seconds": sum(_wait_overlap(queued, a, b) for a, b in _complete_long_gaps(frames, stop)) / 1e6,
+    }
+
+
+def pipeline_stage_activity(lines, launched, stop, frames):
+    """Measure how host pipeline phases overlap compute waits and long gaps."""
+    label = "host pipeline timing"
+    compute = "a compute pass was waited for"
+    stages = ("bindings", "root_signature", "description", "library", "library_load_guards",
+              "driver_load", "driver_create", "library_store_guards", "driver_store", "after_driver")
+    traces = {}
+    waits = []
+    for end, line in windowed_log_lines(lines, launched, stop, (label, compute)):
+        if label not in line:
+            waits.append(line)
+            continue
+        fields = re.search(r"\bus=(\d+)\s+shaders=(\[[^\]]*\])\s+phases=(\[.*\])", line)
+        if fields is None:
+            raise ValueError("host pipeline timing is missing fields")
+        duration, shaders, data = fields.groups()
+        duration = int(duration)
+        phases = ast.literal_eval(data)
+        if not phases or phases[0] != ("bindings", 0):
+            raise ValueError("host pipeline timing has no start")
+        bounds = [offset for _, offset in phases] + [duration]
+        if bounds != sorted(bounds) or any(phase not in stages for phase, _ in phases):
+            raise ValueError("host pipeline timing has invalid phases")
+        if shaders.startswith("[compute ") and "," not in shaders:
+            start = end - duration
+            spans = [(phase, start + left, start + right)
+                     for (phase, left), right in zip(phases, bounds[1:])]
+            traces.setdefault(shaders, []).append(spans)
+
+    covered = {phase: [] for phase in stages}
+    matched = 0
+    for _, start, end, line in _pipeline_wait_reports(waits, launched, stop):
+        shaders = re.search(r"\bshaders=(\[[^\]]+\])", line)
+        if shaders is None:
+            raise ValueError("compute wait has no shader list")
+        trace = traces.get(shaders[1])
+        if trace is None or len(trace) != 1:
+            continue
+        matched += 1
+        for phase, left, right in trace[0]:
+            lo, hi = max(start, left), min(end, right)
+            if lo < hi:
+                covered[phase].append((lo, hi))
+    gaps = _complete_long_gaps(frames, stop)
+    for spans in covered.values():
+        spans.sort()
+    all_spans = sorted(span for spans in covered.values() for span in spans)
+    return {
+        "compute_pipeline_traces": sum(map(len, traces.values())),
+        "compute_wait_reports": len(waits),
+        "matched_compute_wait_reports": matched,
+        "overlap_by_stage_seconds": {
+            phase: sum(_wait_overlap(spans, a, b) for a, b in gaps) / 1e6
+            for phase, spans in covered.items()
+        },
+        "any_stage_overlap_seconds": sum(_wait_overlap(all_spans, a, b) for a, b in gaps) / 1e6,
     }
 
 
