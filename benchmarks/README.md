@@ -1400,7 +1400,17 @@ The six-, ten- and fourteen-worker launches used the same Wine executable, input
 
 Over the first 75 s, six and ten workers accepted 1,454 and 1,463 presents and spent 50.87 and 50.54 s in gaps over 100 ms, respectively. P99 was 124.87 and 186.52 ms, while the longest gaps were 10.66 and 10.49 s. Both characters' facial skin was visible in the same opening dialogue shot on six and ten workers. The comparable prefixes give little reason to change the worker count. A complete run and a saved indoor rendering check remain pending.
 
-On the ten-worker release, the first two complete long gaps lasted 10.31 and 10.14 s. Logged compute waits overlapped 9.72 and 10.10 s of those gaps, respectively, with no logged screen waits overlapping either. The next comparison changes only the compute wait from 10 s to 2 s on the same build. It keeps the 3 KiB cutoff and checks waits without a result and the same private visual route along with present timing.
+On the ten-worker release, the first two complete long gaps lasted 10.31 and 10.14 s. Logged compute waits overlapped 9.72 and 10.10 s of those gaps, respectively, with no logged screen waits overlapping either. The follow-up changed only the compute wait from 10 s to 2 s on the same build. It kept the 3 KiB cutoff and ten general workers. A separate build ended the 2 s launch at 102.05 s. Over the first 75 s, the shorter wait reduced the first long gap from 10.31 to 3.11 s. Two later gaps lasted 10.51 and 12.07 s and overlapped 10.49 and 10.00 s of logged screen pipeline waits, respectively.
+
+| First 75 s | 10 s compute wait | 2 s compute wait |
+| --- | ---: | ---: |
+| Accepted presents | 1,463 | 1,471 |
+| P99 present interval | 186.52 ms | 276.78 ms |
+| Longest gap | 10.49 s | 12.07 s |
+| Time in gaps over 100 ms | 50.54 s | 50.50 s |
+| Compute waits without a result | 25 | 52 |
+
+The shorter compute wait left about the same total time in gaps over 100 ms. The private capture showed character skin earlier in the scene, and the run ended before the matching face close-up. This prefix leaves the rendering comparison and full cold score open.
 
 The indexed CPU profile also sampled register renaming and live-out lookup. An independent source experiment reuses a predecessor's live-out values when the incoming register set matches. It also keys the existing sorted live-out lists by numeric register index. Native output comparison and timing are queued. [Experimental source](https://github.com/UwUCammie/VIctory-7900XTX/commit/a9912f37)
 
