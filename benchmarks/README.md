@@ -348,6 +348,12 @@ A normal texture pass limits the due list to 4,096 slots. The control sorted eve
 
 Run `python3 benchmarks/due_texture_order.py CHECKOUT 830dc191 81c093c2` with Rust 1.98.1. These are nine alternating pairs on one Ryzen 7 9700X core, timing the ordering call on generated records. [Candidate source](https://github.com/UwUCammie/VIctory-7900XTX/commit/81c093c2)
 
+### Shared-section buffer import on Wine and native Windows
+
+The selected-adapter fixture reads generated CPU bytes back through the GPU, then writes from the GPU and validates both CPU mappings. On the RX 7900 XT with Wine 11.22 and RADV 26.3.1, the two CPU views agreed across all 320 KiB. The GPU saw zeros there, and its own 256-byte write was visible only on the GPU. That held with GE vkd3d-proton `cae8353e` and upstream `71cae091`, with `descriptor_heap` enabled.
+
+GiovanniFadanelli independently ran both the reserved and prefilled variants on native Windows at `af245c3`. Both passed on the RX 9070 XT with driver `32.0.32029.2010`, using automatic and explicit adapter selection, and on the integrated Radeon Graphics with driver `32.0.21045.29003`. The OS, driver stack and adapters differ between these observations. The new placed-memory route needs its own check on the RX 7900 XT. [Fixture](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/23) · [Native Windows results](https://github.com/avatarmanz/VIctory-7900XTX/pull/380#issuecomment-7208337399)
+
 ### Relevance of the masked write patch to cold startup
 
 I looked for the stall that the upstream masked write patch is designed to avoid. Across 435 interval summaries in three clean 720p cold launches (the latest combined control, its relay/history candidate and the Wine descriptor candidate), every printed per-frame wait for title memory changing under shader writes was 0.0 ms at the log's one-decimal precision. This sets the priority for these cold configurations only. The saved gameplay route may expose a different workload. [Upstream patch](https://github.com/fxceless/victory-fork/commit/3221ac42)
