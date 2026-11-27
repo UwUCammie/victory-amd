@@ -32,9 +32,13 @@ AVATAR_WINE_SCREEN_LIMITS = {
     "vkd3d-master-avatar-wine-440-screen-early-off": 0,
     "vkd3d-master-avatar-wine-440-screen-early-6k": 6144,
 }
+AVATAR_WINE_SCREEN_WORKERS = {
+    "vkd3d-master-avatar-wine-440-screen-worker-shared": "0",
+    "vkd3d-master-avatar-wine-440-screen-worker-reserved": "1",
+}
 AVATAR_WINE_MODES = AVATAR_WINE_COMPUTE_BUDGETS | dict.fromkeys(
     (*AVATAR_WINE_WRITEBACK_SWITCHES, *AVATAR_WINE_EARLY_LIMITS, *AVATAR_WINE_NOTIFY_SWITCHES), 10000
-) | dict.fromkeys((*AVATAR_WINE_SCREEN_LIMITS, "vkd3d-master-avatar-wine-440-early-2560-wait2000",
+) | dict.fromkeys((*AVATAR_WINE_SCREEN_LIMITS, *AVATAR_WINE_SCREEN_WORKERS, "vkd3d-master-avatar-wine-440-early-2560-wait2000",
                    "vkd3d-master-avatar-wine-440-early-3072-wait2000", AVATAR_WINE_LEGACY_FMA), 2000)
 
 # Source profile: avatarmanz/VIctory-7900XTX#440, b2bf3d99, play.sh and play-1080p.sh.
@@ -93,6 +97,9 @@ def benchmark_flags(mode):
     if mode in AVATAR_WINE_SCREEN_LIMITS:
         flags.update(VICTORY_EARLY_COMPUTE_MAX_BYTES="2560", VICTORY_SCREEN_WAIT_MS="10000",
                      VICTORY_EARLY_SCREEN_MAX_BYTES=str(AVATAR_WINE_SCREEN_LIMITS[mode]))
+    if mode in AVATAR_WINE_SCREEN_WORKERS:
+        flags.update(VICTORY_EARLY_COMPUTE_MAX_BYTES="2560", VICTORY_SCREEN_WAIT_MS="10000",
+                     VICTORY_EARLY_SCREEN_MAX_BYTES="0", VICTORY_RESERVE_SCREEN_WORKER=AVATAR_WINE_SCREEN_WORKERS[mode])
     return flags
 
 
@@ -178,8 +185,26 @@ def _early_pipeline_activity(lines, launched, stop, expected_limit, kind):
             f"first_early_{kind}_seconds": None if first_started is None else first_started / 1e6}
 
 
-def screen_wait_coverage(lines, launched, stop, frames):
-    """Intersect completed wait reports with the five longest complete gaps."""
+def screen_worker_activity(lines, launched, stop, expected):
+    """Check that the requested permanent reserve was created and used."""
+    label = "dedicated screen pipeline worker"
+    claim = f"{label} claimed its first pass"
+    config = []
+    claims = []
+    for stamp, line in windowed_log_lines(lines, launched, stop, (label,)):
+        if claim in line:
+            claims.append(stamp)
+        else:
+            match = re.search(r"\breserved=(true|false)\b", line)
+            if match is None:
+                raise ValueError("screen worker configuration lacks a reservation flag")
+            config.append(match[1] == "true")
+    if config != [expected] or len(claims) != int(expected):
+        raise ValueError("screen worker configuration or first claim does not match the requested mode")
+    return {"reserved": expected, "first_claim_seconds": claims[0] / 1e6 if claims else None}
+
+
+def _pipeline_wait_spans(lines, launched, stop):
     labels = {"a pass over the screen was waited for": "screen", "a compute pass was waited for": "compute"}
     spans = {kind: [] for kind in labels.values()}
     for end, line in windowed_log_lines(lines, launched, stop, tuple(labels)):
@@ -188,21 +213,39 @@ def screen_wait_coverage(lines, launched, stop, frames):
             raise ValueError("pipeline wait result has no duration or pipeline status")
         kind = next(kind for label, kind in labels.items() if label in line)
         spans[kind].append((end - int(match[1]) * 1000, end))
+    return {kind: sorted(waits) for kind, waits in spans.items()}
 
-    def coverage(waits, start, end):
-        covered, through = 0, start
-        for lo, hi in sorted(waits):
-            hi = min(hi, end)
-            lo = max(lo, through)
-            if hi > lo:
-                covered += hi - lo
-                through = hi
-        return covered / 1000
 
+def _wait_overlap(waits, start, end):
+    covered, through = 0, start
+    for lo, hi in waits:
+        if lo >= end:
+            break
+        lo, hi = max(lo, through), min(hi, end)
+        if hi > lo:
+            covered += hi - lo
+            through = hi
+    return covered
+
+
+def screen_wait_coverage(lines, launched, stop, frames):
+    """Intersect completed wait reports with the five longest complete gaps."""
+    spans = _pipeline_wait_spans(lines, launched, stop)
     gaps = ((a, b) for a, b in zip(frames, frames[1:]) if b <= stop and b > a)
     return [{"start_seconds": a / 1e6, "gap_ms": (b - a) / 1000,
-             **{f"{kind}_overlap_ms": coverage(waits, a, b) for kind, waits in spans.items()}}
+             **{f"{kind}_overlap_ms": _wait_overlap(waits, a, b) / 1000 for kind, waits in spans.items()}}
             for a, b in sorted(gaps, key=lambda gap: gap[1] - gap[0], reverse=True)[:5]]
+
+
+def pipeline_wait_gap_totals(lines, launched, stop, frames):
+    """Report how many long-gap seconds overlap completed pipeline waits."""
+    spans = _pipeline_wait_spans(lines, launched, stop)
+    spans["either"] = sorted(spans["screen"] + spans["compute"])
+    edges = [0, *(stamp for stamp in frames if 0 <= stamp < stop), stop]
+    gaps = [(a, b) for a, b in zip(edges, edges[1:]) if b - a > 100_000]
+    return {"long_gap_seconds": sum(b - a for a, b in gaps) / 1e6,
+            **{f"{kind}_overlap_seconds": sum(_wait_overlap(waits, a, b) for a, b in gaps) / 1e6
+               for kind, waits in spans.items()}}
 
 
 def verify_notification_mode(lines, launched, stop, expected):

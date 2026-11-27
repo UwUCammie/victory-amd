@@ -2,9 +2,11 @@ from datetime import datetime, timezone
 import unittest
 
 from avatar_wine_profile import (AVATAR_WINE_EARLY_LIMITS, AVATAR_WINE_NOTIFY_SWITCHES, AVATAR_WINE_SCREEN_LIMITS,
+                                 AVATAR_WINE_SCREEN_WORKERS,
                                  AVATAR_WINE_WRITEBACK_SWITCHES, benchmark_flags, compute_wait_activity,
                                  early_compute_activity, early_screen_activity, observed_profile,
-                                 screen_wait_coverage, verify_notification_mode, writeback_activity)
+                                 pipeline_wait_gap_totals, screen_wait_coverage, screen_worker_activity,
+                                 verify_notification_mode, writeback_activity)
 from cold_boot import verify_wait_budgets
 
 
@@ -93,6 +95,27 @@ class AvatarWineProfileTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             early_screen_activity([limit], started, 3_000_000, 6144)
 
+    def test_screen_worker_arms_require_the_requested_worker_and_claim(self):
+        shared, reserved = map(benchmark_flags, AVATAR_WINE_SCREEN_WORKERS)
+        self.assertEqual(shared.pop("VICTORY_RESERVE_SCREEN_WORKER"), "0")
+        self.assertEqual(reserved.pop("VICTORY_RESERVE_SCREEN_WORKER"), "1")
+        self.assertEqual(shared, reserved)
+        self.assertEqual(reserved["VICTORY_EARLY_SCREEN_MAX_BYTES"], "0")
+        self.assertEqual(reserved["VICTORY_COMPUTE_WAIT_MS"], "2000")
+        start = datetime(2026, 11, 27, 8, tzinfo=timezone.utc)
+        stock = "2026-11-27T08:00:01Z INFO dedicated screen pipeline worker reserved=false"
+        enabled = "2026-11-27T08:00:01Z INFO dedicated screen pipeline worker reserved=\x1b[3mtrue\x1b[0m"
+        claim = "2026-11-27T08:00:02Z INFO dedicated screen pipeline worker claimed its first pass"
+        self.assertEqual(screen_worker_activity([stock], start, 3_000_000, False), {
+            "reserved": False, "first_claim_seconds": None,
+        })
+        self.assertEqual(screen_worker_activity([enabled, claim], start, 3_000_000, True), {
+            "reserved": True, "first_claim_seconds": 2.0,
+        })
+        for lines in ([enabled], [stock, claim], [enabled, claim, claim]):
+            with self.assertRaises(ValueError):
+                screen_worker_activity(lines, start, 3_000_000, True)
+
     def test_wait_coverage_clips_gaps_and_does_not_double_count_threads(self):
         started = datetime(2026, 11, 27, 8, tzinfo=timezone.utc)
         logs = [
@@ -106,6 +129,21 @@ class AvatarWineProfileTests(unittest.TestCase):
             {"start_seconds": 1.0, "gap_ms": 1900, "screen_overlap_ms": 1900, "compute_overlap_ms": 800},
             {"start_seconds": 2.9, "gap_ms": 600, "screen_overlap_ms": 100, "compute_overlap_ms": 0},
         ])
+
+    def test_wait_totals_include_boundary_gaps_and_union_of_wait_types(self):
+        started = datetime(2026, 11, 27, 8, tzinfo=timezone.utc)
+        logs = [
+            "2026-11-27T08:00:03Z INFO a pass over the screen was waited for ms=1500 made=true",
+            "2026-11-27T08:00:02Z INFO a compute pass was waited for ms=1000 made=false",
+            "2026-11-27T08:00:03.500Z INFO a compute pass was waited for ms=500 made=true",
+            "2026-11-27T08:00:04Z INFO a compute pass was waited for ms=1000 made=true",
+        ]
+        self.assertEqual(pipeline_wait_gap_totals(logs, started, 4_000_000, [2_500_000, 2_600_000]), {
+            "long_gap_seconds": 3.9,
+            "screen_overlap_seconds": 1.4,
+            "compute_overlap_seconds": 1.5,
+            "either_overlap_seconds": 2.4,
+        })
 
     def test_writeback_activity_rejects_a_wrong_mode_or_threshold(self):
         started = datetime(2026, 11, 27, 8, tzinfo=timezone.utc)
