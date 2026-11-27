@@ -1,14 +1,14 @@
 from datetime import datetime, timezone
 import unittest
 
-from avatar_wine_profile import (AVATAR_WINE_BOOL_SIMPLIFY, AVATAR_WINE_COMPILER_CACHE, AVATAR_WINE_CONSTRUCTOR_POOLS, AVATAR_WINE_EARLY_LIMITS, AVATAR_WINE_FACE_EARLY_LIMITS, AVATAR_WINE_FACE_TRACE, AVATAR_WINE_FACE_TRACE_EARLY, AVATAR_WINE_FACES, AVATAR_WINE_FACES_2S, AVATAR_WINE_FACES_EARLY, AVATAR_WINE_FACES_OFF, AVATAR_WINE_KEEP_TRANSLATED, AVATAR_WINE_LATEST_CONTROL, AVATAR_WINE_LATEST_SHADERS,
+from avatar_wine_profile import (AVATAR_WINE_BOOL_SIMPLIFY, AVATAR_WINE_COMPILER_CACHE, AVATAR_WINE_CONSTRUCTOR_POOLS, AVATAR_WINE_EARLY_LIMITS, AVATAR_WINE_FACE_EARLY_LIMITS, AVATAR_WINE_FACE_TRACE, AVATAR_WINE_FACE_TRACE_EARLY, AVATAR_WINE_FACE_WORKER_COUNTS, AVATAR_WINE_FACES, AVATAR_WINE_FACES_2S, AVATAR_WINE_FACES_EARLY, AVATAR_WINE_FACES_OFF, AVATAR_WINE_KEEP_TRANSLATED, AVATAR_WINE_LATEST_CONTROL, AVATAR_WINE_LATEST_SHADERS,
                                  AVATAR_WINE_NOTIFY_SWITCHES, AVATAR_WINE_PIPELINE_INPUTS, AVATAR_WINE_SCREEN_LIMITS, AVATAR_WINE_SINGLE_PARSE,
                                  AVATAR_WINE_QUEUE_TIMING, AVATAR_WINE_QUEUE_TIMINGS, AVATAR_WINE_SCREEN_WORKERS, AVATAR_WINE_VALUE_USE_INDEX, AVATAR_WINE_WAITER_SWITCHES,
                                  AVATAR_WINE_WRITEBACK_SWITCHES, benchmark_flags, compute_wait_activity,
                                  early_compute_activity, early_screen_activity, observed_profile,
                                  pipeline_stage_activity, pipeline_wait_gap_totals, pipeline_wait_group_coverage, pipeline_wait_translation_coverage,
                                  screen_wait_coverage, screen_worker_activity,
-                                 queue_claim_activity, verify_constructor_pool, verify_notification_mode, verify_waiter_priority, writeback_activity)
+                                 queue_claim_activity, verify_constructor_pool, verify_notification_mode, verify_pipeline_workers, verify_waiter_priority, writeback_activity)
 from cold_boot import verify_wait_budgets
 
 
@@ -25,6 +25,16 @@ class AvatarWineProfileTests(unittest.TestCase):
         self.assertEqual(benchmark_flags(AVATAR_WINE_FACE_TRACE), benchmark_flags(AVATAR_WINE_FACES_OFF))
         self.assertEqual(benchmark_flags(AVATAR_WINE_FACE_TRACE_EARLY), benchmark_flags(AVATAR_WINE_FACES_EARLY))
         self.assertEqual(benchmark_flags(AVATAR_WINE_PIPELINE_INPUTS), benchmark_flags(AVATAR_WINE_FACES_EARLY))
+        for mode, count in AVATAR_WINE_FACE_WORKER_COUNTS.items():
+            self.assertEqual(benchmark_flags(mode),
+                             dict(benchmark_flags(AVATAR_WINE_FACES_EARLY), VICTORY_PIPELINE_WORKERS=str(count)))
+
+    def test_worker_count_requires_the_runtime_marker(self):
+        start = datetime(2026, 11, 27, 8, tzinfo=timezone.utc)
+        lines = ["2026-11-27T08:00:01Z INFO pipeline workers workers=\x1b[3m6\x1b[0m"]
+        verify_pipeline_workers(lines, start, 2_000_000, 6)
+        with self.assertRaises(ValueError):
+            verify_pipeline_workers(lines, start, 2_000_000, 14)
 
     def test_compute_stage_overlap_uses_unique_traces_and_unions_repeated_waits(self):
         started = datetime(2026, 11, 27, 8, tzinfo=timezone.utc)
@@ -45,6 +55,13 @@ class AvatarWineProfileTests(unittest.TestCase):
         self.assertEqual(result["overlap_by_stage_seconds"]["root_signature"], 0.2)
         self.assertEqual(result["overlap_by_stage_seconds"]["driver_create"], 1.6)
         self.assertEqual(result["any_stage_overlap_seconds"], 1.9)
+        self.assertEqual(result["driver_create_by_gap"], [{
+            "start_seconds": 1,
+            "end_seconds": 4.5,
+            "calls": 3,
+            "overlapping_worker_seconds": 4.3,
+            "peak_concurrent_calls": 3,
+        }])
 
     def test_shader_source_comparisons_use_reference_flags(self):
         for mode in (AVATAR_WINE_VALUE_USE_INDEX, AVATAR_WINE_KEEP_TRANSLATED,

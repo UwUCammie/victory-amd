@@ -29,6 +29,10 @@ AVATAR_WINE_FACES_OFF = "vkd3d-master-avatar-wine-440-faces-early-off"
 AVATAR_WINE_FACES_EARLY = "vkd3d-master-avatar-wine-440-faces-early"
 AVATAR_WINE_FACES_2S = "vkd3d-master-avatar-wine-440-faces-early-2s"
 AVATAR_WINE_PIPELINE_INPUTS = "vkd3d-master-avatar-wine-440-pipeline-inputs"
+AVATAR_WINE_FACE_WORKER_COUNTS = {
+    "vkd3d-master-avatar-wine-440-faces-workers6": 6,
+    "vkd3d-master-avatar-wine-440-faces-workers14": 14,
+}
 AVATAR_WINE_FACE_TRACE = "vkd3d-master-avatar-wine-440-face-dispatch-trace"
 AVATAR_WINE_FACE_TRACE_EARLY = "vkd3d-master-avatar-wine-440-face-dispatch-trace-early"
 AVATAR_WINE_FACE_TRACE_LIMITS = {
@@ -42,6 +46,7 @@ AVATAR_WINE_FACE_EARLY_LIMITS = {
     AVATAR_WINE_FACES_EARLY: 3072,
     AVATAR_WINE_FACES_2S: 3072,
     AVATAR_WINE_PIPELINE_INPUTS: 3072,
+    **dict.fromkeys(AVATAR_WINE_FACE_WORKER_COUNTS, 3072),
 }
 AVATAR_WINE_EARLY_LIMITS = {
     "vkd3d-master-avatar-wine-440-early-off": 0,
@@ -167,7 +172,20 @@ def benchmark_flags(mode):
         flags["VICTORY_RAW_TYPED_LOADS"] = "1"
     if mode in AVATAR_WINE_FACE_TRACE_LIMITS:
         flags["VICTORY_EARLY_COMPUTE_MAX_BYTES"] = str(AVATAR_WINE_FACE_TRACE_LIMITS[mode])
+    if mode in AVATAR_WINE_FACE_WORKER_COUNTS:
+        flags["VICTORY_PIPELINE_WORKERS"] = str(AVATAR_WINE_FACE_WORKER_COUNTS[mode])
     return flags
+
+
+def verify_pipeline_workers(lines, launched, stop, expected):
+    """Confirm the configured count of general pipeline workers."""
+    workers = set()
+    for _, line in windowed_log_lines(lines, launched, stop, ("pipeline workers",)):
+        match = re.search(r"\bpipeline workers\s+workers=(\d+)\b", line)
+        if match:
+            workers.add(int(match[1]))
+    if workers != {expected}:
+        raise ValueError("general pipeline worker count did not match")
 
 
 def observed_profile(lines):
@@ -498,6 +516,25 @@ def pipeline_stage_activity(lines, launched, stop, frames):
     for spans in covered.values():
         spans.sort()
     all_spans = sorted(span for spans in covered.values() for span in spans)
+    created = [(left, right)
+               for entries in traces.values() for spans in entries for phase, left, right in spans
+               if phase == "driver_create" and left < right]
+    create_by_gap = []
+    for left, right in gaps:
+        active = [(max(left, start), min(right, end)) for start, end in created
+                  if start < right and end > left]
+        edges = sorted(edge for start, end in active for edge in ((start, 1), (end, -1)))
+        running = peak = 0
+        for _, change in edges:
+            running += change
+            peak = max(peak, running)
+        create_by_gap.append({
+            "start_seconds": left / 1e6,
+            "end_seconds": right / 1e6,
+            "calls": len(active),
+            "overlapping_worker_seconds": sum(end - start for start, end in active) / 1e6,
+            "peak_concurrent_calls": peak,
+        })
     return {
         "compute_pipeline_traces": sum(map(len, traces.values())),
         "compute_wait_reports": len(waits),
@@ -507,6 +544,7 @@ def pipeline_stage_activity(lines, launched, stop, frames):
             for phase, spans in covered.items()
         },
         "any_stage_overlap_seconds": sum(_wait_overlap(all_spans, a, b) for a, b in gaps) / 1e6,
+        "driver_create_by_gap": create_by_gap,
     }
 
 
