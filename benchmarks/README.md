@@ -643,6 +643,14 @@ Victory Grimkaaah reports 13.9 FPS in the world with ray tracing, at 4K output o
 
 The shared-buffer pool from Avatar #433 targets allocations made for off-element buffer views and command-list uploads. In the reverse-order 720p runs above, the combined and stock builds peaked at 45 and 70 retained exact views. Their last cumulative mapping counters showed 21,400 and 19,800 waits and 15.6 and 18.0 seconds across threads. Those totals include allocations from all callers and can overlap. The AMD adaptation has both settings opt-in. The first hardware fixture uses the upload pool alone and exercises list-reset ownership. [Upstream discussion](https://github.com/avatarmanz/VIctory-7900XTX/pull/433#issuecomment-7211359080) · [AMD candidate](https://github.com/UwUCammie/VIctory-7900XTX/commit/acfb2357)
 
+### Late card-step fills on the AMD branch
+
+[Avatar #434](https://github.com/avatarmanz/VIctory-7900XTX/pull/434) traced stretched geometry to constant-buffer fills that read too early. [AMD #56](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/56) ports the check with `VICTORY_CARD_STEPS_LEARN=1` opt-in. The Windows MSVC build passed nine Wine tests, including a fixture with changed and unchanged pages for both fill paths. The separate flight test is pending.
+
+The [720p integration](https://github.com/UwUCammie/VIctory-7900XTX/commit/a9624438) is for a saved indoor camera replay. Both launches use the same copied save and caches, executable, stock GE driver DLLs, relay stage 2 and card steps 2. The only switch is `VICTORY_CARD_STEPS_LEARN`. Check the reported switch, the number of pages learned and submissions that waited, and comparable camera angles in the private recordings. The saved-route observation does not enter the cold-start FPS series.
+
+The compilation guard interrupted the first test build after roughly 35 seconds. Marking the source files fresh once before the guarded operation let Cargo keep its completed crates on retry. The retry rebuilt the remaining GPU crate and finished in 30.26 seconds. Source checksums from the final PDB verified the code used for the tests.
+
 ### Cold upload-pool comparison
 
 The [720p integration build](https://github.com/UwUCammie/VIctory-7900XTX/commit/47d8e27a) adds [AMD #55](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/55) to the combined CPU branch. Use the same executable, driver DLLs, Series X profile and input sequence in both launches, with five empty graphics caches and no story slots for each. Set `VICTORY_CARD_STEPS=2`, `VICTORY_VIEW_POOL=0` and `VICTORY_VIEW_POOL_MB=256` in both. Change `VICTORY_UPLOAD_POOL` from 0 to 1.
