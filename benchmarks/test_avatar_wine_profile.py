@@ -3,12 +3,12 @@ import unittest
 
 from avatar_wine_profile import (AVATAR_WINE_BOOL_SIMPLIFY, AVATAR_WINE_COMPILER_CACHE, AVATAR_WINE_CONSTRUCTOR_POOLS, AVATAR_WINE_EARLY_LIMITS, AVATAR_WINE_KEEP_TRANSLATED,
                                  AVATAR_WINE_NOTIFY_SWITCHES, AVATAR_WINE_SCREEN_LIMITS, AVATAR_WINE_SINGLE_PARSE,
-                                 AVATAR_WINE_SCREEN_WORKERS, AVATAR_WINE_VALUE_USE_INDEX,
+                                 AVATAR_WINE_QUEUE_TIMING, AVATAR_WINE_SCREEN_WORKERS, AVATAR_WINE_VALUE_USE_INDEX, AVATAR_WINE_WAITER_SWITCHES,
                                  AVATAR_WINE_WRITEBACK_SWITCHES, benchmark_flags, compute_wait_activity,
                                  early_compute_activity, early_screen_activity, observed_profile,
                                  pipeline_wait_gap_totals, pipeline_wait_group_coverage, pipeline_wait_translation_coverage,
                                  screen_wait_coverage, screen_worker_activity,
-                                 verify_constructor_pool, verify_notification_mode, writeback_activity)
+                                 queue_claim_activity, verify_constructor_pool, verify_notification_mode, verify_waiter_priority, writeback_activity)
 from cold_boot import verify_wait_budgets
 
 
@@ -187,6 +187,36 @@ class AvatarWineProfileTests(unittest.TestCase):
             "translation_pending_overlap_seconds": 3.0,
             "translation_logged_overlap_seconds": 2.0,
             "translation_unknown_overlap_seconds": 0.5,
+        })
+
+    def test_waiter_priority_changes_only_one_setting_and_trace_is_independent(self):
+        off, on = map(benchmark_flags, AVATAR_WINE_WAITER_SWITCHES)
+        self.assertEqual(off["VICTORY_PIPELINE_QUEUE_TIMING"], "0")
+        self.assertEqual(on, dict(off, VICTORY_PIPELINE_WAITERS_FIRST="1"))
+        self.assertEqual(benchmark_flags(AVATAR_WINE_QUEUE_TIMING), dict(off, VICTORY_PIPELINE_QUEUE_TIMING="1"))
+        started = datetime(2026, 11, 27, 8, tzinfo=timezone.utc)
+        line = "2026-11-27T08:00:04Z INFO pipeline priority for active waiters enabled=true"
+        verify_waiter_priority([line], started, 6_000_000, True)
+        with self.assertRaises(ValueError):
+            verify_waiter_priority([line], started, 6_000_000, False)
+
+    def test_worker_claim_only_matches_unambiguous_compute_requests(self):
+        started = datetime(2026, 11, 27, 8, tzinfo=timezone.utc)
+        logs = [
+            "2026-11-27T08:00:03Z INFO a requested pipeline reached a worker us=2000000 shaders=[compute a]",
+            "2026-11-27T08:00:03Z INFO a requested pipeline reached a worker us=1000000 shaders=[compute b]",
+            "2026-11-27T08:00:04Z INFO a requested pipeline reached a worker us=1000000 shaders=[compute b]",
+            "2026-11-27T08:00:04Z INFO a compute pass was waited for ms=2000 made=true shaders=[compute a]",
+            "2026-11-27T08:00:04Z INFO a compute pass was waited for ms=2000 made=true shaders=[compute b]",
+            "2026-11-27T08:00:05Z INFO a pass over the screen was waited for ms=2000 made=true shaders=[mesh c]",
+        ]
+        self.assertEqual(queue_claim_activity(logs, started, 6_000_000, [1_000_000, 5_000_000]), {
+            "recorded_claims": 3,
+            "claims_after_100ms": 3,
+            "longest_claim_delay_ms": 2000.0,
+            "compute_wait_reports": 2,
+            "matched_compute_wait_reports": 1,
+            "queued_compute_overlap_seconds": 1.0,
         })
 
     def test_constructor_pool_flags_and_announcement(self):

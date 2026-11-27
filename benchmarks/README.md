@@ -1213,6 +1213,15 @@ The combined build verified 171 runtime source checksums and yielded to another 
 
 Full 300 s scoring excludes the interrupted launch. The trial remains in rotation.
 
+The second combined attempt reached 159.65 s before yielding to another build. Its first 150 s qualified as a diagnostic comparison with the reference. The exact executable and PDB matched 171 source checksums. Both runs used the same driver files and loaded vkd3d-proton revision, flags, inputs, scene and interface dimensions, five empty caches and a fresh story profile.
+
+| Build | Accepted presents | P99 interval | Longest gap | Time in gaps above 100 ms | Compute waits without a result |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Reference | 2,440 | 250.90 ms | 19.93 s | 91.71 s | 36 |
+| Combined shader changes, second attempt | 2,908 | 223.17 ms | 20.06 s | 79.55 s | 26 |
+
+Waits on groups with a translation still pending overlapped 63.68 s of complete gaps of at least one second in the reference and 47.63 s in the combined build. Overlap after the last translation was logged was 32.96 s and 34.38 s, respectively. This run leaves the full 300 s result and visual check open.
+
 Grouping completed waits by shader list and compute or screen class shows how concentrated the long stalls were. The exact reference had 30 complete present gaps of at least one second, totaling 122.44 s. Logged waits overlapped 120.96 s. Taking the largest group in each gap accounts for 72.15 s, including 46.49 s in the first 80 s. Three of the first four gaps in that window were at least 80% covered by a single group. The combined shader changes had seven gaps of at least one second in the same window, totaling 49.46 s versus the reference's 51.07 s. The sum of the largest group's overlap in each gap fell from 46.49 s to 35.88 s. Later reference gaps were spread across more groups. Group identity uses logged shader lists, which can be shared by different pipeline configurations. Overlap measures timing and does not establish how many seconds a compiler change can remove.
 
 The same complete gaps can be attributed by the timestamp of each wait's last shader translation. In the full reference, waits for shader groups with a translation still pending overlapped 90.82 s. Waits after all their shader translations were logged overlapped 51.79 s. These intervals overlap when multiple threads wait at once. The first 80 s reference and combined prefixes respectively had 49.30 s and 41.23 s of overlap while translation was pending, and 19.84 s and 25.76 s after translation was logged. Both traces supplied translation markers for every shader in their logged waits. A pending translation includes any time spent waiting for a worker to begin. The timestamps alone cannot divide that interval into queue time and translator execution time.
@@ -1248,6 +1257,10 @@ The generated legacy MAD fixture for #454 reproduced a rounding mismatch on the 
 ### Boolean lowering in cold shader translation
 
 A local CPU profile placed the boolean decision diagram's if-then-else operation among the next largest runtime symbols after the arithmetic-use scans. The experiment simplifies a branch that repeats the condition and interns new nodes in one map lookup. The native release probe compared the combined shader build with this one additional translator change. Eight alternating runs on a deterministic 256-input slice matched exactly for all 254 translations and both terminal errors, including generated DXIL and remaining host metadata. Median summed translation time was 2.599 s before and 2.550 s after. Median wall time was 1.227 s and 1.162 s, respectively. The translator suite passed 212 tests with two ignored. The sample suggests a small change in native translation time. A full cold comparison is queued behind the exact combined control. [Experiment source](https://github.com/UwUCammie/VIctory-7900XTX/commit/c39475eb)
+
+### Prioritizing pipeline requests with active waits
+
+The opt-in scheduler experiment places a compute or screen request ahead of ordinary work while a title caller still has time left to wait. The original queue keeps ownership of each request, so hint expiry preserves the earlier order and a job can only be claimed once. Eight focused Windows MSVC queue tests passed under Wine 11.22 with the option off and on. The executable and PDB matched 108 source checksums. The 100 s timing diagnostic records how long requests wait before a worker claims them, with the priority option off. It is excluded from cold FPS scoring. Both full comparisons use the same binary with timing disabled and differ only in the priority option. [Experimental source](https://github.com/UwUCammie/VIctory-7900XTX/commit/b004cdec)
 
 ### Reusing command lists at thin replay construction
 

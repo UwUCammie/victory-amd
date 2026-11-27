@@ -45,10 +45,16 @@ AVATAR_WINE_CONSTRUCTOR_POOLS = {
     "vkd3d-master-avatar-wine-440-list-pool-off": "0",
     "vkd3d-master-avatar-wine-440-list-pool-on": "1",
 }
+AVATAR_WINE_WAITER_SWITCHES = {
+    "vkd3d-master-avatar-wine-440-waiters-first-off": "0",
+    "vkd3d-master-avatar-wine-440-waiters-first-on": "1",
+}
+AVATAR_WINE_QUEUE_TIMING = "vkd3d-master-avatar-wine-440-queue-timing"
 AVATAR_WINE_MODES = AVATAR_WINE_COMPUTE_BUDGETS | dict.fromkeys(
     (*AVATAR_WINE_WRITEBACK_SWITCHES, *AVATAR_WINE_EARLY_LIMITS, *AVATAR_WINE_NOTIFY_SWITCHES,
      AVATAR_WINE_VALUE_USE_INDEX, AVATAR_WINE_KEEP_TRANSLATED, AVATAR_WINE_SINGLE_PARSE,
-     AVATAR_WINE_COMPILER_CACHE, AVATAR_WINE_BOOL_SIMPLIFY, *AVATAR_WINE_CONSTRUCTOR_POOLS), 10000
+     AVATAR_WINE_COMPILER_CACHE, AVATAR_WINE_BOOL_SIMPLIFY, *AVATAR_WINE_CONSTRUCTOR_POOLS,
+     *AVATAR_WINE_WAITER_SWITCHES, AVATAR_WINE_QUEUE_TIMING), 10000
 ) | dict.fromkeys((*AVATAR_WINE_SCREEN_LIMITS, *AVATAR_WINE_SCREEN_WORKERS, "vkd3d-master-avatar-wine-440-early-2560-wait2000",
                    "vkd3d-master-avatar-wine-440-early-3072-wait2000", AVATAR_WINE_LEGACY_FMA), 2000)
 
@@ -113,6 +119,9 @@ def benchmark_flags(mode):
                      VICTORY_EARLY_SCREEN_MAX_BYTES="0", VICTORY_RESERVE_SCREEN_WORKER=AVATAR_WINE_SCREEN_WORKERS[mode])
     if mode in AVATAR_WINE_CONSTRUCTOR_POOLS:
         flags.update(VICTORY_LIST_POOL="1", VICTORY_LIST_CREATE_POOL=AVATAR_WINE_CONSTRUCTOR_POOLS[mode])
+    if mode in AVATAR_WINE_WAITER_SWITCHES or mode == AVATAR_WINE_QUEUE_TIMING:
+        flags.update(VICTORY_PIPELINE_WAITERS_FIRST=AVATAR_WINE_WAITER_SWITCHES.get(mode, "0"),
+                     VICTORY_PIPELINE_QUEUE_TIMING="1" if mode == AVATAR_WINE_QUEUE_TIMING else "0")
     return flags
 
 
@@ -336,6 +345,64 @@ def pipeline_wait_translation_coverage(lines, launched, stop, frames):
     return {
         f"{kind}_overlap_seconds": sum(_wait_overlap(waits, a, b) for a, b in gaps) / 1e6
         for kind, waits in spans.items()
+    }
+
+
+def verify_waiter_priority(lines, launched, stop, expected):
+    label = "pipeline priority for active waiters"
+    seen = set()
+    for _, line in windowed_log_lines(lines, launched, stop, (label,)):
+        value = re.search(r"\benabled=(true|false)\b", line)
+        if value is None:
+            raise ValueError("pipeline waiter priority log has no setting")
+        seen.add(value[1] == "true")
+    if seen != {expected}:
+        raise ValueError("pipeline waiter priority does not match the requested mode")
+
+
+def queue_claim_activity(lines, launched, stop, frames):
+    """Measure first-request-to-worker delay, and its overlap with compute waits.
+
+    Join only compute waits with a single recorded claim for that shader.
+    Graphics pipelines can share the entire shader list and differ in state.
+    """
+    claims = {}
+    waits = []
+    label = "a requested pipeline reached a worker"
+    compute = "a compute pass was waited for"
+    delays = []
+    for at, line in windowed_log_lines(lines, launched, stop, (label, compute)):
+        if label not in line:
+            waits.append(line)
+            continue
+        fields = re.search(r"\bus=(\d+)\s+shaders=(\[[^\]]*\])", line)
+        if fields is None:
+            raise ValueError("queue claim has no duration or shader list")
+        delay = int(fields[1])
+        delays.append(delay)
+        claims.setdefault(fields[2], []).append((at - delay, at))
+
+    queued = []
+    matched = 0
+    for _, start, end, line in _pipeline_wait_reports(waits, launched, stop):
+        shader = re.search(r"\bshaders=(\[[^\]]+\])", line)
+        if shader is None:
+            raise ValueError("compute wait has no shader list")
+        claim = claims.get(shader[1])
+        if claim is not None and len(claim) == 1:
+            requested, picked = claim[0]
+            lo, hi = max(start, requested), min(end, picked)
+            if lo < hi:
+                queued.append((lo, hi))
+            matched += 1
+    queued.sort()
+    return {
+        "recorded_claims": len(delays),
+        "claims_after_100ms": sum(delay > 100_000 for delay in delays),
+        "longest_claim_delay_ms": max(delays, default=0) / 1000,
+        "compute_wait_reports": len(waits),
+        "matched_compute_wait_reports": matched,
+        "queued_compute_overlap_seconds": sum(_wait_overlap(queued, a, b) for a, b in _complete_long_gaps(frames, stop)) / 1e6,
     }
 
 
