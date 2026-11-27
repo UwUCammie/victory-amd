@@ -429,10 +429,10 @@ fn compute_frame_budget() -> Duration {
     })
 }
 
-/// Time remaining until the frame deadline or the pipeline's age limit,
-/// whichever comes first.
-fn compute_left(frame_budget: Duration, since: Duration, making: Duration) -> Duration {
-    frame_budget.saturating_sub(since).min(COMPUTE_BUDGET.saturating_sub(making))
+/// The frame deadline or the pipeline's age limit, whichever comes first.
+fn compute_wait_deadline(frame_budget: Duration, frame_start: Instant, making_since: Option<Instant>) -> Instant {
+    let frame_end = frame_start + frame_budget;
+    making_since.map_or(frame_end, |start| frame_end.min(start + COMPUTE_BUDGET))
 }
 
 /// Waits for `p` while frame `frame` has budget left.
@@ -440,8 +440,8 @@ fn wait(p: &Pending, frame: u64) {
     let screen = p.screen && screens_first();
     // A compute dispatch ([`compute_waits`]) waits within its own budget
     // while its pipeline is being made for less than that; then as any other.
-    let making = p.making_since.get().map_or(Duration::ZERO, Instant::elapsed);
-    let compute = p.compute && making < COMPUTE_BUDGET;
+    let making_since = p.making_since.get().copied();
+    let compute = p.compute && making_since.is_none_or(|start| start.elapsed() < COMPUTE_BUDGET);
     let budget = if screen {
         screen_budget()
     } else if compute {
@@ -457,7 +457,7 @@ fn wait(p: &Pending, frame: u64) {
     static SPENT: [Mutex<(u64, Duration)>; 2] = [const { Mutex::new((u64::MAX, Duration::ZERO)) }; 2];
     let spent_of = &SPENT[usize::from(screen)];
     let shared = shared_budget();
-    let left = if compute {
+    let deadline = if compute {
         // Compute waits end at one time a frame, the budget after the
         // frame's first one began: threads that wait together all wait (a
         // second thread that found the budget taken dropped its dispatch,
@@ -470,7 +470,12 @@ fn wait(p: &Pending, frame: u64) {
         if first.0 == u64::MAX || frame > first.0 {
             *first = (frame, Some(Instant::now()));
         }
-        compute_left(budget, first.1.map_or(Duration::ZERO, |at| at.elapsed()), making)
+        Some(compute_wait_deadline(budget, *first.1.get_or_insert_with(Instant::now), making_since))
+    } else {
+        None
+    };
+    let left = if let Some(until) = deadline {
+        until.saturating_duration_since(Instant::now())
     } else {
         let mut spent = spent_of.lock().unwrap_or_else(|e| e.into_inner());
         if spent.0 != frame {
@@ -503,7 +508,13 @@ fn wait(p: &Pending, frame: u64) {
     let (lock, done) = &DONE;
     let mut held = lock.lock().unwrap_or_else(|e| e.into_inner());
     while p.made.get().is_none() {
-        let rest = left.saturating_sub(started.elapsed());
+        // Time spent entering the notification path still counts against
+        // the same frame and pipeline deadlines.
+        let rest = if let Some(until) = deadline {
+            until.saturating_duration_since(Instant::now())
+        } else {
+            left.saturating_sub(started.elapsed())
+        };
         if rest.is_zero() {
             break;
         }
@@ -909,15 +920,18 @@ mod tests {
     #[test]
     fn compute_waits_are_bounded_per_frame_and_per_pipeline() {
         let s = Duration::from_secs;
-        assert_eq!(compute_left(COMPUTE_BUDGET, s(0), s(0)), COMPUTE_BUDGET);
-        assert_eq!(compute_left(COMPUTE_BUDGET, COMPUTE_BUDGET, s(0)), Duration::ZERO);
-        assert_eq!(compute_left(COMPUTE_BUDGET, s(0), COMPUTE_BUDGET), Duration::ZERO);
-        assert_eq!(compute_left(COMPUTE_BUDGET, s(3), s(8)), COMPUTE_BUDGET - s(8));
-        assert_eq!(compute_left(COMPUTE_BUDGET, s(8), s(3)), COMPUTE_BUDGET - s(8));
-        assert_eq!(compute_left(s(2), s(1), s(7)), s(1));
-        assert_eq!(compute_left(s(2), s(2), s(0)), Duration::ZERO);
-        assert_eq!(compute_left(s(5), s(1), s(9)), s(1));
-        assert_eq!(compute_left(Duration::ZERO, s(0), s(0)), Duration::ZERO);
+        let start = Instant::now();
+        let deadline = |budget, frame, making: Option<u64>| {
+            compute_wait_deadline(s(budget), start + s(frame), making.map(|n| start + s(n)))
+        };
+        assert_eq!(deadline(10, 0, None), start + s(10));
+        assert_eq!(deadline(10, 5, Some(0)), start + s(10));
+        assert_eq!(deadline(10, 0, Some(5)), start + s(10));
+        assert_eq!(deadline(0, 5, Some(0)), start + s(5));
+        let end = compute_wait_deadline(Duration::from_millis(500), start, None);
+        let after_queue = start + Duration::from_millis(450);
+        assert_eq!(end.saturating_duration_since(after_queue), Duration::from_millis(50));
+        assert_eq!(end.saturating_duration_since(start + s(1)), Duration::ZERO);
     }
 
     /// A dispatch waits for a compute pipeline that is not made until a
