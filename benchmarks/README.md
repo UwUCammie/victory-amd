@@ -332,6 +332,24 @@ Seven alternating native release pairs per case ran on one Ryzen 7 9700X core. T
 
 Run `python3 benchmarks/landing_ranges.py CHECKOUT 830dc191 9615ecdb` with Rust 1.98.1. This fixture excludes the GPU fetch and the memory writes. [Candidate source](https://github.com/UwUCammie/VIctory-7900XTX/commit/9615ecdb)
 
+### Selecting due texture uploads
+
+A normal texture pass limits the due list to 4,096 slots. The control sorted every due record before taking its share. The candidate keeps the newest retries, then selects and sorts the two ends of the fresh list that can fit. It keeps the same alternating newest and oldest order. I checked 50,625 generated combinations of shuffled queues and limits against the stock implementation. Two Windows MSVC queue tests also passed under Wine, and the executable matched 106 source checksums in its PDB.
+
+| Retried records | Fresh records | Limit | Stock median | Candidate median |
+| ---: | ---: | ---: | ---: | ---: |
+| 128 | 512 | 4,096 | 6.62 µs | 6.51 µs |
+| 1,000 | 9,000 | 4,096 | 150.08 µs | 67.48 µs |
+| 1,000 | 39,000 | 4,096 | 759.46 µs | 189.43 µs |
+| 5,000 | 20,000 | 4,096 | 438.04 µs | 74.27 µs |
+| 5,000 | 20,000 | 65,536 | 461.16 µs | 451.98 µs |
+
+Run `python3 benchmarks/due_texture_order.py CHECKOUT 830dc191 81c093c2` with Rust 1.98.1. These are nine alternating pairs on one Ryzen 7 9700X core, timing the ordering call on generated records. [Candidate source](https://github.com/UwUCammie/VIctory-7900XTX/commit/81c093c2)
+
+### Relevance of the masked write patch to cold startup
+
+I looked for the stall that the upstream masked write patch is designed to avoid. Across 435 interval summaries in three clean 720p cold launches (the latest combined control, its relay/history candidate and the Wine descriptor candidate), every printed per-frame wait for title memory changing under shader writes was 0.0 ms at the log's one-decimal precision. This sets the priority for these cold configurations only. The saved gameplay route may expose a different workload. [Upstream patch](https://github.com/fxceless/victory-fork/commit/3221ac42)
+
 ### Chunked shadow merge
 
 I tested the 64-byte equality check and 8-byte SWAR merge from [fxceless #1421](https://github.com/fxceless/victory-fork/pull/1421) on the AMD base. The original chunk split could miss bytes when one slice was shorter by one byte. The tested build limits all three inputs to their shared length and checks lengths on both sides of 64 bytes. All nine focused Windows MSVC tests passed under Wine.
