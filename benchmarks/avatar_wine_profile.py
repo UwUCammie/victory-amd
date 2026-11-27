@@ -43,6 +43,10 @@ AVATAR_WINE_RECORDED_COMPUTE = {
     "vkd3d-master-avatar-wine-440-recorded-compute-off": "0",
     "vkd3d-master-avatar-wine-440-recorded-compute-on": "1",
 }
+AVATAR_WINE_RECORDED_SCREEN = {
+    "vkd3d-master-avatar-wine-440-recorded-screen-off": "0",
+    "vkd3d-master-avatar-wine-440-recorded-screen-on": "1",
+}
 AVATAR_WINE_SCREEN_WAITER_SCORES = {
     "vkd3d-master-avatar-wine-440-merged-screen-waiter-off": "0",
     "vkd3d-master-avatar-wine-440-merged-screen-waiter-on": "screen",
@@ -55,6 +59,7 @@ AVATAR_WINE_CAPTURE_OBSERVERS = {
     AVATAR_WINE_OBSERVERS_OFF: False, AVATAR_WINE_OBSERVERS_ON: True, AVATAR_WINE_MERGED_COLD: False,
     AVATAR_WINE_WRITE_WATCH_INDEX: False,
     **dict.fromkeys(AVATAR_WINE_RECORDED_COMPUTE, False),
+    **dict.fromkeys(AVATAR_WINE_RECORDED_SCREEN, False),
     **dict.fromkeys(AVATAR_WINE_SCREEN_WAITER_SCORES, False),
     **dict.fromkeys(AVATAR_WINE_WRITE_WATCH_GAPS, False),
 }
@@ -238,6 +243,10 @@ def benchmark_flags(mode):
     if mode in AVATAR_WINE_RECORDED_COMPUTE:
         flags.update(VICTORY_EARLY_RECORDED_COMPUTE=AVATAR_WINE_RECORDED_COMPUTE[mode],
                      VICTORY_RECORDED_COMPUTE_TRACE="1")
+    if mode in AVATAR_WINE_RECORDED_SCREEN:
+        flags.update(VICTORY_EARLY_RECORDED_SCREEN=AVATAR_WINE_RECORDED_SCREEN[mode],
+                     VICTORY_RECORDED_SCREEN_TRACE="1", VICTORY_EARLY_RECORDED_COMPUTE="0",
+                     VICTORY_RECORDED_COMPUTE_TRACE="0")
     return flags
 
 
@@ -287,9 +296,18 @@ def write_watch_index_activity(lines, launched, stop):
 
 def recorded_compute_activity(lines, launched, stop, enabled):
     """Measure the first recorded dispatch to first replay use of each pipeline."""
-    settings = "recorded compute pipeline lookahead"
-    queued = "first recorded compute pipeline queued before replay"
-    replay = "recorded compute pipeline reached replay"
+    return _recorded_pipeline_activity(lines, launched, stop, enabled, "compute")
+
+
+def recorded_screen_activity(lines, launched, stop, enabled):
+    """Measure screen pipeline readiness, including a route with no direct screen draws."""
+    return _recorded_pipeline_activity(lines, launched, stop, enabled, "screen")
+
+
+def _recorded_pipeline_activity(lines, launched, stop, enabled, kind):
+    settings = f"recorded {kind} pipeline lookahead"
+    queued = f"first recorded {kind} pipeline queued before replay"
+    replay = f"recorded {kind} pipeline reached replay"
     mode = []
     leads = []
     ready = 0
@@ -302,19 +320,19 @@ def recorded_compute_activity(lines, launched, stop, enabled):
         elif replay in line:
             match = re.search(r"us=(\d+)\s+ready=(true|false)", line)
             if match is None:
-                raise ValueError("malformed recorded compute replay marker")
+                raise ValueError(f"malformed recorded {kind} replay marker")
             leads.append(int(match[1]))
             ready += match[2] == "true"
     if mode != [f"enabled={str(enabled).lower()} trace=true"] or (not enabled and first_queued is not None):
-        raise ValueError("recorded compute pipeline setting did not match")
-    if not leads:
+        raise ValueError(f"recorded {kind} pipeline setting did not match")
+    if not leads and kind == "compute":
         raise ValueError("no recorded compute pipelines reached replay")
     return {
         "count": len(leads),
         "ready_at_first_replay": ready,
-        "lead_median_us": median(leads),
-        "lead_p95_us": sorted(leads)[(95 * len(leads) + 99) // 100 - 1],
-        "lead_max_us": max(leads),
+        "lead_median_us": median(leads) if leads else None,
+        "lead_p95_us": sorted(leads)[(95 * len(leads) + 99) // 100 - 1] if leads else None,
+        "lead_max_us": max(leads, default=None),
         "lead_over_100ms": sum(us > 100_000 for us in leads),
         "first_queued_us": first_queued,
     }

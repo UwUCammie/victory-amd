@@ -16,7 +16,8 @@ from avatar_wine_profile import AVATAR_WINE_CARD_TOUCHED, AVATAR_WINE_SCREEN_WAI
 from avatar_wine_profile import AVATAR_WINE_CAPTURE_OBSERVERS, AVATAR_WINE_MERGED_COLD, AVATAR_WINE_OBSERVERS_OFF, AVATAR_WINE_OBSERVERS_ON, verify_capture_observers
 from avatar_wine_profile import AVATAR_WINE_SCREEN_WAITER_DIAGNOSTICS, AVATAR_WINE_SCREEN_WAITER_SCORES, verify_screen_waiter_priority
 from avatar_wine_profile import AVATAR_WINE_WRITE_WATCH_GAPS, verify_write_watch_gap
-from avatar_wine_profile import AVATAR_WINE_RECORDED_COMPUTE, recorded_compute_activity
+from avatar_wine_profile import (AVATAR_WINE_RECORDED_COMPUTE, AVATAR_WINE_RECORDED_SCREEN,
+                                 recorded_compute_activity, recorded_screen_activity)
 
 
 class AvatarWineProfileTests(unittest.TestCase):
@@ -39,6 +40,22 @@ class AvatarWineProfileTests(unittest.TestCase):
         })
         with self.assertRaises(ValueError):
             recorded_compute_activity(lines, start, 4_000_000, False)
+
+    def test_recorded_screen_pair_reuses_the_cold_profile(self):
+        for arm, value in AVATAR_WINE_RECORDED_SCREEN.items():
+            self.assertEqual(benchmark_flags(arm), dict(benchmark_flags(AVATAR_WINE_MERGED_COLD),
+                                 VICTORY_EARLY_RECORDED_SCREEN=value, VICTORY_RECORDED_SCREEN_TRACE="1",
+                                 VICTORY_EARLY_RECORDED_COMPUTE="0", VICTORY_RECORDED_COMPUTE_TRACE="0"))
+        start = datetime(2026, 11, 27, 8, tzinfo=timezone.utc)
+        lines = ["2026-11-27T08:00:00Z INFO recorded screen pipeline lookahead enabled=true trace=true",
+                 "2026-11-27T08:00:01Z INFO first recorded screen pipeline queued before replay",
+                 "2026-11-27T08:00:02Z INFO recorded screen pipeline reached replay us=80000 ready=true"]
+        self.assertEqual(recorded_screen_activity(lines, start, 2_000_000, True)["count"], 0)
+        result = recorded_screen_activity(lines, start, 3_000_000, True)
+        self.assertEqual(result["ready_at_first_replay"], 1)
+        self.assertEqual(result["first_queued_us"], 1_000_000)
+        with self.assertRaises(ValueError):
+            recorded_screen_activity(lines, start, 3_000_000, False)
 
     def test_write_watch_gap_pair_uses_the_same_cold_profile(self):
         for mode, gap in AVATAR_WINE_WRITE_WATCH_GAPS.items():

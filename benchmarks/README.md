@@ -1455,6 +1455,17 @@ The second updated Wine control and the second updated compiler/cache attempt bo
 
 Against the earlier verified 21.93 FPS release, the updated compiler/cache attempt accepted 3,105 versus 2,903 presents in the first 170 s and spent 87.22 versus 97.83 s in gaps above 100 ms. P99 increased from 226.09 to 245.92 ms. The driver files, input, runtime flags and initially empty caches matched. Several runtime changes separate these builds, and this longer prefix ends before the interruption. It cannot isolate the indexed lookup's effect or supply a five-minute score.
 
+The seventh compiler/cache launch finished the full 300 s window on the RX 7900 XT. The cold inputs, runtime flags, 720p scene, 4K interface plane and driver files matched the verified reference. Several changes separate the builds, so this compares whole releases.
+
+| First 300 s from launch | Reference | Compiler/cache |
+| --- | ---: | ---: |
+| Accepted presents | 6,579 | 5,648 |
+| Average FPS | 21.93 | 18.83 |
+| P99 present gap | 172 ms | 262 ms |
+| Time in gaps above 100 ms | 142.32 s | 154.65 s |
+
+The 27–75 s interval spent nearly 48 s in long gaps on both releases. Most of the frame deficit came afterward. At about 160 s the driver's facial skin was missing in both private captures, with eyes and teeth visible. Both reached the late driving shot. The reference remains the higher verified cold score. [Compiler/cache runtime](https://github.com/UwUCammie/VIctory-7900XTX/commit/2d6e4f31)
+
 ### Compute pipelines before thin-list replay
 
 Thin command lists buffer commands until a chunk fills or the list closes. The experiment starts a compute pipeline on the existing early queue when a direct nonzero dispatch or supported indirect compute dispatch is recorded. Replay keeps its current ordering and wait rules. All five focused Windows MSVC tests passed under headless Wine with 114 verified source checksums.
