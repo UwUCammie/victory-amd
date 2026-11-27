@@ -215,7 +215,7 @@ def benchmark_flags(mode):
     return flags
 
 
-def verify_capture_observers(launch, capture_dir, enabled):
+def verify_capture_observers(launch, capture_dir, enabled, *, complete=False):
     """Check which observer processes started and whether they wrote captures."""
     expected = ["stills", "clip"] if enabled else []
     flags = launch.get("runtime_flags", {})
@@ -228,6 +228,8 @@ def verify_capture_observers(launch, capture_dir, enabled):
     clip = clip_path.is_file() and clip_path.stat().st_size > 0
     if (stills, clip) != (enabled, enabled):
         raise ValueError("capture observer outputs did not match the requested mode")
+    if complete and enabled and launch.get("capture_observer_exit_codes", {}).get("clip") != 0:
+        raise ValueError("clip recorder did not complete its requested window")
 
 
 def verify_card_dirty_scan(lines, launched, stop, enabled):

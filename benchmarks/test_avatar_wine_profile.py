@@ -37,6 +37,10 @@ class AvatarWineProfileTests(unittest.TestCase):
             (captures / "private-dialogue.mkv").write_bytes(b"clip")
             verify_capture_observers(on, captures, True)
             with self.assertRaises(ValueError):
+                verify_capture_observers(on, captures, True, complete=True)
+            verify_capture_observers(dict(on, capture_observer_exit_codes={"clip": 0}),
+                                     captures, True, complete=True)
+            with self.assertRaises(ValueError):
                 verify_capture_observers(off, captures, False)
             with self.assertRaises(ValueError):
                 verify_capture_observers(dict(on, runtime_flags={"VICTORY_CAPTURE_WORLD": "0"}),
