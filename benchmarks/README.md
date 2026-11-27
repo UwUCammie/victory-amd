@@ -1656,6 +1656,8 @@ The higher priority shortened the longest gap. The frame count fell and the tota
 
 A separate device-loss diagnostic reuses the priority −2 executable and driver files at the same cold setup. It sends the same menu inputs and omits the subsequent movement keys. This tests whether the scripted movement is necessary to reproduce the loss. The diagnostic is excluded from FPS scoring.
 
+The menu-only launch accepted a present at 305.74 s and reached the 310 s timeout without a device loss. The matched walking launch lost the device at 263.15 s. The executable and all three driver DLL hashes matched, both loaded vkd3d-proton `71cae091b06571e`, and the scripted keys were the only runtime flag difference. Both used five empty graphics caches, a fresh story, and native 720p output with the 4K interface. This single diagnostic leaves the cause of the loss open.
+
 ### Keeping a compiler worker available for requests
 
 One experiment keeps the last of ten general workers available for pipelines the title has already requested. The other nine can still compile speculative work, and the two priority workers keep their existing queues. The requested worker keeps the normal order of already-requested jobs, including jobs promoted out of the early queue. Both worker recovery paths preserve that assignment. The switch is off by default.
