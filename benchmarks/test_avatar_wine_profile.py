@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 import unittest
 
 from avatar_wine_profile import (AVATAR_WINE_BOOL_SIMPLIFY, AVATAR_WINE_COMPILER_CACHE, AVATAR_WINE_CONSTRUCTOR_POOLS, AVATAR_WINE_EARLY_LIMITS, AVATAR_WINE_FACE_EARLY_LIMITS, AVATAR_WINE_FACE_TRACE, AVATAR_WINE_FACE_TRACE_EARLY, AVATAR_WINE_FACE_WORKER_COUNTS, AVATAR_WINE_FACES, AVATAR_WINE_FACES_2S, AVATAR_WINE_FACES_EARLY, AVATAR_WINE_FACES_OFF, AVATAR_WINE_KEEP_TRANSLATED, AVATAR_WINE_LATEST_CONTROL, AVATAR_WINE_LATEST_SHADERS,
-                                 AVATAR_WINE_NOTIFY_SWITCHES, AVATAR_WINE_PIPELINE_INPUTS, AVATAR_WINE_SCREEN_LIMITS, AVATAR_WINE_SINGLE_PARSE, AVATAR_WINE_STAGE_CPU_PROFILE, AVATAR_WINE_STAGE_INDEX_PROFILE,
+                                 AVATAR_WINE_NOTIFY_SWITCHES, AVATAR_WINE_PIPELINE_INPUTS, AVATAR_WINE_SCREEN_LIMITS, AVATAR_WINE_SCREEN_QUEUE_TRACE, AVATAR_WINE_SINGLE_PARSE, AVATAR_WINE_STAGE_CPU_PROFILE, AVATAR_WINE_STAGE_INDEX_PROFILE,
                                  AVATAR_WINE_QUEUE_TIMING, AVATAR_WINE_QUEUE_TIMINGS, AVATAR_WINE_SCREEN_WORKERS, AVATAR_WINE_VALUE_USE_INDEX, AVATAR_WINE_WAITER_SWITCHES,
                                  AVATAR_WINE_WRITEBACK_SWITCHES, benchmark_flags, compute_wait_activity,
                                  early_compute_activity, early_screen_activity, observed_profile,
@@ -28,6 +28,23 @@ class AvatarWineProfileTests(unittest.TestCase):
         for mode, count in AVATAR_WINE_FACE_WORKER_COUNTS.items():
             self.assertEqual(benchmark_flags(mode),
                              dict(benchmark_flags(AVATAR_WINE_FACES_EARLY), VICTORY_PIPELINE_WORKERS=str(count)))
+
+    def test_screen_queue_trace_uses_the_same_playback_flags(self):
+        self.assertEqual(benchmark_flags(AVATAR_WINE_SCREEN_QUEUE_TRACE),
+                         dict(benchmark_flags(AVATAR_WINE_FACES_2S), VICTORY_PIPELINE_WAITERS_FIRST="0",
+                              VICTORY_PIPELINE_QUEUE_TIMING="1", VICTORY_PIPELINE_STAGE_TIMING="1"))
+
+    def test_screen_wait_uses_pipeline_key_when_two_pipelines_share_shaders(self):
+        started = datetime(2026, 11, 27, 8, tzinfo=timezone.utc)
+        lines = [
+            '2026-11-27T08:00:03Z INFO a requested pipeline reached a worker us=2000000 shaders=[vertex a, pixel b] key="ab"',
+            '2026-11-27T08:00:04Z INFO a requested pipeline reached a worker us=800000 shaders=[vertex a, pixel b] key="ba"',
+            '2026-11-27T08:00:04Z INFO a pass over the screen was waited for ms=2000 made=true shaders=[vertex a, pixel b] key="ab"',
+        ]
+        result = queue_claim_activity(lines, started, 6_000_000, [1_000_000, 4_500_000], screen=True)
+        self.assertEqual(result["screen_wait_reports"], 1)
+        self.assertEqual(result["matched_screen_wait_reports"], 1)
+        self.assertEqual(result["queued_screen_overlap_seconds"], 1)
 
     def test_worker_count_requires_the_runtime_marker(self):
         start = datetime(2026, 11, 27, 8, tzinfo=timezone.utc)

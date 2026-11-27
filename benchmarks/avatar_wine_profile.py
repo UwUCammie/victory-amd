@@ -90,6 +90,8 @@ AVATAR_WINE_STAGE_TIMINGS = {
     "vkd3d-master-avatar-wine-440-stage-timing-on": "1",
     **dict.fromkeys(AVATAR_WINE_STAGE_CPU_PROFILES, "0"),
 }
+AVATAR_WINE_SCREEN_QUEUE_TRACE = "vkd3d-master-avatar-wine-440-faces-screen-queue"
+AVATAR_WINE_STAGE_TIMINGS[AVATAR_WINE_SCREEN_QUEUE_TRACE] = "0"
 STAGE_TRACE_SECONDS = 82
 STAGE_TRACE_CUTOFF = 75_000_000
 AVATAR_WINE_MODES = AVATAR_WINE_COMPUTE_BUDGETS | dict.fromkeys(
@@ -100,7 +102,7 @@ AVATAR_WINE_MODES = AVATAR_WINE_COMPUTE_BUDGETS | dict.fromkeys(
      *AVATAR_WINE_WAITER_SWITCHES, *AVATAR_WINE_QUEUE_TIMINGS, *AVATAR_WINE_STAGE_TIMINGS), 10000
 ) | dict.fromkeys((*AVATAR_WINE_SCREEN_LIMITS, *AVATAR_WINE_SCREEN_WORKERS, "vkd3d-master-avatar-wine-440-early-2560-wait2000",
                    "vkd3d-master-avatar-wine-440-early-3072-wait2000", AVATAR_WINE_LEGACY_FMA,
-                   AVATAR_WINE_FACES_2S), 2000)
+                   AVATAR_WINE_FACES_2S, AVATAR_WINE_SCREEN_QUEUE_TRACE), 2000)
 
 # Source profile: avatarmanz/VIctory-7900XTX#440, b2bf3d99, play.sh and play-1080p.sh.
 # Use the benchmark's scene and UI dimensions, render offline, and keep the
@@ -172,6 +174,8 @@ def benchmark_flags(mode):
                      VICTORY_PIPELINE_QUEUE_TIMING="1", VICTORY_PIPELINE_STAGE_TIMING="1")
     if mode == AVATAR_WINE_FACES or mode in AVATAR_WINE_FACE_EARLY_LIMITS or mode in AVATAR_WINE_FACE_TRACE_LIMITS:
         flags["VICTORY_RAW_TYPED_LOADS"] = "1"
+    if mode == AVATAR_WINE_SCREEN_QUEUE_TRACE:
+        flags.update(VICTORY_RAW_TYPED_LOADS="1", VICTORY_EARLY_COMPUTE_MAX_BYTES="3072")
     if mode in AVATAR_WINE_FACE_TRACE_LIMITS:
         flags["VICTORY_EARLY_COMPUTE_MAX_BYTES"] = str(AVATAR_WINE_FACE_TRACE_LIMITS[mode])
     if mode in AVATAR_WINE_FACE_WORKER_COUNTS:
@@ -425,35 +429,38 @@ def verify_waiter_priority(lines, launched, stop, expected):
         raise ValueError("pipeline waiter priority does not match the requested mode")
 
 
-def queue_claim_activity(lines, launched, stop, frames):
-    """Measure first-request-to-worker delay, and its overlap with compute waits.
+def queue_claim_activity(lines, launched, stop, frames, *, screen=False):
+    """Measure first-request-to-worker delay and its overlap with pipeline waits.
 
-    Join only compute waits with a single recorded claim for that shader.
-    Graphics pipelines can share the entire shader list and differ in state.
+    Screen waits use the pipeline key because their shader lists can be shared.
+    A reported wait must match a single recorded claim to contribute overlap.
     """
     claims = {}
     waits = []
     label = "a requested pipeline reached a worker"
-    compute = "a compute pass was waited for"
+    wait_label = "a pass over the screen was waited for" if screen else "a compute pass was waited for"
+    kind = "screen" if screen else "compute"
+    identity = re.compile(r'\bkey="([0-9a-f]+)"' if screen else r"\bshaders=(\[[^\]]*\])")
     delays = []
-    for at, line in windowed_log_lines(lines, launched, stop, (label, compute)):
+    for at, line in windowed_log_lines(lines, launched, stop, (label, wait_label)):
         if label not in line:
             waits.append(line)
             continue
-        fields = re.search(r"\bus=(\d+)\s+shaders=(\[[^\]]*\])", line)
-        if fields is None:
-            raise ValueError("queue claim has no duration or shader list")
-        delay = int(fields[1])
+        duration = re.search(r"\bus=(\d+)\b", line)
+        key = identity.search(line)
+        if duration is None or key is None:
+            raise ValueError("queue claim has no duration or pipeline identity")
+        delay = int(duration[1])
         delays.append(delay)
-        claims.setdefault(fields[2], []).append((at - delay, at))
+        claims.setdefault(key[1], []).append((at - delay, at))
 
     queued = []
     matched = 0
     for _, start, end, line in _pipeline_wait_reports(waits, launched, stop):
-        shader = re.search(r"\bshaders=(\[[^\]]+\])", line)
-        if shader is None:
-            raise ValueError("compute wait has no shader list")
-        claim = claims.get(shader[1])
+        key = identity.search(line)
+        if key is None:
+            raise ValueError("pipeline wait has no pipeline identity")
+        claim = claims.get(key[1])
         if claim is not None and len(claim) == 1:
             requested, picked = claim[0]
             lo, hi = max(start, requested), min(end, picked)
@@ -465,9 +472,9 @@ def queue_claim_activity(lines, launched, stop, frames):
         "recorded_claims": len(delays),
         "claims_after_100ms": sum(delay > 100_000 for delay in delays),
         "longest_claim_delay_ms": max(delays, default=0) / 1000,
-        "compute_wait_reports": len(waits),
-        "matched_compute_wait_reports": matched,
-        "queued_compute_overlap_seconds": sum(_wait_overlap(queued, a, b) for a, b in _complete_long_gaps(frames, stop)) / 1e6,
+        f"{kind}_wait_reports": len(waits),
+        f"matched_{kind}_wait_reports": matched,
+        f"queued_{kind}_overlap_seconds": sum(_wait_overlap(queued, a, b) for a, b in _complete_long_gaps(frames, stop)) / 1e6,
     }
 
 
