@@ -218,6 +218,16 @@ Both 255 s and 265 s captures show the same couch view. In that ten-second windo
 
 Stock recorded 22 gaps of at least 9.5 seconds across the two clean runs. The combined build recorded 18. There was a compute-dispatch drop notice inside 19 of the 22 stock gaps and 16 of the 18 combined gaps. The threshold selects holds near the configured ten-second compute wait. A log notice in the same gap does not establish which thread was holding the next present. These gaps persisted after the CPU changes.
 
+I used the same combined executable as the control for a second experiment that adds only the relay range hash and the deferred slow-history lookup. In its third clean run, that control accepted 2,314 presents in 300 seconds (7.71 FPS), with a 2,589 ms P99 and an 11.40 s longest gap. The executable hash, loaded driver, runtime flags and scripted input match the earlier 9.91 and 10.49 FPS runs of that build. This spread is large enough to obscure a small CPU change in one pair.
+
+The first three new candidate attempts yielded to other builds. A fourth ended at about 20 seconds on its own, with process exit code 0 and no device-loss marker. I excluded all four attempts from the five-minute comparison. The candidate executable and PDB matched all 168 checked sources. [Candidate source](https://github.com/UwUCammie/VIctory-7900XTX/commit/1cb9c955)
+
+### Descriptor heap binding
+
+The draw-and-dispatch bind code can submit up to two heaps. I moved the short list from a vector to a stack array. A native fixture runs the exact list-building code with mock handles. For each of no heap, view only, sampler only and both heaps, it checked 10,000 updates. The retained and bound handles agreed in both versions, including their order. The control made 10,000 temporary allocations per case and the candidate made zero. The Windows MSVC compile check passed. The fixture does not time the D3D12 call or gameplay.
+
+Run `python3 benchmarks/descriptor_heap_list.py CHECKOUT 830dc191 5633752b` with Rust 1.98.1. [Candidate source](https://github.com/UwUCammie/VIctory-7900XTX/commit/5633752b)
+
 ### Relay flags before copy-back
 
 The relay first collected every candidate flag in a vector, then collected the flagged keys in a second vector before sorting and deduplicating them. Supplying the flags directly to the collector removes the first vector. Both revisions returned the same sorted keys in the generated cases, including duplicates and partial overlap in the existing relay tests.

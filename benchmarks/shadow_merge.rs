@@ -73,4 +73,14 @@ fn main() {
             transition(candidate, old, new, title)
         );
     }
+    for (old_len, new_len, title_len) in [(63, 64, 64), (64, 63, 64), (64, 64, 63), (97, 129, 131)]
+    {
+        let old = vec![3; old_len];
+        let new = vec![5; new_len];
+        let title = vec![6; title_len];
+        assert_eq!(
+            transition(control, &old, &new, &title),
+            transition(candidate, &old, &new, &title)
+        );
+    }
 }
