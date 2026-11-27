@@ -15,13 +15,20 @@ def kernel(checkout, revision, name):
     merge = re.search(r"^fn merge_piece\(now: &\[u8\].*?^}", source, re.M | re.S)
     if merge is None:
         raise ValueError(f"shadow merge is missing at {revision}")
-    function = merge[0].replace("fn merge_piece(", f"fn {name}(", 1)
+    function = merge[0]
     if "DIFF_CHUNK" in function:
         chunk = re.search(r"^const DIFF_CHUNK: usize = \d+;", source, re.M)
         if chunk is None:
             raise ValueError(f"literal DIFF_CHUNK is missing at {revision}")
         function = function.replace(" {\n", f" {{\n    {chunk[0]}\n", 1)
-    return "#[inline(never)]\n" + function
+    helpers = []
+    for helper in ("merge_piece_scalar", "merge_piece_avx2"):
+        if helper in function:
+            block = re.search(rf"(?:^#\[[^\n]+\]\n)*^(?:unsafe )?fn {helper}\(.*?^}}", source, re.M | re.S)
+            if block is None:
+                raise ValueError(f"{helper} is missing at {revision}")
+            helpers.append(block[0])
+    return re.sub(r"\bmerge_piece(?=\b|_)", name, "\n".join(("#[inline(never)]\n" + function, *helpers)))
 
 
 if __name__ == "__main__":

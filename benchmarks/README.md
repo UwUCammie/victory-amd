@@ -367,6 +367,10 @@ The selected-adapter fixture reads generated CPU bytes back through the GPU, the
 
 GiovanniFadanelli independently ran both the reserved and prefilled variants on native Windows at `af245c3`. Both passed on the RX 9070 XT with driver `32.0.32029.2010`, using automatic and explicit adapter selection, and on the integrated Radeon Graphics with driver `32.0.21045.29003`. The OS, driver stack and adapters differ between these observations. The new placed-memory route needs its own check on the RX 7900 XT. [Fixture](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/23) · [Native Windows results](https://github.com/avatarmanz/VIctory-7900XTX/pull/380#issuecomment-7208330647)
 
+### Placed Vulkan device feature probe
+
+I built the experimental placed-memory layer with Vulkan-Headers `v1.4.328` and enabled it only through a scratch `XDG_DATA_HOME`. The RX 7900 XT on RADV reported both `memoryMapPlaced` and `memoryUnmapReserve`. A generated Vulkan device request without a placed-feature record received the two needed extensions and created a device successfully. A second request supplied both feature bits disabled. The layer passed through that request and left both fields unchanged. The AMD port also passed the Windows MSVC `cargo check -p victory`. This verifies device creation and feature negotiation. The actual mapped heap, its CPU/GPU data round trip and a timed game launch are separate checks. [AMD test branch](https://github.com/UwUCammie/VIctory-7900XTX/commit/dc1d9798) · [Upstream PR](https://github.com/avatarmanz/VIctory-7900XTX/pull/420)
+
 ### Relevance of the masked write patch to cold startup
 
 I looked for the stall that the upstream masked write patch is designed to avoid. Across 435 interval summaries in three clean 720p cold launches (the latest combined control, its relay/history candidate and the Wine descriptor candidate), every printed per-frame wait for title memory changing under shader writes was 0.0 ms at the log's one-decimal precision. This sets the priority for these cold configurations only. The saved gameplay route may expose a different workload. [Upstream patch](https://github.com/fxceless/victory-fork/commit/3221ac42)
@@ -392,6 +396,8 @@ I reran the fixture on the revised upstream commit `e8fc662e`, which trims all s
 | x86-64-v3 | −44.86% | +153.44% | +800.87% |
 
 The revised loop stayed outside the AMD gameplay build. The harness now reads each revision’s own chunk constant. To reproduce, fetch fxceless PR #1421 and pass `e8fc662e` as the candidate revision. These are synthetic merge timings without a game launch. [Revised upstream commit](https://github.com/fxceless/victory-fork/commit/e8fc662e)
+
+A separate AVX2 experiment checks the full shared prefix for equality once, then blends changed bytes without a branch in each chunk. The synthetic output and uneven-prefix checks passed. At 64 KiB the portable build’s median time decreased by 70.67% for equal inputs, 33.70% for sparse writes, and 27.33% for dense writes. The x86-64-v3 build improved the equal case by 52.96% and took 16.90% and 17.10% longer for the changed cases. The candidate stays experimental while I check a portable-only dispatch with the original native-build loop. [AVX2 trial source](https://github.com/UwUCammie/VIctory-7900XTX/commit/7a862f0e)
 
 ### Isolated compiler thread dispatch
 
@@ -483,6 +489,8 @@ Both replays of that autosave completed with the same source-verified release, a
 The wider repeat completed in reverse order on the same release. The enabled arm recorded the 853×480 reflection pass and the disabled arm did not record it. Both reached the bedroom by the 140 s captures. A three-second thumbnail comparison of the two full recordings found closely matched views of the exterior around 120 s. The eight closest candidates were all outdoors. The sampled bedroom views still differ in pose and camera angle. This gives an outdoor match and no controlled comparison of an indoor reflective surface. The saved replays are visual checks with copied caches.
 
 I repeated the thumbnail search starting at about 140 s in both replays. The nearest three-second bedroom candidates still face different parts of the room. The closest normalized gradient distance was 0.844 indoors versus 0.025 on the matched exterior shot, and inspecting the frames confirmed the camera mismatch. The current replay still cannot tell whether the pass changes indoor flicker.
+
+Both later 245-second camera-sweep replays completed on the same release and copied autosave. The enabled arm again recorded the 853×480 reflection pass. Both reached a bedroom view, then the enabled arm spent most of its recording in the pause menu while the disabled arm remained in gameplay. The nearest three-second match had a gradient distance of 0.868 and paired gameplay with that menu. The closest sampled pair with both in the room still showed different camera angles. The sweep therefore supplies another incomplete visual comparison and the current default stays in place. These are warm saved-scene replays.
 
 ### Desktop play profile at 720p
 
