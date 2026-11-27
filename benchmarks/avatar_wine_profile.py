@@ -37,6 +37,7 @@ AVATAR_WINE_CARD_TOUCHED = {
 AVATAR_WINE_OBSERVERS_OFF = "vkd3d-master-avatar-wine-440-observers-off"
 AVATAR_WINE_OBSERVERS_ON = "vkd3d-master-avatar-wine-440-observers-on"
 AVATAR_WINE_MERGED_COLD = "vkd3d-master-avatar-wine-440-merged-cold"
+AVATAR_WINE_WRITE_WATCH_INDEX = "vkd3d-master-avatar-wine-440-write-watch-index"
 AVATAR_WINE_SCREEN_WAITER_SCORES = {
     "vkd3d-master-avatar-wine-440-merged-screen-waiter-off": "0",
     "vkd3d-master-avatar-wine-440-merged-screen-waiter-on": "screen",
@@ -47,6 +48,7 @@ AVATAR_WINE_WRITE_WATCH_GAPS = {
 }
 AVATAR_WINE_CAPTURE_OBSERVERS = {
     AVATAR_WINE_OBSERVERS_OFF: False, AVATAR_WINE_OBSERVERS_ON: True, AVATAR_WINE_MERGED_COLD: False,
+    AVATAR_WINE_WRITE_WATCH_INDEX: False,
     **dict.fromkeys(AVATAR_WINE_SCREEN_WAITER_SCORES, False),
     **dict.fromkeys(AVATAR_WINE_WRITE_WATCH_GAPS, False),
 }
@@ -262,6 +264,16 @@ def verify_write_watch_gap(lines, launched, stop, kib):
              for _, line in windowed_log_lines(lines, launched, stop, (label,))]
     if modes != [f"kib={kib}"]:
         raise ValueError("runtime write-watch join gap did not match")
+
+
+def write_watch_index_activity(lines, launched, stop):
+    label = "indexed write-watch ranges"
+    for elapsed, line in windowed_log_lines(lines, launched, stop, (label,)):
+        match = re.search(r"requests=(\d+)\s+remaining=(\d+)", line)
+        if match is None:
+            raise ValueError("malformed write-watch range index marker")
+        return {"first_us": elapsed, "requests": int(match[1]), "remaining": int(match[2])}
+    return None
 
 
 def verify_pipeline_workers(lines, launched, stop, expected):
