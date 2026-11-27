@@ -26,6 +26,10 @@ AVATAR_WINE_LATEST_CONTROL = "vkd3d-master-avatar-wine-440-latest-control"
 AVATAR_WINE_LATEST_SHADERS = "vkd3d-master-avatar-wine-440-latest-shaders"
 AVATAR_WINE_FACES = "vkd3d-master-avatar-wine-440-faces"
 AVATAR_WINE_FACES_EARLY = "vkd3d-master-avatar-wine-440-faces-early"
+AVATAR_WINE_FACES_2S = "vkd3d-master-avatar-wine-440-faces-early-2s"
+AVATAR_WINE_FACE_TRACE = "vkd3d-master-avatar-wine-440-face-dispatch-trace"
+FACE_TRACE_SECONDS = 95
+FACE_TRACE_CUTOFF = 88_000_000
 AVATAR_WINE_EARLY_LIMITS = {
     "vkd3d-master-avatar-wine-440-early-off": 0,
     "vkd3d-master-avatar-wine-440-early-1k": 1024,
@@ -33,6 +37,7 @@ AVATAR_WINE_EARLY_LIMITS = {
     "vkd3d-master-avatar-wine-440-early-2560-wait2000": 2560,
     "vkd3d-master-avatar-wine-440-early-3072-wait2000": 3072,
     AVATAR_WINE_FACES_EARLY: 3072,
+    AVATAR_WINE_FACES_2S: 3072,
     AVATAR_WINE_LEGACY_FMA: 3072,
 }
 AVATAR_WINE_NOTIFY_SWITCHES = {
@@ -68,10 +73,11 @@ AVATAR_WINE_MODES = AVATAR_WINE_COMPUTE_BUDGETS | dict.fromkeys(
     (*AVATAR_WINE_WRITEBACK_SWITCHES, *AVATAR_WINE_EARLY_LIMITS, *AVATAR_WINE_NOTIFY_SWITCHES,
      AVATAR_WINE_VALUE_USE_INDEX, AVATAR_WINE_KEEP_TRANSLATED, AVATAR_WINE_SINGLE_PARSE,
      AVATAR_WINE_COMPILER_CACHE, AVATAR_WINE_BOOL_SIMPLIFY, AVATAR_WINE_LATEST_CONTROL,
-     AVATAR_WINE_LATEST_SHADERS, AVATAR_WINE_FACES, *AVATAR_WINE_CONSTRUCTOR_POOLS,
+     AVATAR_WINE_LATEST_SHADERS, AVATAR_WINE_FACES, AVATAR_WINE_FACE_TRACE, *AVATAR_WINE_CONSTRUCTOR_POOLS,
      *AVATAR_WINE_WAITER_SWITCHES, *AVATAR_WINE_QUEUE_TIMINGS, *AVATAR_WINE_STAGE_TIMINGS), 10000
 ) | dict.fromkeys((*AVATAR_WINE_SCREEN_LIMITS, *AVATAR_WINE_SCREEN_WORKERS, "vkd3d-master-avatar-wine-440-early-2560-wait2000",
-                   "vkd3d-master-avatar-wine-440-early-3072-wait2000", AVATAR_WINE_LEGACY_FMA), 2000)
+                   "vkd3d-master-avatar-wine-440-early-3072-wait2000", AVATAR_WINE_LEGACY_FMA,
+                   AVATAR_WINE_FACES_2S), 2000)
 
 # Source profile: avatarmanz/VIctory-7900XTX#440, b2bf3d99, play.sh and play-1080p.sh.
 # Use the benchmark's scene and UI dimensions, render offline, and keep the
@@ -141,7 +147,7 @@ def benchmark_flags(mode):
     if mode in AVATAR_WINE_STAGE_TIMINGS:
         flags.update(VICTORY_PIPELINE_WAITERS_FIRST=AVATAR_WINE_STAGE_TIMINGS[mode],
                      VICTORY_PIPELINE_QUEUE_TIMING="1", VICTORY_PIPELINE_STAGE_TIMING="1")
-    if mode in (AVATAR_WINE_FACES, AVATAR_WINE_FACES_EARLY):
+    if mode in (AVATAR_WINE_FACES, AVATAR_WINE_FACES_EARLY, AVATAR_WINE_FACES_2S, AVATAR_WINE_FACE_TRACE):
         flags["VICTORY_RAW_TYPED_LOADS"] = "1"
     return flags
 
