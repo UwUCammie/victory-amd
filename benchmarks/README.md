@@ -1126,6 +1126,15 @@ python -I benchmarks/radv_compile_only.py --work "$fixture_directory" \
 
 Run the same fixture with `VICTORY_BENCH_FAST_COMPUTE=1` and a fresh vkd3d cache directory. The off-card comparison measures pipeline creation time. Frame timing, shader execution cost and rendering quality need a separate physical run.
 
+After other builds interrupted the 16-stage comparison, I used the three stages with the longest previous creation times. The Windows MSVC fixture matched 114 source checksums and ran under Wine 11.22 using RADV 26.3.1, vkd3d-proton `71cae091b06571e` and descriptor heaps. All three stages passed DXC validation and created pipelines in each arm. The layer's 16-call checkpoint confirmed the active setting and zero bypasses. The shorter fixture took 9–17 s per arm on this pass.
+
+| Order | Standard pipeline creation | Faster-compilation flag |
+| --- | ---: | ---: |
+| Standard first | 7.437 s | 3.368 s |
+| Flag first | 2.546 s | 1.768 s |
+
+Timing varied between orders. The flag reduced the total in both comparisons. One stage was slower with the flag in the reverse order. The follow-up keeps the same 720p and 4K interface, executable, driver and input in both arms. It loads the same test layer only into Wine and changes the compute flag. The 300 s clock begins at process launch with no captures and five empty graphics caches.
+
 The first repeat after the separate build timer took effect verified its executable 6.71 s after the last parallel-build notice and reached 107.77 s before yielding to a new build. The next 95 s diagnostic completed without overlap. These checks measure available test time.
 
 The 1280×720 output test used the same display-patch executable as the 1080p run. It began with a 19,319 MiB local GPU budget. The standing character and window were visible at 115, 125, 142 and 149 s. From 115–149 s the complete intervals added up to **784 successful presents in 32.70 s (23.98 FPS)** at 4,883 draws/frame. The two independent motion samples measured 23.75 and 24.56 changes/s. Submission preparation averaged 40.25 ms/frame. The GPU queue was empty for 17.52 ms/frame. The setting changes the title's output to 1280×720; the original desktop run used 3840×2160. The startup budgets differ from the earlier 1080p measurement.

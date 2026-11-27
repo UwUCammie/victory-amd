@@ -78,6 +78,11 @@ AVATAR_WINE_DELAYED_MOVEMENT = "vkd3d-master-avatar-wine-440-cold-worker-delayed
 AVATAR_WINE_INPUT_DIAGNOSTICS = {AVATAR_WINE_NO_MOVEMENT: None, AVATAR_WINE_DELAYED_MOVEMENT: 30}
 AVATAR_WINE_FIXES_COLD = "vkd3d-master-avatar-wine-440-verified-fixes-cold"
 AVATAR_WINE_FIXES_VISUAL = "vkd3d-master-avatar-wine-440-verified-fixes-visual"
+AVATAR_WINE_COMPUTE_LAYER_SCORES = {
+    "vkd3d-master-avatar-wine-440-compute-layer-off": False,
+    "vkd3d-master-avatar-wine-440-compute-layer-on": True,
+}
+COMPUTE_LAYER_FILES = ("radv_compute_compile_layer.json", "libgoal30_radv_compute_compile.so")
 AVATAR_WINE_REQUESTED_WORKER_SCORES = {
     "vkd3d-master-avatar-wine-440-cold-requested-worker-off": "0",
     "vkd3d-master-avatar-wine-440-cold-requested-worker-on": "1",
@@ -105,6 +110,7 @@ AVATAR_WINE_CAPTURE_OBSERVERS = {
     **dict.fromkeys(AVATAR_WINE_WORKER_PRIORITY_SCORES, False),
     **dict.fromkeys(AVATAR_WINE_INPUT_DIAGNOSTICS, False),
     AVATAR_WINE_FIXES_COLD: False, AVATAR_WINE_FIXES_VISUAL: True,
+    **dict.fromkeys(AVATAR_WINE_COMPUTE_LAYER_SCORES, False),
     **dict.fromkeys(AVATAR_WINE_REQUESTED_WORKER_SCORES, False),
     **dict.fromkeys(AVATAR_WINE_SCREEN_WAITER_SCORES, False),
     **dict.fromkeys(AVATAR_WINE_WRITE_WATCH_GAPS, False),
@@ -200,7 +206,7 @@ AVATAR_WINE_MODES = AVATAR_WINE_COMPUTE_BUDGETS | dict.fromkeys(
      *AVATAR_WINE_WAITER_SWITCHES, *AVATAR_WINE_QUEUE_TIMINGS, *AVATAR_WINE_STAGE_TIMINGS,
      *AVATAR_WINE_RECORDED_SCREEN_SCORES, *AVATAR_WINE_LATE_SUBMIT_MODES, *AVATAR_WINE_FULL_DIRTY_SCAN_SCORES,
      *AVATAR_WINE_WORKER_PRIORITY_SCORES, *AVATAR_WINE_REQUESTED_WORKER_SCORES,
-     *AVATAR_WINE_INPUT_DIAGNOSTICS), 10000
+     *AVATAR_WINE_INPUT_DIAGNOSTICS, *AVATAR_WINE_COMPUTE_LAYER_SCORES), 10000
 ) | dict.fromkeys((*AVATAR_WINE_SCREEN_LIMITS, *AVATAR_WINE_SCREEN_WORKERS, "vkd3d-master-avatar-wine-440-early-2560-wait2000",
                    "vkd3d-master-avatar-wine-440-early-3072-wait2000", AVATAR_WINE_LEGACY_FMA,
                    AVATAR_WINE_FACES_2S, AVATAR_WINE_SCREEN_QUEUE_TRACE, AVATAR_WINE_UPSTREAM_2S), 2000)
@@ -316,7 +322,8 @@ def benchmark_flags(mode):
         flags.update(VICTORY_CARD_TOUCHED="0",
                      VICTORY_CARD_SKIP_CLEAN_UPGRADES=full_scan[mode])
     if mode in (*AVATAR_WINE_WORKER_PRIORITY_SCORES, *AVATAR_WINE_REQUESTED_WORKER_SCORES,
-                *AVATAR_WINE_INPUT_DIAGNOSTICS, AVATAR_WINE_FIXES_COLD, AVATAR_WINE_FIXES_VISUAL):
+                *AVATAR_WINE_INPUT_DIAGNOSTICS, *AVATAR_WINE_COMPUTE_LAYER_SCORES,
+                AVATAR_WINE_FIXES_COLD, AVATAR_WINE_FIXES_VISUAL):
         flags.update(VICTORY_PIPELINE_WORKERS="10",
                      VICTORY_PIPELINE_LOWEST=AVATAR_WINE_WORKER_PRIORITY_SCORES.get(mode, "1"))
     if mode in AVATAR_WINE_REQUESTED_WORKER_SCORES:
@@ -339,6 +346,28 @@ def verify_capture_observers(launch, capture_dir, enabled, *, complete=False):
         raise ValueError("capture observer outputs did not match the requested mode")
     if complete and enabled and launch.get("capture_observer_exit_codes", {}).get("clip") != 0:
         raise ValueError("clip recorder did not complete its requested window")
+
+
+def verify_compute_compile_layer(lines, launch, enabled):
+    """Require the Vulkan layer's launch metadata and live compute checkpoint."""
+    layer = launch.get("compute_compile_layer", {})
+    files = layer.get("sha256", {})
+    if (layer.get("enabled") is not enabled or files.keys() != set(COMPUTE_LAYER_FILES)
+            or not all(re.fullmatch(r"[0-9a-f]{64}", value) for value in files.values())):
+        raise ValueError("compute compilation layer did not match the requested launch")
+    marker = re.compile(r"compute compile layer enabled=([01]) calls=(\d+) flagged=(\d+) bypassed=(\d+)")
+    seen = False
+    for line in lines:
+        match = marker.search(line)
+        if not match:
+            continue
+        active, calls, flagged, bypassed = map(int, match.groups())
+        if active != int(enabled) or (not enabled and (flagged or bypassed)):
+            raise ValueError("compute compilation layer reported an unexpected setting")
+        if calls >= 16 and (not enabled or flagged >= 16):
+            seen = True
+    if not seen:
+        raise ValueError("compute compilation layer did not reach its required checkpoint")
 
 
 def verify_card_dirty_scan(lines, launched, stop, enabled):

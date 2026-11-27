@@ -20,6 +20,7 @@ from avatar_wine_profile import AVATAR_WINE_WORKER_PRIORITY_SCORES, verify_pipel
 from avatar_wine_profile import AVATAR_WINE_REQUESTED_WORKER_SCORES, verify_requested_worker
 from avatar_wine_profile import AVATAR_WINE_DELAYED_MOVEMENT, AVATAR_WINE_INPUT_DIAGNOSTICS, AVATAR_WINE_NO_MOVEMENT, scripted_story_input
 from avatar_wine_profile import AVATAR_WINE_FIXES_COLD, AVATAR_WINE_FIXES_VISUAL
+from avatar_wine_profile import AVATAR_WINE_COMPUTE_LAYER_SCORES, COMPUTE_LAYER_FILES, verify_compute_compile_layer
 from avatar_wine_profile import (AVATAR_WINE_RECORDED_COMPUTE, AVATAR_WINE_RECORDED_SCREEN,
                                  AVATAR_WINE_FULL_DIRTY_SCAN_MODES, AVATAR_WINE_FULL_DIRTY_SCAN_SCORES,
                                  AVATAR_WINE_LATE_SUBMIT_PROFILES,
@@ -200,6 +201,22 @@ class AvatarWineProfileTests(unittest.TestCase):
         for mode, capture in ((AVATAR_WINE_FIXES_COLD, False), (AVATAR_WINE_FIXES_VISUAL, True)):
             self.assertEqual(benchmark_flags(mode), benchmark_flags(lowest))
             self.assertEqual(AVATAR_WINE_CAPTURE_OBSERVERS[mode], capture)
+
+    def test_compute_layer_score_requires_the_flag_from_the_wine_process(self):
+        files = dict.fromkeys(COMPUTE_LAYER_FILES, "0" * 64)
+        for mode, enabled in AVATAR_WINE_COMPUTE_LAYER_SCORES.items():
+            self.assertEqual(benchmark_flags(mode), benchmark_flags(AVATAR_WINE_FIXES_COLD))
+            self.assertFalse(AVATAR_WINE_CAPTURE_OBSERVERS[mode])
+            launch = {"compute_compile_layer": {"enabled": enabled, "sha256": files}}
+            checkpoint = f"compute compile layer enabled={int(enabled)} calls=16 flagged={16 * enabled} bypassed=0"
+            verify_compute_compile_layer([checkpoint], launch, enabled)
+            with self.assertRaises(ValueError):
+                verify_compute_compile_layer([checkpoint], {}, enabled)
+            with self.assertRaises(ValueError):
+                verify_compute_compile_layer([checkpoint.replace("calls=16", "calls=1")], launch, enabled)
+            with self.assertRaises(ValueError):
+                verify_compute_compile_layer([checkpoint.replace(f"flagged={16 * enabled}", f"flagged={16 * (not enabled)}")],
+                                             launch, enabled)
 
     def test_observer_pair_uses_the_same_runtime_flags(self):
         off = benchmark_flags(AVATAR_WINE_OBSERVERS_OFF)
