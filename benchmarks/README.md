@@ -210,6 +210,8 @@ I compared the native 720p interface build with the same build carrying the comm
 
 Both showed a very dark sample at 100 seconds and later returned to visible scenes. At 160 seconds the control was still dark while the candidate showed the street. The later captures also hit different shots, so this one pair leaves both the visual comparison and the performance gain open to repeat. [Combined test branch](https://github.com/UwUCammie/VIctory-7900XTX/commit/1b07596f)
 
+In the reverse-order repeat, the combined build delivered 3,147 presents in the first 300 seconds (10.49 FPS), with a 592 ms P99, an 11.20 s longest gap and 180.27 seconds in gaps over 100 ms. The matching stock run stopped advancing after about 113 seconds and Wine exited during the scheduled window. A core dump was registered at about 185 seconds. This incomplete run has no 300-second score. The first combined attempt was also excluded after a concurrent build started. The stock retry uses five fresh caches.
+
 ### Relay flags before copy-back
 
 The relay first collected every candidate flag in a vector, then collected the flagged keys in a second vector before sorting and deduplicating them. Supplying the flags directly to the collector removes the first vector. Both revisions returned the same sorted keys in the generated cases, including duplicates and partial overlap in the existing relay tests.
