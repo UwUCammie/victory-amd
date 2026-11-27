@@ -1524,7 +1524,18 @@ The first touched-only attempt lost the GPU at 113.35 s, before CPU sampling, wi
 
 An earlier integration's full-scan control subsequently completed 300 s with 5,523 accepted presents, or 18.41 FPS. Its P99 gap was 242 ms and it spent 146.32 s in gaps longer than 100 ms. Both characters' skin was visible in sampled dialogue shots and the subtitles were centered. That build used private capture sidecars and a different executable, so its score cannot isolate the dirty-scan setting.
 
-A separate opt-in experiment keeps the full scan and its registration order. Each registry entry shares the existing dirty flag with the buffer. The scan takes that flag using the same atomic exchange and only upgrades a weak buffer reference if the flag was set. Dead buffers are pruned in both modes. The guarded RX 7900 XT fixture passed with the switch off and on, checking dirty ranges marked before and after registration, repeat consumption and registration order. The test and release executables matched 115 and 179 source checksums respectively. The profiling pair uses the same new executable, holds the touched-only strategy off, and varies only `VICTORY_CARD_SKIP_CLEAN_UPGRADES`. Gameplay profiling is pending. [Full-scan experiment](https://github.com/UwUCammie/VIctory-7900XTX/commit/bb3ba81a)
+A separate opt-in experiment keeps the full scan and its registration order. Each registry entry shares the existing dirty flag with the buffer. The scan takes that flag using the same atomic exchange and only upgrades a weak buffer reference if the flag was set. Dead buffers are pruned in both modes. The guarded RX 7900 XT fixture passed with the switch off and on, checking dirty ranges marked before and after registration, repeat consumption and registration order. The test and release executables matched 115 and 179 source checksums respectively. The profiling pair uses the same new executable, holds the touched-only strategy off, and varies only `VICTORY_CARD_SKIP_CLEAN_UPGRADES`. [Full-scan experiment](https://github.com/UwUCammie/VIctory-7900XTX/commit/bb3ba81a)
+
+Both launches started from five empty graphics caches and a fresh story, loaded vkd3d-proton `71cae091b06571e`, and completed their late captures without overlap or lost samples. The samples began 235.07 s after launch. They lasted 6.25 s with the switch off and 6.20 s with it on.
+
+| Late submission sample | Upgrade every live reference | Upgrade dirty references |
+| --- | ---: | ---: |
+| Accepted presents during sampling | 257 | 256 |
+| Submission-thread samples | 1,768 | 1,682 |
+| Samples in the executable | 1,200 | 1,065 |
+| Inclusive samples in `shadow::card_dirty` | 298 | 200 |
+
+The scan accounted for 16.86% versus 11.89% of the sampled submission thread, with nearly the same number of presents during those six seconds. In the first 235 s before sampling began, the two launches accepted 3,782 and 3,622 presents. They spent 131.08 and 134.90 s in gaps above 100 ms. This pair shows a smaller local CPU cost and no overall frame-count increase in the measured prefix. The next pair uses the same release and switch with CPU profiling and captures off, from launch through the full 300-second cold window.
 
 Wine PRs #16–20 were merged. The new cold reference uses `linux-wine-pr` at `45ef07e5` with the same present trace, scripted input and separate 4K interface overlay as the earlier control. The launch keeps native 720p and the same capture-free flags, without enabling the new FidelityFX preset. The full-scan experiment was also ported onto this base. [Upstream merge](https://github.com/borntofrag34/VIctory-7900XTX/commit/45ef07e5) · [Maintainer update](https://github.com/borntofrag34/VIctory-7900XTX/pull/20#issuecomment-7226501908)
 

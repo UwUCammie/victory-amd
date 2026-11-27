@@ -17,7 +17,8 @@ from avatar_wine_profile import AVATAR_WINE_CAPTURE_OBSERVERS, AVATAR_WINE_MERGE
 from avatar_wine_profile import AVATAR_WINE_SCREEN_WAITER_DIAGNOSTICS, AVATAR_WINE_SCREEN_WAITER_SCORES, verify_screen_waiter_priority
 from avatar_wine_profile import AVATAR_WINE_WRITE_WATCH_GAPS, verify_write_watch_gap
 from avatar_wine_profile import (AVATAR_WINE_RECORDED_COMPUTE, AVATAR_WINE_RECORDED_SCREEN,
-                                 AVATAR_WINE_FULL_DIRTY_SCAN_MODES, AVATAR_WINE_LATE_SUBMIT_PROFILES,
+                                 AVATAR_WINE_FULL_DIRTY_SCAN_MODES, AVATAR_WINE_FULL_DIRTY_SCAN_SCORES,
+                                 AVATAR_WINE_LATE_SUBMIT_PROFILES,
                                  AVATAR_WINE_UPSTREAM_COLD, AVATAR_WINE_UPSTREAM_2S, LATE_SUBMIT_SAMPLE,
                                  LATE_SUBMIT_TIMEOUT, verify_clean_reference_check,
                                  AVATAR_WINE_RECORDED_SCREEN_SCORES, recorded_compute_activity,
@@ -104,7 +105,8 @@ class AvatarWineProfileTests(unittest.TestCase):
 
     def test_clean_reference_check_preserves_the_full_scan_in_both_profiles(self):
         baseline = benchmark_flags(AVATAR_WINE_UPSTREAM_COLD)
-        for mode, enabled in AVATAR_WINE_FULL_DIRTY_SCAN_MODES.items():
+        profiles = AVATAR_WINE_FULL_DIRTY_SCAN_MODES | AVATAR_WINE_FULL_DIRTY_SCAN_SCORES
+        for mode, enabled in profiles.items():
             self.assertEqual(benchmark_flags(mode),
                              dict(baseline, VICTORY_CARD_SKIP_CLEAN_UPGRADES=enabled))
             self.assertFalse(AVATAR_WINE_CAPTURE_OBSERVERS[mode])
