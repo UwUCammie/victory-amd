@@ -2,7 +2,13 @@
 
 import re
 
+from cold_boot import windowed_log_lines
 from first_room import session_lines
+
+AVATAR_WINE_COMPUTE_BUDGETS = {
+    "vkd3d-master-avatar-wine-440": 10000,
+    "vkd3d-master-avatar-wine-440-wait500": 500,
+}
 
 # Source profile: avatarmanz/VIctory-7900XTX#440, b2bf3d99, play.sh and play-1080p.sh.
 # Use the benchmark's scene and UI dimensions, render offline, and keep the
@@ -67,3 +73,17 @@ def observed_profile(lines):
             if value:
                 observed["compute_wait_ms"] = int(value[1])
     return observed
+
+
+def compute_wait_activity(lines, launched, stop):
+    """Count wait reports by outcome, including reports from concurrent threads."""
+    label = "a compute pass was waited for"
+    totals = {"reports": 0, "without_pipeline_result": 0, "longest_reported_wait_ms": 0}
+    for _, line in windowed_log_lines(lines, launched, stop, (label,)):
+        match = re.search(r"\bms=(\d+)\s+made=(true|false)\b", line)
+        if match is None:
+            raise ValueError("compute wait result has no duration or pipeline status")
+        totals["reports"] += 1
+        totals["without_pipeline_result"] += match[2] == "false"
+        totals["longest_reported_wait_ms"] = max(totals["longest_reported_wait_ms"], int(match[1]))
+    return totals

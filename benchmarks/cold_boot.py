@@ -188,6 +188,11 @@ def verify_wait_budgets(lines, *, graphics_ms=None, compute_ms=None, compute_fra
                     raise ValueError("compute wait announcement must include both pipeline seconds and frame milliseconds")
                 compute.add(1000 * int(seconds[1]))
                 compute_frame.add(int(frame[1]))
+        elif compute_ms is not None and "compute passes wait for their host pipeline by a budget of their own" in line:
+            match = re.search(r"\bmillis=(\d+)\b", line)
+            if match is None:
+                raise ValueError("compute wait announcement has no millisecond value")
+            compute.add(int(match[1]))
     if graphics_ms is not None and graphics != {graphics_ms}:
         raise ValueError(f"reported graphics waits {sorted(graphics)}, expected {graphics_ms} ms")
     if compute_ms is not None and compute != ({compute_ms} if compute_ms else set()):
