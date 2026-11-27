@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 import unittest
 
-from avatar_wine_profile import (AVATAR_WINE_BOOL_SIMPLIFY, AVATAR_WINE_COMPILER_CACHE, AVATAR_WINE_CONSTRUCTOR_POOLS, AVATAR_WINE_EARLY_LIMITS, AVATAR_WINE_FACES, AVATAR_WINE_KEEP_TRANSLATED, AVATAR_WINE_LATEST_CONTROL, AVATAR_WINE_LATEST_SHADERS,
+from avatar_wine_profile import (AVATAR_WINE_BOOL_SIMPLIFY, AVATAR_WINE_COMPILER_CACHE, AVATAR_WINE_CONSTRUCTOR_POOLS, AVATAR_WINE_EARLY_LIMITS, AVATAR_WINE_FACES, AVATAR_WINE_FACES_EARLY, AVATAR_WINE_KEEP_TRANSLATED, AVATAR_WINE_LATEST_CONTROL, AVATAR_WINE_LATEST_SHADERS,
                                  AVATAR_WINE_NOTIFY_SWITCHES, AVATAR_WINE_SCREEN_LIMITS, AVATAR_WINE_SINGLE_PARSE,
                                  AVATAR_WINE_QUEUE_TIMING, AVATAR_WINE_QUEUE_TIMINGS, AVATAR_WINE_SCREEN_WORKERS, AVATAR_WINE_VALUE_USE_INDEX, AVATAR_WINE_WAITER_SWITCHES,
                                  AVATAR_WINE_WRITEBACK_SWITCHES, benchmark_flags, compute_wait_activity,
@@ -16,6 +16,8 @@ class AvatarWineProfileTests(unittest.TestCase):
     def test_face_build_keeps_the_cold_profile_with_raw_loads_explicit(self):
         self.assertEqual(benchmark_flags(AVATAR_WINE_FACES),
                          dict(benchmark_flags(AVATAR_WINE_LATEST_SHADERS), VICTORY_RAW_TYPED_LOADS="1"))
+        self.assertEqual(benchmark_flags(AVATAR_WINE_FACES_EARLY),
+                         dict(benchmark_flags(AVATAR_WINE_FACES), VICTORY_EARLY_COMPUTE_MAX_BYTES="3072"))
 
     def test_compute_stage_overlap_uses_unique_traces_and_unions_repeated_waits(self):
         started = datetime(2026, 11, 27, 8, tzinfo=timezone.utc)
@@ -277,7 +279,9 @@ class AvatarWineProfileTests(unittest.TestCase):
             writeback_activity([counters, kept.replace("64 KiB", "32 KiB")], started, 2_000_000, True)
 
     def test_early_compute_flags_and_runtime_confirmation(self):
-        off, on, wider, shorter, larger, legacy_fma = map(benchmark_flags, AVATAR_WINE_EARLY_LIMITS)
+        off, on, wider, shorter, larger, legacy_fma = (
+            benchmark_flags(mode) for mode in AVATAR_WINE_EARLY_LIMITS if mode != AVATAR_WINE_FACES_EARLY
+        )
         self.assertEqual(legacy_fma, larger)
         self.assertEqual(larger.pop("VICTORY_EARLY_COMPUTE_MAX_BYTES"), "3072")
         self.assertEqual(larger, {key: value for key, value in shorter.items()
