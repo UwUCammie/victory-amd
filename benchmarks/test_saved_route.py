@@ -1,8 +1,10 @@
+import hashlib
+import shutil
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from saved_route import classify, route_outcome, scan_for_failure, scene_samples
+from saved_route import classify, route_outcome, save_fingerprints, scan_for_failure, scene_samples
 
 
 class SavedRouteTests(unittest.TestCase):
@@ -51,6 +53,25 @@ class SavedRouteTests(unittest.TestCase):
             self.assertEqual(route_outcome(run, marker, 1, 161), "incomplete")
             marker.touch()
             self.assertEqual(route_outcome(run, marker, 1, 161), "interrupted")
+
+    def test_saved_container_hash_checks_files_and_extracted_trees(self):
+        with TemporaryDirectory() as directory:
+            original = Path(directory) / "original"
+            contents = original / "slot" / "SARC0000" / "extra"
+            contents.mkdir(parents=True)
+            (contents / "payload").write_bytes(b"original payload")
+            (original / "SARC0001").write_bytes(b"archive")
+            (original / "settings").write_bytes(b"ignore non-save files")
+            copied = original.with_name("candidate")
+            shutil.copytree(original, copied)
+
+            expected = save_fingerprints(original)
+            self.assertEqual(expected, save_fingerprints(copied))
+            self.assertEqual(expected["SARC0001"], hashlib.sha256(b"archive").hexdigest())
+            self.assertEqual(expected["slot/SARC0000/extra"], "directory")
+            self.assertNotIn("settings", expected)
+            (copied / "slot/SARC0000/extra/payload").write_bytes(b"a changed save")
+            self.assertNotEqual(expected, save_fingerprints(copied))
 
     def test_scene_samples_ignore_hud_and_preserve_missing_captures(self):
         try:

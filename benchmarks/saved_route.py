@@ -1,11 +1,31 @@
 """Classify a saved visual test after the renderer exits, without assigning an FPS."""
 import argparse
+import hashlib
+from itertools import chain
 import json
 import math
 from pathlib import Path
 
 from cold_boot import TRACE
 from first_room import DeviceLost, SessionFailed, session_lines
+
+
+def save_fingerprints(data):
+    """Fingerprint private save containers, including extracted directory trees."""
+    fingerprints = {}
+    for container in sorted(data.rglob("SARC*")):
+        for path in chain((container,), sorted(container.rglob("*"))):
+            if path.is_symlink():
+                raise ValueError("save container has a symbolic link")
+            name = path.relative_to(data).as_posix()
+            if path.is_dir():
+                fingerprints[name] = "directory"
+            elif path.is_file():
+                with path.open("rb") as file:
+                    fingerprints[name] = hashlib.file_digest(file, "sha256").hexdigest()
+            else:
+                raise ValueError("save container entry has an unsupported type")
+    return fingerprints
 
 
 def classify(lines, *, interrupted, exit_code, elapsed, target):
