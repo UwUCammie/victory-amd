@@ -1646,6 +1646,12 @@ The NVIDIA branch now recycles fault-mapped pages once it reaches its memory bud
 
 The Wine port holds a reference to the source texture from lookup through copy recording. It releases the alias table lock before comparing descriptors, so a rejected source can release its last reference and unregister safely. Two generated MSVC tests passed under Wine 11.22 on the RX 7900 XT with RADV 26.3.1 and vkd3d-proton `71cae091`. The first recorded a host copy after the title reference was released. The second checked that releasing the last pin removes the source from the table. The test executable matched 114 source checksums. [Wine PR #17](https://github.com/borntofrag34/VIctory-7900XTX/pull/17) · [Upstream lock-order follow-up](https://github.com/fxceless/victory-fork/pull/1487#issuecomment-7223715178)
 
+### Placed-page uploads and placed-view records
+
+The placed-page backport records the write-watch stamp before copying a new page into the arena. The control re-uploaded 65,536 unchanged bytes in a generated fixture. The fixed default re-uploaded zero, then copied a later four-byte title write. All three memory tests passed on the RX 7900 XT with Wine 11.22, RADV 26.3.1 and vkd3d-proton `71cae091b06571e`. The executable matched 140 runtime source checksums. [Upstream report](https://github.com/fxceless/victory-fork/pull/1496) · [Wine PR #24](https://github.com/borntofrag34/VIctory-7900XTX/pull/24)
+
+The placed-view backport omits resource padding and unused view words from the recorded shape. Three headless Windows MSVC tests passed under Wine 11.22, covering resource padding, unused SRV/UAV words and the existing reuse check over 20,000 addresses. The executable matched 115 runtime source checksums. The in-game effect of both backports remains open. [Wine PR #25](https://github.com/borntofrag34/VIctory-7900XTX/pull/25)
+
 ### Joining write-watch queries under Wine
 
 The generated MSVC probe writes two pages on either side of a clean gap in one private reservation. It compares two `GetWriteWatch` calls against a single combined call, checks that each layout returns exactly the two writes, and alternates the order across eight measured pairs. On this Wine 11.22 host, at 1 MiB the medians were 2.09 µs split and 1.14 µs joined. At 8 MiB they were 2.10 µs split and 2.32 µs joined. The test measures two sparse writes with initialized page tables. Real submissions can have many ranges and write distributions.
