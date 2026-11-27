@@ -216,6 +216,8 @@ The stock retry then delivered 2,651 presents (8.84 FPS), with a 1,840 ms P99, a
 
 Both 255 s and 265 s captures show the same couch view. In that ten-second window the stock run accepted 157 presents and the combined run accepted 173. The combined build had fewer gaps over 100 ms (4 versus 11) and a longer single worst gap (2.84 versus 2.26 s). This short check brackets a similar view and does not replace the full startup measurement.
 
+Stock recorded 22 gaps of at least 9.5 seconds across the two clean runs. The combined build recorded 18. There was a compute-dispatch drop notice inside 19 of the 22 stock gaps and 16 of the 18 combined gaps. The threshold selects holds near the configured ten-second compute wait. A log notice in the same gap does not establish which thread was holding the next present. These gaps persisted after the CPU changes.
+
 ### Relay flags before copy-back
 
 The relay first collected every candidate flag in a vector, then collected the flagged keys in a second vector before sorting and deduplicating them. Supplying the flags directly to the collector removes the first vector. Both revisions returned the same sorted keys in the generated cases, including duplicates and partial overlap in the existing relay tests.
