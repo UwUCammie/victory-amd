@@ -14,7 +14,7 @@ from avatar_wine_profile import (AVATAR_WINE_BOOL_SIMPLIFY, AVATAR_WINE_COMPILER
 from cold_boot import verify_wait_budgets
 from avatar_wine_profile import AVATAR_WINE_CARD_TOUCHED, AVATAR_WINE_SCREEN_WAIT_BOUNDARIES, screen_wait_progress, verify_card_dirty_scan
 from avatar_wine_profile import AVATAR_WINE_CAPTURE_OBSERVERS, AVATAR_WINE_MERGED_COLD, AVATAR_WINE_OBSERVERS_OFF, AVATAR_WINE_OBSERVERS_ON, verify_capture_observers
-from avatar_wine_profile import AVATAR_WINE_SCREEN_WAITER_DIAGNOSTICS, verify_screen_waiter_priority
+from avatar_wine_profile import AVATAR_WINE_SCREEN_WAITER_DIAGNOSTICS, AVATAR_WINE_SCREEN_WAITER_SCORES, verify_screen_waiter_priority
 
 
 class AvatarWineProfileTests(unittest.TestCase):
@@ -102,6 +102,13 @@ class AvatarWineProfileTests(unittest.TestCase):
             verify_screen_waiter_priority(lines, start, 2_000_000, False)
         with self.assertRaises(ValueError):
             verify_screen_waiter_priority([lines[0].replace("enabled=false", "enabled=true")], start, 2_000_000, True)
+
+    def test_full_screen_priority_pair_changes_only_the_priority(self):
+        for mode, switch in AVATAR_WINE_SCREEN_WAITER_SCORES.items():
+            self.assertFalse(AVATAR_WINE_CAPTURE_OBSERVERS[mode])
+            self.assertEqual(benchmark_flags(mode), dict(benchmark_flags(AVATAR_WINE_MERGED_COLD),
+                             VICTORY_PIPELINE_WAITERS_FIRST=switch, VICTORY_PIPELINE_QUEUE_TIMING="0",
+                             VICTORY_PIPELINE_STAGE_TIMING="0"))
 
     def test_screen_wait_uses_pipeline_key_when_two_pipelines_share_shaders(self):
         started = datetime(2026, 11, 27, 8, tzinfo=timezone.utc)

@@ -1452,6 +1452,19 @@ The follow-up keeps worker counts and wait budgets fixed. `VICTORY_PIPELINE_WAIT
 
 The first enabled trial yielded at 31.17 s. The control yielded at 65.91 s and recorded one screen wait still open at the 64 s diagnostic cutoff, after 6.83 s of waiting. Both launches reported their requested priority mode. The control demonstrates that the new trace captures a wait that would otherwise be absent from the completion log. The enabled run reached an earlier part of the story, so the comparison remains pending. [Upstream discussion](https://github.com/avatarmanz/VIctory-7900XTX/pull/450#issuecomment-7218898908)
 
+The second control and third enabled launch both completed the 82 s diagnostic. They matched the executable, vkd3d-proton `71cae091b06571e`, driver files, input, new story and five empty graphics caches. The runtime reported each requested setting. The first 75 s measured the following.
+
+| Measure | Priority off | Screen-only priority |
+| --- | ---: | ---: |
+| Accepted presents | 1,473 | 1,462 |
+| Longest gap | 20.05 s | 10.51 s |
+| Time in gaps over 100 ms | 50.71 s | 50.73 s |
+| P99 present interval | 52.66 ms | 200.28 ms |
+| Reported screen waits over 500 ms | 2 | 0 |
+| Reported compute waits without a result | 25 | 35 |
+
+The control's two long screen waits ended without a pipeline result. Neither had a matching worker claim in the diagnostic window. The priority run shortened the worst gap and still spent about 51 s in long gaps. The next comparison uses an uninstrumented release built on `907a771`, with external captures disabled and a full 300 s window from the first cold launch. Both arms change only the priority flag. [Merged test build](https://github.com/UwUCammie/VIctory-7900XTX/commit/5a687f08)
+
 ### Cold trials with external captures off and on
 
 The Wine maintainer found that saving frames inside the runtime affected their earlier branch comparison. Our harness launches a private X11 still capture and clip recorder separately. A dedicated cold pair now tests those observers. Both arms use the same card-scan release, keep the internal capture feature unset, and record the launch policy and whether each external observer produced output. [Maintainer's correction](https://github.com/borntofrag34/VIctory-7900XTX/commit/89d93e2e)
@@ -1465,6 +1478,10 @@ The Wine maintainer merged the cold shader lookup, cache reuse, deadline, pipeli
 The separate FSR 4 report is from the optional PC upscaler. The successful shim path keeps the texture slots in place and passes through the incoming jitter. The logged dimensions and mask presence are from the first successful dispatch per upscaler context. Repeated inputs during the particle effect are needed to connect that first log line to the reported artifact. [Upstream discussion](https://github.com/avatarmanz/VIctory-7900XTX/pull/440#issuecomment-7223289860)
 
 The November 27 PortWatch refresh still lists 45 tracked efforts. Newly surfaced projects include AMD-4K, which reports 13.1–16.1 FPS in native 4K on a Windows RX 6800, and Hydra, which reports an 11.24 FPS world-only mean on an RTX 3060 at 720p output with a two-thirds render scale. XSEmu describes an experimental Windows translation layer and leaves title compatibility open. The Wine branch has the directly comparable cold-first-story data on the RX 7900 XT used here. [PortWatch](https://portwatch-vi.xyz/) · [AMD-4K](https://github.com/elaboratecl/VIctory-AMD-4K) · [Hydra](https://github.com/ToLIManl/VIctory-Hydra) · [XSEmu](https://github.com/Coolaid003/XSEmu)
+
+### Shader cache write failure
+
+The live renderer previously discarded a successful shader translation when atomic publication of its cache file failed. A generated fixture blocks the destination with a directory. The control dropped the shader, and the fix keeps it in memory, reports the blocked write for explicit precompilation, and stores the result on a later retry. Both Windows MSVC test executables matched 114 source checksums. All four shader-cache tests passed under Wine 11.22 after the change. [Wine PR #16](https://github.com/borntofrag34/VIctory-7900XTX/pull/16)
 
 ### Ray page limits in the indoor route
 

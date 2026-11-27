@@ -37,8 +37,13 @@ AVATAR_WINE_CARD_TOUCHED = {
 AVATAR_WINE_OBSERVERS_OFF = "vkd3d-master-avatar-wine-440-observers-off"
 AVATAR_WINE_OBSERVERS_ON = "vkd3d-master-avatar-wine-440-observers-on"
 AVATAR_WINE_MERGED_COLD = "vkd3d-master-avatar-wine-440-merged-cold"
+AVATAR_WINE_SCREEN_WAITER_SCORES = {
+    "vkd3d-master-avatar-wine-440-merged-screen-waiter-off": "0",
+    "vkd3d-master-avatar-wine-440-merged-screen-waiter-on": "screen",
+}
 AVATAR_WINE_CAPTURE_OBSERVERS = {
     AVATAR_WINE_OBSERVERS_OFF: False, AVATAR_WINE_OBSERVERS_ON: True, AVATAR_WINE_MERGED_COLD: False,
+    **dict.fromkeys(AVATAR_WINE_SCREEN_WAITER_SCORES, False),
 }
 AVATAR_WINE_FACE_WORKER_COUNTS = {
     "vkd3d-master-avatar-wine-440-faces-workers6": 6,
@@ -199,6 +204,9 @@ def benchmark_flags(mode):
         flags.update(VICTORY_LIST_POOL="1", VICTORY_LIST_CREATE_POOL=AVATAR_WINE_CONSTRUCTOR_POOLS[mode])
     if mode in AVATAR_WINE_WAITER_SWITCHES:
         flags.update(VICTORY_PIPELINE_WAITERS_FIRST=AVATAR_WINE_WAITER_SWITCHES[mode], VICTORY_PIPELINE_QUEUE_TIMING="0")
+    if mode in AVATAR_WINE_SCREEN_WAITER_SCORES:
+        flags.update(VICTORY_PIPELINE_WAITERS_FIRST=AVATAR_WINE_SCREEN_WAITER_SCORES[mode],
+                     VICTORY_PIPELINE_QUEUE_TIMING="0", VICTORY_PIPELINE_STAGE_TIMING="0")
     if mode in AVATAR_WINE_QUEUE_TIMINGS:
         flags.update(VICTORY_PIPELINE_WAITERS_FIRST=AVATAR_WINE_QUEUE_TIMINGS[mode], VICTORY_PIPELINE_QUEUE_TIMING="1")
     if mode in AVATAR_WINE_STAGE_TIMINGS:
