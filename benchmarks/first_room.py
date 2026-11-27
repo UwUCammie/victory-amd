@@ -6,6 +6,7 @@ from datetime import datetime
 TIMESTAMP = re.compile(r"\d{4}-\d\d-\d\dT[\d:.]+Z")
 INTERVAL = re.compile(r"victory_bench: presents frames=(\d+) interval_us=(\d+) draws=(\d+)")
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
+DEVICE_LOST_MARKERS = ("host GPU failure:", "host GPU device removed after ")
 
 # The renderer emits these per-frame costs immediately after its present counter.
 COSTS = {
@@ -32,7 +33,7 @@ class DeviceLost(SessionFailed):
 def session_lines(lines):
     for raw in lines:
         line = ANSI.sub("", raw)
-        if "host GPU failure:" in line or "host GPU device removed after " in line:
+        if any(marker in line for marker in DEVICE_LOST_MARKERS):
             raise DeviceLost("The renderer reported a GPU failure during this session.")
         if re.match(r"^\s*thread '.+?'(?: \(\d+\))? panicked at\b", line):
             raise SessionFailed("A runtime thread panicked during this session.")

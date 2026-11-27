@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from heapq import nlargest
 from pathlib import Path
 
-from first_room import TIMESTAMP, session_lines
+from first_room import DEVICE_LOST_MARKERS, TIMESTAMP, session_lines
 
 MICROSECOND = timedelta(microseconds=1)
 MARKER = "victory_bench: accepted present"
@@ -17,6 +17,21 @@ TRACE = re.compile(r"victory_bench: accepted present since_first_us=(\d+)(?:\s|$
 
 CREATE_SWAP_CHAIN = "victory_gpu::host: presenting to a window "
 RESIZE_SWAP_CHAIN = "victory_gpu::host: the swap chain's buffers were made again for another size or format "
+
+
+def device_loss_before_overlap(lines, overlap):
+    """A timestamped device loss can predate an otherwise valid guard interruption."""
+    first = None
+    for line in lines:
+        if not any(marker in line for marker in DEVICE_LOST_MARKERS):
+            continue
+        stamp = TIMESTAMP.search(line)
+        if stamp is None:
+            continue
+        when = datetime.fromisoformat(stamp[0].replace("Z", "+00:00"))
+        if when < overlap and (first is None or when < first):
+            first = when
+    return first
 
 
 def output_size(value):

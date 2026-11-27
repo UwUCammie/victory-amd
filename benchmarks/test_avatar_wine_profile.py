@@ -70,7 +70,9 @@ class AvatarWineProfileTests(unittest.TestCase):
             writeback_activity([counters, kept.replace("64 KiB", "32 KiB")], started, 2_000_000, True)
 
     def test_early_compute_flags_and_runtime_confirmation(self):
-        off, on, wider = map(benchmark_flags, AVATAR_WINE_EARLY_LIMITS)
+        off, on, wider, shorter = map(benchmark_flags, AVATAR_WINE_EARLY_LIMITS)
+        self.assertEqual(shorter["VICTORY_COMPUTE_WAIT_MS"], "2000")
+        self.assertEqual(dict(shorter, VICTORY_COMPUTE_WAIT_MS="10000"), wider)
         self.assertEqual(off.pop("VICTORY_EARLY_COMPUTE_MAX_BYTES"), "0")
         self.assertEqual(on.pop("VICTORY_EARLY_COMPUTE_MAX_BYTES"), "1024")
         self.assertEqual(wider.pop("VICTORY_EARLY_COMPUTE_MAX_BYTES"), "2560")

@@ -6,8 +6,8 @@ import json
 import unittest
 
 from cold_boot import (
-    accepted_frames, buffer_prefetch_activity, compute_reserve_activity, loaded_vkd3d_build, report, upload_pool_activity,
-    raw_twin_activity, verify_wait_budgets, window,
+    accepted_frames, buffer_prefetch_activity, compute_reserve_activity, device_loss_before_overlap,
+    loaded_vkd3d_build, raw_twin_activity, report, upload_pool_activity, verify_wait_budgets, window,
 )
 from first_room import SessionFailed
 
@@ -17,6 +17,15 @@ def trace(offset):
 
 
 class ColdBootTests(unittest.TestCase):
+    def test_preserves_a_device_loss_before_the_guard_interruption(self):
+        guard = datetime(2026, 11, 27, 9, 25, 30, 307028, tzinfo=timezone.utc)
+        before = "\x1b[2m2026-11-27T09:25:29.649074Z\x1b[0m ERROR host GPU device removed after submission"
+        after = "2026-11-27T09:25:30.400000Z ERROR host GPU device removed after submission"
+        legacy = "VIctory: host GPU failure: no timestamp"
+        self.assertIsNone(device_loss_before_overlap([after, legacy], guard))
+        self.assertEqual(device_loss_before_overlap([after, legacy, before], guard),
+                         datetime(2026, 11, 27, 9, 25, 29, 649074, tzinfo=timezone.utc))
+
     def test_wait_budgets_verify_ansi_logs_and_reject_unexpected_settings(self):
         graphics = "host pipeline wait budget per frame \x1b[3mmillis\x1b[0m=\x1b[2m500\x1b[0m"
         compute = "compute dispatches wait for their pipelines \x1b[3mms\x1b[0m=\x1b[2m500\x1b[0m"

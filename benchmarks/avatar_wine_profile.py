@@ -17,10 +17,11 @@ AVATAR_WINE_EARLY_LIMITS = {
     "vkd3d-master-avatar-wine-440-early-off": 0,
     "vkd3d-master-avatar-wine-440-early-1k": 1024,
     "vkd3d-master-avatar-wine-440-early-2560": 2560,
+    "vkd3d-master-avatar-wine-440-early-2560-wait2000": 2560,
 }
 AVATAR_WINE_MODES = AVATAR_WINE_COMPUTE_BUDGETS | dict.fromkeys(
     (*AVATAR_WINE_WRITEBACK_SWITCHES, *AVATAR_WINE_EARLY_LIMITS), 10000
-)
+) | {"vkd3d-master-avatar-wine-440-early-2560-wait2000": 2000}
 
 # Source profile: avatarmanz/VIctory-7900XTX#440, b2bf3d99, play.sh and play-1080p.sh.
 # Use the benchmark's scene and UI dimensions, render offline, and keep the
