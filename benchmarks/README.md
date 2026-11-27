@@ -222,6 +222,8 @@ I used the same combined executable as the control for a second experiment that 
 
 The first three new candidate attempts yielded to other builds. A fourth ended at about 20 seconds on its own, with process exit code 0 and no device-loss marker. I excluded all four attempts from the five-minute comparison. The candidate executable and PDB matched all 168 checked sources. [Candidate source](https://github.com/UwUCammie/VIctory-7900XTX/commit/1cb9c955)
 
+Three later attempts also yielded. The longest of those ran for about 244 seconds before a competing build started. Another yielded when a different client took the render device. Each retry starts with five newly empty caches. The queued retry still needs a complete 300-second capture before this comparison has a candidate score.
+
 ### Descriptor heap binding
 
 The draw-and-dispatch bind code can submit up to two heaps. I moved the short list from a vector to a stack array. A native fixture runs the exact list-building code with mock handles. For each of no heap, view only, sampler only and both heaps, it checked 10,000 updates. The retained and bound handles agreed in both versions, including their order. The control made 10,000 temporary allocations per case and the candidate made zero. The Windows MSVC compile check passed. The fixture does not time the D3D12 call or gameplay.
