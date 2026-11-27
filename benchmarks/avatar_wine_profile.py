@@ -69,6 +69,10 @@ AVATAR_WINE_FULL_DIRTY_SCAN_SCORES = {
     "vkd3d-master-avatar-wine-440-cold-full-scan-off": "0",
     "vkd3d-master-avatar-wine-440-cold-full-scan-on": "1",
 }
+AVATAR_WINE_WORKER_PRIORITY_SCORES = {
+    "vkd3d-master-avatar-wine-440-cold-worker-lowest": "1",
+    "vkd3d-master-avatar-wine-440-cold-worker-below-normal": "0",
+}
 AVATAR_WINE_LATE_SUBMIT_MODES = (*AVATAR_WINE_LATE_SUBMIT_PROFILES, *AVATAR_WINE_FULL_DIRTY_SCAN_MODES)
 LATE_SUBMIT_SAMPLE = (235, 6)
 LATE_SUBMIT_TIMEOUT = 250
@@ -89,6 +93,7 @@ AVATAR_WINE_CAPTURE_OBSERVERS = {
     **dict.fromkeys(AVATAR_WINE_RECORDED_SCREEN_SCORES, False),
     **dict.fromkeys(AVATAR_WINE_LATE_SUBMIT_MODES, False),
     **dict.fromkeys(AVATAR_WINE_FULL_DIRTY_SCAN_SCORES, False),
+    **dict.fromkeys(AVATAR_WINE_WORKER_PRIORITY_SCORES, False),
     **dict.fromkeys(AVATAR_WINE_SCREEN_WAITER_SCORES, False),
     **dict.fromkeys(AVATAR_WINE_WRITE_WATCH_GAPS, False),
 }
@@ -181,7 +186,8 @@ AVATAR_WINE_MODES = AVATAR_WINE_COMPUTE_BUDGETS | dict.fromkeys(
      AVATAR_WINE_COMPILER_CACHE, AVATAR_WINE_BOOL_SIMPLIFY, AVATAR_WINE_LATEST_CONTROL,
      AVATAR_WINE_LATEST_SHADERS, AVATAR_WINE_FACES, *AVATAR_WINE_FACE_TRACE_LIMITS, *AVATAR_WINE_CONSTRUCTOR_POOLS,
      *AVATAR_WINE_WAITER_SWITCHES, *AVATAR_WINE_QUEUE_TIMINGS, *AVATAR_WINE_STAGE_TIMINGS,
-     *AVATAR_WINE_RECORDED_SCREEN_SCORES, *AVATAR_WINE_LATE_SUBMIT_MODES, *AVATAR_WINE_FULL_DIRTY_SCAN_SCORES), 10000
+     *AVATAR_WINE_RECORDED_SCREEN_SCORES, *AVATAR_WINE_LATE_SUBMIT_MODES, *AVATAR_WINE_FULL_DIRTY_SCAN_SCORES,
+     *AVATAR_WINE_WORKER_PRIORITY_SCORES), 10000
 ) | dict.fromkeys((*AVATAR_WINE_SCREEN_LIMITS, *AVATAR_WINE_SCREEN_WORKERS, "vkd3d-master-avatar-wine-440-early-2560-wait2000",
                    "vkd3d-master-avatar-wine-440-early-3072-wait2000", AVATAR_WINE_LEGACY_FMA,
                    AVATAR_WINE_FACES_2S, AVATAR_WINE_SCREEN_QUEUE_TRACE, AVATAR_WINE_UPSTREAM_2S), 2000)
@@ -286,6 +292,9 @@ def benchmark_flags(mode):
     if mode in full_scan:
         flags.update(VICTORY_CARD_TOUCHED="0",
                      VICTORY_CARD_SKIP_CLEAN_UPGRADES=full_scan[mode])
+    if mode in AVATAR_WINE_WORKER_PRIORITY_SCORES:
+        flags.update(VICTORY_PIPELINE_WORKERS="10",
+                     VICTORY_PIPELINE_LOWEST=AVATAR_WINE_WORKER_PRIORITY_SCORES[mode])
     return flags
 
 
@@ -403,6 +412,27 @@ def verify_pipeline_workers(lines, launched, stop, expected):
             workers.add(int(match[1]))
     if workers != {expected}:
         raise ValueError("general pipeline worker count did not match")
+
+
+def verify_pipeline_worker_priorities(lines, launched, stop, lowest):
+    """Require Wine to report the requested Windows priority on each worker."""
+    marker = "pipeline worker priority readback"
+    fields = re.compile(r"\bworker=(\d+) screens_only=(true|false) requested=(-?\d+) "
+                        r"effective=(-?\d+) set=(true|false)\s*$")
+    workers = {True: set(), False: set()}
+    for _, line in windowed_log_lines(lines, launched, stop, (marker,)):
+        match = fields.search(line)
+        if match is None:
+            raise ValueError("incomplete pipeline worker priority report")
+        slot, screens_only, requested, effective, success = match.groups()
+        screen = screens_only == "true"
+        expected = -2 if lowest and not screen else -1
+        if success != "true" or int(requested) != expected or int(effective) != expected:
+            raise ValueError("pipeline worker priority did not take effect")
+        workers[screen].add(int(slot))
+    # The worker watchdog may spawn replacements, each with a fresh slot.
+    if len(workers[True]) < 2 or len(workers[False]) < 10 or workers[True] & workers[False]:
+        raise ValueError("pipeline worker priority coverage did not match")
 
 
 def observed_profile(lines):

@@ -16,6 +16,7 @@ from avatar_wine_profile import AVATAR_WINE_CARD_TOUCHED, AVATAR_WINE_SCREEN_WAI
 from avatar_wine_profile import AVATAR_WINE_CAPTURE_OBSERVERS, AVATAR_WINE_MERGED_COLD, AVATAR_WINE_OBSERVERS_OFF, AVATAR_WINE_OBSERVERS_ON, verify_capture_observers
 from avatar_wine_profile import AVATAR_WINE_SCREEN_WAITER_DIAGNOSTICS, AVATAR_WINE_SCREEN_WAITER_SCORES, verify_screen_waiter_priority
 from avatar_wine_profile import AVATAR_WINE_WRITE_WATCH_GAPS, verify_write_watch_gap
+from avatar_wine_profile import AVATAR_WINE_WORKER_PRIORITY_SCORES, verify_pipeline_worker_priorities
 from avatar_wine_profile import (AVATAR_WINE_RECORDED_COMPUTE, AVATAR_WINE_RECORDED_SCREEN,
                                  AVATAR_WINE_FULL_DIRTY_SCAN_MODES, AVATAR_WINE_FULL_DIRTY_SCAN_SCORES,
                                  AVATAR_WINE_LATE_SUBMIT_PROFILES,
@@ -130,6 +131,27 @@ class AvatarWineProfileTests(unittest.TestCase):
         self.assertEqual(benchmark_flags(AVATAR_WINE_UPSTREAM_2S),
                          dict(benchmark_flags(AVATAR_WINE_UPSTREAM_COLD), VICTORY_COMPUTE_WAIT_MS="2000"))
         self.assertFalse(AVATAR_WINE_CAPTURE_OBSERVERS[AVATAR_WINE_UPSTREAM_2S])
+
+    def test_worker_priority_scores_require_actual_priorities(self):
+        start = datetime(2026, 11, 27, tzinfo=timezone.utc)
+        for mode, lowest in AVATAR_WINE_WORKER_PRIORITY_SCORES.items():
+            self.assertEqual(benchmark_flags(mode),
+                             dict(benchmark_flags(AVATAR_WINE_UPSTREAM_COLD),
+                                  VICTORY_PIPELINE_WORKERS="10", VICTORY_PIPELINE_LOWEST=lowest))
+            self.assertFalse(AVATAR_WINE_CAPTURE_OBSERVERS[mode])
+            lines = []
+            for slot in range(12):
+                screen = str(slot < 2).lower()
+                priority = -1 if slot < 2 or lowest == "0" else -2
+                lines.append("2026-11-27T00:00:01Z INFO pipeline worker priority readback "
+                             f"worker={slot} screens_only={screen} requested={priority} "
+                             f"effective={priority} set=true")
+            verify_pipeline_worker_priorities(lines, start, 2_000_000, lowest == "1")
+            with self.assertRaises(ValueError):
+                verify_pipeline_worker_priorities(lines[:-1], start, 2_000_000, lowest == "1")
+            lines[-1] = lines[-1].replace(f"effective={priority}", "effective=0")
+            with self.assertRaises(ValueError):
+                verify_pipeline_worker_priorities(lines, start, 2_000_000, lowest == "1")
 
     def test_observer_pair_uses_the_same_runtime_flags(self):
         off = benchmark_flags(AVATAR_WINE_OBSERVERS_OFF)
