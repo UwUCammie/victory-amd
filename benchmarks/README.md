@@ -1642,6 +1642,18 @@ The capture-free run averaged 30.92 FPS in its final minute. Its longest gap was
 
 The next capture-free pair uses the same Wine release, changes only `VICTORY_PIPELINE_LOWEST`, and measures the full 300 s from launch. Both use ten general workers and two restricted to priority pipelines. The general workers use Windows priority −2 in the control and −1 in the candidate. The two restricted workers stay at −1. Each run requires a successful priority change and matching readback from all workers. This checks what Wine reports to the process. [Test build](https://github.com/UwUCammie/VIctory-7900XTX/commit/3b8f9268)
 
+Both launches confirmed all 12 worker priorities, used the same executable and driver files, and loaded vkd3d-proton `71cae091b06571e`. Both lost the GPU without foreground overlap, at 263.15 s and 265.95 s. Each accepted a present after the 250 s diagnostic cutoff and before the loss. Neither qualifies for five-minute scoring.
+
+| First 250 s from cold launch | General priority −2 | General priority −1 |
+| --- | ---: | ---: |
+| Accepted presents | 4,094 | 3,980 |
+| P99 gap | 252.83 ms | 401.33 ms |
+| Longest gap | 20.08 s | 10.52 s |
+| Time in gaps over 100 ms | 135.95 s | 140.84 s |
+| Presents between 30 and 75 s | 6 | 8 |
+
+The higher priority shortened the longest gap. The frame count fell and the total time in long gaps increased in this pair, so the next experiment retains the original priorities.
+
 ### Keeping a compiler worker available for requests
 
 One experiment keeps the last of ten general workers available for pipelines the title has already requested. The other nine can still compile speculative work, and the two priority workers keep their existing queues. The requested worker keeps the normal order of already-requested jobs, including jobs promoted out of the early queue. Both worker recovery paths preserve that assignment. The switch is off by default.
