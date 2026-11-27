@@ -1,10 +1,29 @@
 """Stop a benchmark's gamescope timeout if a foreground game needs the GPU (Linux)."""
 import argparse
+from datetime import datetime, timezone
 import os
 from pathlib import Path
 import signal
 import subprocess
 import time
+
+
+def record_overlap(proc):
+    """Let the runner distinguish a guard interruption from an early exit."""
+    key = b"GOAL30_YIELD_MARKER="
+    try:
+        for item in (proc / "environ").read_bytes().split(b"\0"):
+            if not item.startswith(key):
+                continue
+            marker = Path(os.fsdecode(item[len(key):]))
+            if marker.is_absolute() and marker.name == "foreground-overlap":
+                with marker.open("x", encoding="utf-8") as output:
+                    output.write(datetime.now(timezone.utc).isoformat() + "\n")
+            return
+    except (FileExistsError, FileNotFoundError, ProcessLookupError):
+        pass
+    except OSError as error:
+        print(f"Could not record overlap for benchmark timeout {proc.name}: {error}", flush=True)
 
 
 def scoped_timeout(proc, unit):
@@ -30,6 +49,7 @@ def yield_timeouts(units):
             continue
         try:
             if any(scoped_timeout(proc, unit) for unit in units):
+                record_overlap(proc)
                 signal.pidfd_send_signal(fd, signal.SIGTERM)
                 print(f"Yielded benchmark timeout {proc.name}", flush=True)
         except ProcessLookupError:
