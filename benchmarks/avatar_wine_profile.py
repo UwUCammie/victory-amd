@@ -47,6 +47,10 @@ AVATAR_WINE_RECORDED_SCREEN = {
     "vkd3d-master-avatar-wine-440-recorded-screen-off": "0",
     "vkd3d-master-avatar-wine-440-recorded-screen-on": "1",
 }
+AVATAR_WINE_RECORDED_SCREEN_SCORES = {
+    "vkd3d-master-avatar-wine-440-recorded-screen-cold-off": "0",
+    "vkd3d-master-avatar-wine-440-recorded-screen-cold-on": "1",
+}
 AVATAR_WINE_SCREEN_WAITER_SCORES = {
     "vkd3d-master-avatar-wine-440-merged-screen-waiter-off": "0",
     "vkd3d-master-avatar-wine-440-merged-screen-waiter-on": "screen",
@@ -60,6 +64,7 @@ AVATAR_WINE_CAPTURE_OBSERVERS = {
     AVATAR_WINE_WRITE_WATCH_INDEX: False,
     **dict.fromkeys(AVATAR_WINE_RECORDED_COMPUTE, False),
     **dict.fromkeys(AVATAR_WINE_RECORDED_SCREEN, False),
+    **dict.fromkeys(AVATAR_WINE_RECORDED_SCREEN_SCORES, False),
     **dict.fromkeys(AVATAR_WINE_SCREEN_WAITER_SCORES, False),
     **dict.fromkeys(AVATAR_WINE_WRITE_WATCH_GAPS, False),
 }
@@ -151,7 +156,8 @@ AVATAR_WINE_MODES = AVATAR_WINE_COMPUTE_BUDGETS | dict.fromkeys(
      AVATAR_WINE_VALUE_USE_INDEX, AVATAR_WINE_KEEP_TRANSLATED, AVATAR_WINE_SINGLE_PARSE,
      AVATAR_WINE_COMPILER_CACHE, AVATAR_WINE_BOOL_SIMPLIFY, AVATAR_WINE_LATEST_CONTROL,
      AVATAR_WINE_LATEST_SHADERS, AVATAR_WINE_FACES, *AVATAR_WINE_FACE_TRACE_LIMITS, *AVATAR_WINE_CONSTRUCTOR_POOLS,
-     *AVATAR_WINE_WAITER_SWITCHES, *AVATAR_WINE_QUEUE_TIMINGS, *AVATAR_WINE_STAGE_TIMINGS), 10000
+     *AVATAR_WINE_WAITER_SWITCHES, *AVATAR_WINE_QUEUE_TIMINGS, *AVATAR_WINE_STAGE_TIMINGS,
+     *AVATAR_WINE_RECORDED_SCREEN_SCORES), 10000
 ) | dict.fromkeys((*AVATAR_WINE_SCREEN_LIMITS, *AVATAR_WINE_SCREEN_WORKERS, "vkd3d-master-avatar-wine-440-early-2560-wait2000",
                    "vkd3d-master-avatar-wine-440-early-3072-wait2000", AVATAR_WINE_LEGACY_FMA,
                    AVATAR_WINE_FACES_2S, AVATAR_WINE_SCREEN_QUEUE_TRACE), 2000)
@@ -243,9 +249,12 @@ def benchmark_flags(mode):
     if mode in AVATAR_WINE_RECORDED_COMPUTE:
         flags.update(VICTORY_EARLY_RECORDED_COMPUTE=AVATAR_WINE_RECORDED_COMPUTE[mode],
                      VICTORY_RECORDED_COMPUTE_TRACE="1")
-    if mode in AVATAR_WINE_RECORDED_SCREEN:
-        flags.update(VICTORY_EARLY_RECORDED_SCREEN=AVATAR_WINE_RECORDED_SCREEN[mode],
-                     VICTORY_RECORDED_SCREEN_TRACE="1", VICTORY_EARLY_RECORDED_COMPUTE="0",
+    if mode in (*AVATAR_WINE_RECORDED_SCREEN, *AVATAR_WINE_RECORDED_SCREEN_SCORES):
+        trace = mode in AVATAR_WINE_RECORDED_SCREEN
+        switches = AVATAR_WINE_RECORDED_SCREEN if trace else AVATAR_WINE_RECORDED_SCREEN_SCORES
+        flags.update(VICTORY_EARLY_RECORDED_SCREEN=switches[mode],
+                     VICTORY_RECORDED_SCREEN_TRACE=str(int(trace)),
+                     VICTORY_EARLY_RECORDED_COMPUTE="0",
                      VICTORY_RECORDED_COMPUTE_TRACE="0")
     return flags
 
@@ -336,6 +345,15 @@ def _recorded_pipeline_activity(lines, launched, stop, enabled, kind):
         "lead_over_100ms": sum(us > 100_000 for us in leads),
         "first_queued_us": first_queued,
     }
+
+
+def verify_recorded_screen_score(lines, launched, stop, enabled):
+    """Require the untraced screen mode announced by the scoring executable."""
+    label = "recorded screen pipeline lookahead "
+    modes = [line.rsplit(label, 1)[1].strip()
+             for _, line in windowed_log_lines(lines, launched, stop, (label,))]
+    if modes != [f"enabled={str(enabled).lower()} trace=false"]:
+        raise ValueError("recorded screen pipeline score mode did not match")
 
 
 def verify_pipeline_workers(lines, launched, stop, expected):

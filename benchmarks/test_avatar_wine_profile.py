@@ -17,7 +17,8 @@ from avatar_wine_profile import AVATAR_WINE_CAPTURE_OBSERVERS, AVATAR_WINE_MERGE
 from avatar_wine_profile import AVATAR_WINE_SCREEN_WAITER_DIAGNOSTICS, AVATAR_WINE_SCREEN_WAITER_SCORES, verify_screen_waiter_priority
 from avatar_wine_profile import AVATAR_WINE_WRITE_WATCH_GAPS, verify_write_watch_gap
 from avatar_wine_profile import (AVATAR_WINE_RECORDED_COMPUTE, AVATAR_WINE_RECORDED_SCREEN,
-                                 recorded_compute_activity, recorded_screen_activity, stage_trace_coverage)
+                                 AVATAR_WINE_RECORDED_SCREEN_SCORES, recorded_compute_activity,
+                                 recorded_screen_activity, stage_trace_coverage, verify_recorded_screen_score)
 from first_room import DeviceLost
 
 
@@ -78,6 +79,18 @@ class AvatarWineProfileTests(unittest.TestCase):
         self.assertEqual(result["first_queued_us"], 1_000_000)
         with self.assertRaises(ValueError):
             recorded_screen_activity(lines, start, 3_000_000, False)
+
+    def test_recorded_screen_scores_turn_off_trace_in_both_arms(self):
+        for diagnostic, score in zip(AVATAR_WINE_RECORDED_SCREEN, AVATAR_WINE_RECORDED_SCREEN_SCORES, strict=True):
+            self.assertEqual(benchmark_flags(score),
+                             dict(benchmark_flags(diagnostic), VICTORY_RECORDED_SCREEN_TRACE="0"))
+            self.assertFalse(AVATAR_WINE_CAPTURE_OBSERVERS[score])
+        start = datetime(2026, 11, 27, 8, tzinfo=timezone.utc)
+        enabled = "2026-11-27T08:00:01Z INFO recorded screen pipeline lookahead enabled=true trace=false"
+        verify_recorded_screen_score([enabled], start, 2_000_000, True)
+        for lines in ([], [enabled.replace("trace=false", "trace=true")], [enabled, enabled]):
+            with self.assertRaises(ValueError):
+                verify_recorded_screen_score(lines, start, 2_000_000, True)
 
     def test_write_watch_gap_pair_uses_the_same_cold_profile(self):
         for mode, gap in AVATAR_WINE_WRITE_WATCH_GAPS.items():

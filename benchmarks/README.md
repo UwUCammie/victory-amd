@@ -1455,6 +1455,8 @@ The Wine runtime's warning for dropping a draw after exhausting dynamic descript
 
 The Wine adaptation reserves dynamic slots between recording chunks. Lists the submission lane needs and synchronous open-list calls can proceed under pressure. Five thin-list and five submission-lane tests passed in each setting under headless Wine 11.22. The exact Windows MSVC executable and PDB matched 114 source checksums. The guarded comparison uses one executable, copies of the same indoor save and caches, the same input and drivers, and native 720p with the 4K UI. It records gate deferrals and whether the drop warning appeared. The saved-scene comparison is a rendering check. The cold first-story score comes from a separate run. [Wine PR #19](https://github.com/borntofrag34/VIctory-7900XTX/pull/19)
 
+Three cold runs reported that the CPU tiler could not handle a water texture readback near 196 s. The Wine port of the FX subresource fix copies only the bound mips and slices, and checks layout support before scheduling a copy. A generated fixture on the RX 7900 XT verified that it preserves untouched bytes and handles overlapping views, remapped allocations and an unsupported layout. The separate allocation ticket test also passed, with 139 Windows MSVC source checksums verified. Gameplay impact remains open. [Wine PR #20](https://github.com/borntofrag34/VIctory-7900XTX/pull/20)
+
 The second updated Wine control and the second updated compiler/cache attempt both yielded to parallel builds. The first 65 s were clear in both. The arms accepted 1,438 and 1,442 presents, spent 41.10 and 41.05 s in gaps above 100 ms and logged 27 and 21 waits without a pipeline result. The compiler/cache attempt ran to 176.60 s before yielding. This matched prefix remains outside full FPS scoring.
 
 Against the earlier verified 21.93 FPS release, the updated compiler/cache attempt accepted 3,105 versus 2,903 presents in the first 170 s and spent 87.22 versus 97.83 s in gaps above 100 ms. P99 increased from 226.09 to 245.92 ms. The driver files, input, runtime flags and initially empty caches matched. Several runtime changes separate these builds, and this longer prefix ends before the interruption. It cannot isolate the indexed lookup's effect or supply a five-minute score.
@@ -1477,6 +1479,21 @@ Thin command lists buffer commands until a chunk fills or the list closes. The e
 The capture-free diagnostic pair uses one executable and changes only `VICTORY_EARLY_RECORDED_COMPUTE`. Its release binary passed 178 source checksums and was staged with only CPU access. Both timings start at cold launch, with a 75 s observation window inside an 82 s run. The trace checks time from first recording to first replay use and counts pipelines already ready at that point. These short runs are for deciding whether the head start is worth a full 300 s trial. [Runtime experiment](https://github.com/UwUCammie/VIctory-7900XTX/commit/60901cf7)
 
 The first control and candidate yielded to a parallel build at 38.17 s and another render client at 30.82 s. Both covered the first 27 s with the same executable, input, three driver DLLs and loaded vkd3d-proton build, five empty graphics caches, zero starting save slots, native 720p and the 4K interface. The candidate first queued a pipeline before replay at 3.88 s. Ten recorded pipelines could be matched across both traces. Six were ready at first replay in the control and nine in the candidate. The two prefixes accepted 1,452 and 1,461 presents. Their time in gaps above 100 ms was 2.87 s and 2.71 s. These prefixes end before the longest cold stalls. The guarded pair still needs its full diagnostic window.
+
+### Screen pipelines before thin-list replay
+
+The screen variant queues a pipeline at the first nonzero draw or direct mesh dispatch recorded on a thin list. It uses the usual screen queue priority. Five thin-list tests and the scheduler priority fixture passed in both settings under Wine 11.22. The Windows MSVC release matched 178 source checksums. [Screen experiment](https://github.com/UwUCammie/VIctory-7900XTX/commit/d3463d74)
+
+Both 82 s diagnostics finished without overlap on the RX 7900 XT. The 75 s windows used one executable, the same input and driver files, five empty caches and a fresh story at 1280×720 with a 4K interface. Among 31 screen shader lists that appeared only once in each replay trace, zero were ready at first replay with the change off and 21 were ready with it on. The candidate first queued a screen pipeline at 25.07 s.
+
+| First 75 s | Lookahead off | Lookahead on |
+| --- | ---: | ---: |
+| Accepted presents | 1,479 | 1,468 |
+| Longest present gap | 20.076 s | 10.650 s |
+| P99 present gap | 38.53 ms | 63.13 ms |
+| Time in gaps over 100 ms | 50.66 s | 50.73 s |
+
+The longest stall was shorter, with nearly the same total time in long gaps and fewer presentations. The next paired 300 s launches turn tracing off and verify the mode the runtime reports.
 
 ### General pipeline workers in the opening
 
