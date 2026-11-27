@@ -1250,6 +1250,18 @@ The first fault probe yielded to a parallel build at 202.54 s, before either rec
 
 The 3 KiB repeat compiled the additional facial-deformation pipeline at 3.14 s and first bound it at 64.31 s. The driver’s skin was visible in the private car close-up at 160 s. The two cutoffs had 2,855 and 2,868 accepted presents over the first 160 s, with P99 of 502 and 881 ms and longest gaps of 11.92 and 12.05 s, respectively. The 3 KiB arm had 92 reported waits without a result versus 101 at 2.5 KiB. The interrupt at 162.87 s excludes this repeat from the full score. These results show that the extra pipeline consistently compiled early, with comparable present counts and a longer tail in this pair.
 
+A later 3 KiB run reached 151.68 s before yielding. Its strict 150 s prefix had 2,714 accepted presents, 597.16 ms P99, a longest gap of 10.55 s, and 85.91 s in gaps above 100 ms. The same 150 s window in the other qualifying prefixes had the following results. All five used the same executable, driver files and revision, input and fresh profile at 1280×720, with a 4K interface and five empty caches. The only setting changed across the two groups was the size cutoff.
+
+| Cutoff | Attempt | Accepted presents | P99 interval | Time in gaps above 100 ms |
+| --- | ---: | ---: | ---: | ---: |
+| 2.5 KiB | 1 | 2,358 | 1,374.25 ms | 95.08 s |
+| 2.5 KiB | 2 | 2,521 | 1,273.35 ms | 90.98 s |
+| 2.5 KiB | 5 | 2,683 | 767.52 ms | 87.06 s |
+| 3 KiB | 2 | 2,648 | 1,247.92 ms | 87.74 s |
+| 3 KiB | 5 | 2,714 | 597.16 ms | 85.91 s |
+
+The latest 3 KiB run ended before the matching car shot. Run-to-run variation and the incomplete observations leave the full score and visual comparison open.
+
 The replacement write-back control started with five empty caches and loaded vkd3d-proton `71cae091b06571e`. It yielded to a separate build at 121.18 s without a preceding device-loss event. The earlier losses occurred after 261 s, so the retry remains queued and there is no qualifying result for this pair.
 
 The generated legacy MAD fixture for #454 reproduced a rounding mismatch on the RX 7900 XT with Wine 11.22, RADV 26.3.1 and vkd3d-proton `71cae091b06571e`. The executable and PDB matched 38 shader source checksums. With inputs `(1 + 2^-23)`, `(1 - 2^-23)` and `-1`, the stock result was `0x00000000`. One fused rounding gives `0xa8800000` (`-2^-46`). The driver's generated SPIR-V had one explicit `Fma`. Decorating its result with `NoContraction`, validating the fixture with `spirv-val`, and rerunning on the same executable and driver made all four cases pass. The driver cache was disabled in both diagnostic runs. The Wine gameplay comparison remains held pending a fix that works without a fixture override. [Upstream report](https://github.com/avatarmanz/VIctory-7900XTX/pull/454#issuecomment-7216444516), [Wine test source](https://github.com/UwUCammie/VIctory-7900XTX/commit/2d6dfec8)
@@ -1257,6 +1269,16 @@ The generated legacy MAD fixture for #454 reproduced a rounding mismatch on the 
 ### Boolean lowering in cold shader translation
 
 A local CPU profile placed the boolean decision diagram's if-then-else operation among the next largest runtime symbols after the arithmetic-use scans. The experiment simplifies a branch that repeats the condition and interns new nodes in one map lookup. The native release probe compared the combined shader build with this one additional translator change. Eight alternating runs on a deterministic 256-input slice matched exactly for all 254 translations and both terminal errors, including generated DXIL and remaining host metadata. Median summed translation time was 2.599 s before and 2.550 s after. Median wall time was 1.227 s and 1.162 s, respectively. The translator suite passed 212 tests with two ignored. The sample suggests a small change in native translation time. A full cold comparison is queued behind the exact combined control. [Experiment source](https://github.com/UwUCammie/VIctory-7900XTX/commit/c39475eb)
+
+### Descriptor arithmetic from long shader waits
+
+The largest complete gap in the reference overlapped two waits for the same screen shader group. Its last translation was logged at 77.29 s, and the pipeline was logged 11 ms later. In the second combined run the largest gap overlapped two waits for a compute shader. Its translation was logged at 68.19 s and the pipeline 6 ms later. Those traces place the remaining work before the translation completed, including time before a worker starts the job.
+
+The descriptor experiment classifies arithmetic and transfers when indexing readers and caches the answer at each remaining move depth. Two stratified 256-input passes matched all 254 outputs and both terminal errors, with median summed time changing by less than 1% in either direction. A separate private slice used the distinct stages from the most overlapping wait group in each of the ten longest complete gaps of each trace. The local scan found all 18 stages. Four alternating native runs per arm matched all 18 DXIL and host metadata outputs. Median summed translation time was 4.949 s and 4.944 s. This measured no meaningful speedup on the targeted inputs. [Experiment source](https://github.com/UwUCammie/VIctory-7900XTX/commit/41322ab9)
+
+### Constant float comparison translation
+
+The Wine port of Peppacodes's constant-compare fix passed 16 generated f16 and f32 cases on the RX 7900 XT under RADV 26.3.1, Wine 11.22 and vkd3d-proton `71cae091b06571e`. The cases cover equal, unequal and NaN inputs. The executable and PDB matched 38 source checksums. The port advances the translator version so a cached translation is regenerated. [Wine PR](https://github.com/borntofrag34/VIctory-7900XTX/pull/8), [Upstream test report](https://github.com/avatarmanz/VIctory-7900XTX/pull/460#issuecomment-7218773303)
 
 ### Prioritizing pipeline requests with active waits
 
