@@ -296,6 +296,34 @@ Native release measurements on one Ryzen 7 9700X core used seven alternating pai
 
 The fixture compared the merged bytes and full range of emitted writes. Thirteen Windows MSVC merge and relay tests passed in Wine, with one existing test ignored. The tested prior-output case covers shrinking, growing and a partial read that fails before the next use. Run `python3 benchmarks/merge_scratch.py CHECKOUT 830dc191 bd8b9e7e` with Rust 1.98.1. The fixture measures the piece merge with a generated read and no GPU or game. [Candidate source](https://github.com/UwUCammie/VIctory-7900XTX/commit/bd8b9e7e)
 
+### Landing exclusions
+
+The card landing code filtered and sorted the same set of excluded ranges for each 64 KiB piece. Sorting once per copy and reusing the gap buffer preserved every relative write span in the generated cases. The RX 7900 XT test under Wine and RADV 26.3.1 compared the batched and one-piece paths across private and mapped memory for 40 generated rounds each. It checked both the title bytes and the CPU copy. Both focused tests passed.
+
+Seven alternating native release pairs per case ran on one Ryzen 7 9700X core. The isolated range calculation was faster in 62 of 63 pairs.
+
+| Pieces | Excluded ranges | Control median | Reused median |
+| ---: | ---: | ---: | ---: |
+| 8 | 8 | 156 ns | 45 ns |
+| 8 | 64 | 594 ns | 365 ns |
+| 64 | 64 | 2.92 µs | 0.83 µs |
+| 64 | 512 | 18.17 µs | 7.98 µs |
+
+Run `python3 benchmarks/landing_ranges.py CHECKOUT 830dc191 9615ecdb` with Rust 1.98.1. This fixture excludes the GPU fetch and the memory writes. [Candidate source](https://github.com/UwUCammie/VIctory-7900XTX/commit/9615ecdb)
+
+### Chunked shadow merge
+
+I tested the 64-byte equality check and 8-byte SWAR merge from [fxceless #1421](https://github.com/fxceless/victory-fork/pull/1421) on the AMD base. The original chunk split could miss bytes when one slice was shorter by one byte. The tested build limits all three inputs to their shared length and checks lengths on both sides of 64 bytes. All nine focused Windows MSVC tests passed under Wine.
+
+At 64 KiB, median elapsed-time changes within seven alternating native pairs per case were:
+
+| Target | Equal | Sparse writes | Dense writes |
+| --- | ---: | ---: | ---: |
+| Default x86-64 | −24.72% | +94.35% | +148.64% |
+| x86-64-v3 | −46.18% | +43.46% | +139.27% |
+
+The changed inputs regressed on both targets and the port stays outside the gameplay build. Run `python3 benchmarks/shadow_merge.py CHECKOUT 830dc191 8c6e2a3e` with Rust 1.98.1, adding `--cpu x86-64-v3` for the second target. Results are from generated buffers on one Ryzen 7 9700X core. [Tested source](https://github.com/UwUCammie/VIctory-7900XTX/commit/8c6e2a3e)
+
 ### Isolated compiler thread dispatch
 
 The two full selective-heap launches below recorded 1,559 and 1,579 successful host pipeline creations. With `VICTORY_PIPE_FIX=1` the AMD branch launches a Windows thread for each compile attempt. I measured the cost of just handing a trivial job to a fresh or reused isolated compiler on the Ryzen 7 9700X under Wine 11.22. Seven alternating pairs of 128 jobs gave median elapsed times of 17.763 ms for fresh threads and 0.390 ms for reuse, including startup. All seven pairs favored reuse. The fixture checks every reply and uses the same stack reservation and priority in both paths. These are debug fixture measurements without a driver compile. [Worker change and test command](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/24)
