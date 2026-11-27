@@ -1261,6 +1261,8 @@ The 10 s retry yielded to a concurrent build at 71.76 s after 1,446 presents in 
 
 The matched 0-byte control reproduced the missing skin in the same street dialogue shot. The 3 KiB run showed the face at the same dialogue line. The binary, 10 s wait, driver files, input and cache setup were identical. Each run was interrupted by a parallel build after the first 70 s, so the full cold average remains pending.
 
+A second matched pair extended the common cold window to 105 s. With the cutoff off and at 3 KiB, the runs accepted 1,596 and 1,876 presents, spent 75.46 and 66.88 s in gaps over 100 ms, and had longest gaps of 20.09 and 11.07 s. P99 was 1,063 and 265 ms, respectively. The same executable, driver files, loaded driver, launch flags apart from the cutoff, input, no saved story and five empty caches were verified. Both used ten general workers, the 10 s compute wait, a native 720p scene and a 4K interface. Parallel builds ended the runs after 107.77 and 146.28 s. Both showed visible skin in the same side view during dialogue. The frontal close-up used a different angle in the run with the cutoff off, so this pair leaves that visual comparison open.
+
 | First 70 s | 0 bytes | 3 KiB, first attempt | 3 KiB, second attempt |
 | --- | ---: | ---: | ---: |
 | Accepted presents | 1,438 | 1,452 | 1,446 |
