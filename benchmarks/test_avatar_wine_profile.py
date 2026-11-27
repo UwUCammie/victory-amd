@@ -3,7 +3,7 @@ import unittest
 
 from avatar_wine_profile import (AVATAR_WINE_BOOL_SIMPLIFY, AVATAR_WINE_COMPILER_CACHE, AVATAR_WINE_CONSTRUCTOR_POOLS, AVATAR_WINE_EARLY_LIMITS, AVATAR_WINE_KEEP_TRANSLATED,
                                  AVATAR_WINE_NOTIFY_SWITCHES, AVATAR_WINE_SCREEN_LIMITS, AVATAR_WINE_SINGLE_PARSE,
-                                 AVATAR_WINE_QUEUE_TIMING, AVATAR_WINE_SCREEN_WORKERS, AVATAR_WINE_VALUE_USE_INDEX, AVATAR_WINE_WAITER_SWITCHES,
+                                 AVATAR_WINE_QUEUE_TIMING, AVATAR_WINE_QUEUE_TIMINGS, AVATAR_WINE_SCREEN_WORKERS, AVATAR_WINE_VALUE_USE_INDEX, AVATAR_WINE_WAITER_SWITCHES,
                                  AVATAR_WINE_WRITEBACK_SWITCHES, benchmark_flags, compute_wait_activity,
                                  early_compute_activity, early_screen_activity, observed_profile,
                                  pipeline_wait_gap_totals, pipeline_wait_group_coverage, pipeline_wait_translation_coverage,
@@ -194,6 +194,10 @@ class AvatarWineProfileTests(unittest.TestCase):
         self.assertEqual(off["VICTORY_PIPELINE_QUEUE_TIMING"], "0")
         self.assertEqual(on, dict(off, VICTORY_PIPELINE_WAITERS_FIRST="1"))
         self.assertEqual(benchmark_flags(AVATAR_WINE_QUEUE_TIMING), dict(off, VICTORY_PIPELINE_QUEUE_TIMING="1"))
+        for mode, priority in AVATAR_WINE_QUEUE_TIMINGS.items():
+            self.assertEqual(benchmark_flags(mode), dict(
+                off, VICTORY_PIPELINE_WAITERS_FIRST=priority, VICTORY_PIPELINE_QUEUE_TIMING="1"
+            ))
         started = datetime(2026, 11, 27, 8, tzinfo=timezone.utc)
         line = "2026-11-27T08:00:04Z INFO pipeline priority for active waiters enabled=true"
         verify_waiter_priority([line], started, 6_000_000, True)
