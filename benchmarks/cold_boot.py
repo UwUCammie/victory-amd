@@ -166,8 +166,29 @@ def loaded_vkd3d_build(lines, expected):
     return build
 
 
+def verify_wait_budgets(lines, *, graphics_ms=None, compute_ms=None):
+    """Verify budgets reported by the runtime. Compute zero means no wait announcement."""
+    graphics, compute = set(), set()
+    for line in session_lines(lines):
+        if graphics_ms is not None and "host pipeline wait budget per frame" in line:
+            match = re.search(r"\bmillis=(\d+)\b", line)
+            if match is None:
+                raise ValueError("graphics wait announcement has no millisecond value")
+            graphics.add(int(match[1]))
+        elif compute_ms is not None and "compute dispatches wait for their pipelines" in line:
+            match = re.search(r"\bms=(\d+)\b", line)
+            if match is None:
+                raise ValueError("compute wait announcement has no millisecond value")
+            compute.add(int(match[1]))
+    if graphics_ms is not None and graphics != {graphics_ms}:
+        raise ValueError(f"reported graphics waits {sorted(graphics)}, expected {graphics_ms} ms")
+    if compute_ms is not None and compute != ({compute_ms} if compute_ms else set()):
+        raise ValueError(f"reported compute waits {sorted(compute)}, expected {compute_ms} ms")
+
+
 def report(run, metadata, start, stop, *, stalls=0, expected_output=None, expected_interface=None,
-           expected_vkd3d=None, progress=False, compute_gap_ms=None):
+           expected_vkd3d=None, progress=False, compute_gap_ms=None,
+           expected_graphics_wait_ms=None, expected_compute_wait_ms=None):
     launch = json.loads(metadata.read_text())
     check_overlap(run, metadata)
     live = progress and "end_utc" not in launch
@@ -194,6 +215,9 @@ def report(run, metadata, start, stop, *, stalls=0, expected_output=None, expect
         raise ValueError("frame trace extends beyond launcher metadata")
     result = {"first_present_seconds": frames[0] / 1e6,
               **window(frames, start, stop, stalls=stalls, compute_drops=drops, compute_gap_ms=compute_gap_ms)}
+    if expected_graphics_wait_ms is not None or expected_compute_wait_ms is not None:
+        with (run / "run.log").open(encoding="utf-8", errors="replace") as log:
+            verify_wait_budgets(log, graphics_ms=expected_graphics_wait_ms, compute_ms=expected_compute_wait_ms)
     if expected_vkd3d is not None:
         with (run / "vkd3d.log").open(errors="replace") as log:
             result["vkd3d_build"] = loaded_vkd3d_build(log, expected_vkd3d)
@@ -215,6 +239,10 @@ if __name__ == "__main__":
     parser.add_argument("--stop", type=int, default=300, help="seconds after launcher start")
     parser.add_argument("--progress", action="store_true", help="allow a provisional reading after a live trace crosses --stop")
     parser.add_argument("--expect-vkd3d", metavar="COMMIT", help="verify the loaded vkd3d-proton revision from the driver log")
+    parser.add_argument("--expect-graphics-wait-ms", type=int, metavar="MS",
+                        help="verify the logged graphics pipeline wait budget")
+    parser.add_argument("--expect-compute-wait-ms", type=int, metavar="MS",
+                        help="verify the logged compute wait budget (0 expects no announcement)")
     parser.add_argument("--stalls", type=int, default=0, help="list the N longest gaps and compute-drop notices in each")
     parser.add_argument("--compute-gap-ms", type=int, metavar="MS",
                         help="count gaps at least this long and how many include a compute-drop notice")
@@ -226,7 +254,9 @@ if __name__ == "__main__":
     try:
         result = report(args.run, args.metadata, args.start * 1_000_000, args.stop * 1_000_000, stalls=args.stalls,
                         expected_output=args.expect_output, expected_interface=args.expect_interface,
-                        expected_vkd3d=args.expect_vkd3d, progress=args.progress, compute_gap_ms=args.compute_gap_ms)
+                        expected_vkd3d=args.expect_vkd3d, progress=args.progress, compute_gap_ms=args.compute_gap_ms,
+                        expected_graphics_wait_ms=args.expect_graphics_wait_ms,
+                        expected_compute_wait_ms=args.expect_compute_wait_ms)
     except (ValueError, KeyError, OSError) as error:
         parser.exit(1, f"{error}\n")
     print(json.dumps(result, indent=2))

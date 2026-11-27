@@ -5,7 +5,7 @@ from tempfile import TemporaryDirectory
 import json
 import unittest
 
-from cold_boot import accepted_frames, loaded_vkd3d_build, report, window
+from cold_boot import accepted_frames, loaded_vkd3d_build, report, verify_wait_budgets, window
 from first_room import SessionFailed
 
 
@@ -14,6 +14,20 @@ def trace(offset):
 
 
 class ColdBootTests(unittest.TestCase):
+    def test_wait_budgets_verify_ansi_logs_and_reject_unexpected_settings(self):
+        graphics = "host pipeline wait budget per frame \x1b[3mmillis\x1b[0m=\x1b[2m500\x1b[0m"
+        compute = "compute dispatches wait for their pipelines \x1b[3mms\x1b[0m=\x1b[2m500\x1b[0m"
+        verify_wait_budgets([graphics], graphics_ms=500, compute_ms=0)
+        verify_wait_budgets([graphics, compute], graphics_ms=500, compute_ms=500)
+        for lines, wait in (([graphics], 500), ([graphics, compute], 0),
+                            ([graphics, compute.replace("500", "5000")], 500)):
+            with self.subTest(lines=lines, wait=wait), self.assertRaisesRegex(ValueError, "compute waits"):
+                verify_wait_budgets(lines, graphics_ms=500, compute_ms=wait)
+        with self.assertRaisesRegex(ValueError, "graphics waits"):
+            verify_wait_budgets([compute], graphics_ms=500, compute_ms=500)
+        with self.assertRaisesRegex(ValueError, "compute wait announcement"):
+            verify_wait_budgets([graphics, "compute dispatches wait for their pipelines secs=10"], compute_ms=0)
+
     def test_driver_build_verifies_loaded_revision_and_rejects_mixed_logs(self):
         old = "info: vkd3d-proton - build: abcd012345+ (custom)."
         new = "info: vkd3d-proton - build: 98765432."
