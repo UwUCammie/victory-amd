@@ -10,9 +10,25 @@ from avatar_wine_profile import (AVATAR_WINE_BOOL_SIMPLIFY, AVATAR_WINE_COMPILER
                                  screen_wait_coverage, screen_worker_activity,
                                  queue_claim_activity, verify_constructor_pool, verify_notification_mode, verify_pipeline_workers, verify_waiter_priority, writeback_activity)
 from cold_boot import verify_wait_budgets
+from avatar_wine_profile import AVATAR_WINE_CARD_TOUCHED, verify_card_dirty_scan
 
 
 class AvatarWineProfileTests(unittest.TestCase):
+    def test_card_touched_pair_keeps_writeback_and_profile_fixed(self):
+        for mode, switch in AVATAR_WINE_CARD_TOUCHED.items():
+            self.assertEqual(benchmark_flags(mode),
+                             dict(benchmark_flags(AVATAR_WINE_FACES_EARLY), VICTORY_CARD_TOUCHED=switch,
+                                  VICTORY_WC_NO_BACK="0", VICTORY_WC_KEEP_STORES="0"))
+
+    def test_card_touched_requires_a_matching_runtime_marker_in_window(self):
+        start = datetime(2026, 11, 27, 8, tzinfo=timezone.utc)
+        lines = ["2026-11-27T08:00:01Z INFO card copy dirty scan mode enabled=\x1b[3mtrue\x1b[0m"]
+        verify_card_dirty_scan(lines, start, 2_000_000, True)
+        for marker, stop, enabled in ((lines, 2_000_000, False), (lines, 500_000, True),
+                                      (lines * 2, 2_000_000, True)):
+            with self.assertRaises(ValueError):
+                verify_card_dirty_scan(marker, start, stop, enabled)
+
     def test_face_build_keeps_the_cold_profile_with_raw_loads_explicit(self):
         self.assertEqual(benchmark_flags(AVATAR_WINE_FACES),
                          dict(benchmark_flags(AVATAR_WINE_LATEST_SHADERS), VICTORY_RAW_TYPED_LOADS="1"))

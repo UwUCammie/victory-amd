@@ -30,6 +30,10 @@ AVATAR_WINE_FACES_EARLY = "vkd3d-master-avatar-wine-440-faces-early"
 AVATAR_WINE_FACES_2S = "vkd3d-master-avatar-wine-440-faces-early-2s"
 AVATAR_WINE_FACES_HALF_FIX = "vkd3d-master-avatar-wine-440-faces-listed-half"
 AVATAR_WINE_PIPELINE_INPUTS = "vkd3d-master-avatar-wine-440-pipeline-inputs"
+AVATAR_WINE_CARD_TOUCHED = {
+    "vkd3d-master-avatar-wine-440-card-touched-off": "0",
+    "vkd3d-master-avatar-wine-440-card-touched-on": "1",
+}
 AVATAR_WINE_FACE_WORKER_COUNTS = {
     "vkd3d-master-avatar-wine-440-faces-workers6": 6,
     "vkd3d-master-avatar-wine-440-faces-workers14": 14,
@@ -48,6 +52,7 @@ AVATAR_WINE_FACE_EARLY_LIMITS = {
     AVATAR_WINE_FACES_2S: 3072,
     AVATAR_WINE_FACES_HALF_FIX: 3072,
     AVATAR_WINE_PIPELINE_INPUTS: 3072,
+    **dict.fromkeys(AVATAR_WINE_CARD_TOUCHED, 3072),
     **dict.fromkeys(AVATAR_WINE_FACE_WORKER_COUNTS, 3072),
 }
 AVATAR_WINE_EARLY_LIMITS = {
@@ -161,6 +166,9 @@ def benchmark_flags(mode):
     if mode in AVATAR_WINE_WRITEBACK_SWITCHES:
         flags.update(VICTORY_WC_STATS="1", VICTORY_WC_NO_BACK=AVATAR_WINE_WRITEBACK_SWITCHES[mode],
                      VICTORY_WC_NO_BACK_MIN_KB="64", VICTORY_WC_KEEP_STORES="0", VICTORY_WC_CENSUS="0")
+    if mode in AVATAR_WINE_CARD_TOUCHED:
+        flags.update(VICTORY_CARD_TOUCHED=AVATAR_WINE_CARD_TOUCHED[mode],
+                     VICTORY_WC_NO_BACK="0", VICTORY_WC_KEEP_STORES="0")
     if mode in AVATAR_WINE_EARLY_LIMITS:
         flags["VICTORY_EARLY_COMPUTE_MAX_BYTES"] = str(AVATAR_WINE_EARLY_LIMITS[mode])
     if mode in AVATAR_WINE_NOTIFY_SWITCHES:
@@ -190,6 +198,15 @@ def benchmark_flags(mode):
     if mode in AVATAR_WINE_FACE_WORKER_COUNTS:
         flags["VICTORY_PIPELINE_WORKERS"] = str(AVATAR_WINE_FACE_WORKER_COUNTS[mode])
     return flags
+
+
+def verify_card_dirty_scan(lines, launched, stop, enabled):
+    """Confirm which dirty scan the running build selected."""
+    label = "card copy dirty scan mode"
+    modes = [line.rsplit(label, 1)[1].strip()
+             for _, line in windowed_log_lines(lines, launched, stop, (label,))]
+    if modes != [f"enabled={str(enabled).lower()}"]:
+        raise ValueError("runtime card copy dirty scan mode did not match")
 
 
 def verify_pipeline_workers(lines, launched, stop, expected):
