@@ -214,6 +214,8 @@ In the reverse-order repeat, the combined build delivered 3,147 presents in the 
 
 The stock retry then delivered 2,651 presents (8.84 FPS), with a 1,840 ms P99, an 11.39 s longest gap and 199.23 seconds in gaps over 100 ms. There were 31 gaps over one second on stock and 28 on the combined build. Both runs showed a face in the car and reached the same couch shot by the 255 s capture. At 85 and 100 s, the stock capture had subtitles over a black view while the combined capture showed the exterior. Later shots still differed. Across both clean pairs, stock accepted 5,240 presents in 600 s (8.73 FPS) and the combined build accepted 6,121 (10.20 FPS). The two run orders favor the combination on this five-minute workload. The timing does not isolate one optimization or compare identical shots.
 
+Both 255 s and 265 s captures show the same couch view. In that ten-second window the stock run accepted 157 presents and the combined run accepted 173. The combined build had fewer gaps over 100 ms (4 versus 11) and a longer single worst gap (2.84 versus 2.26 s). This short check brackets a similar view and does not replace the full startup measurement.
+
 ### Relay flags before copy-back
 
 The relay first collected every candidate flag in a vector, then collected the flagged keys in a second vector before sorting and deduplicating them. Supplying the flags directly to the collector removes the first vector. Both revisions returned the same sorted keys in the generated cases, including duplicates and partial overlap in the existing relay tests.
