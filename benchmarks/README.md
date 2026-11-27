@@ -1660,6 +1660,8 @@ The menu-only launch accepted a present at 305.74 s and reached the 310 s timeou
 
 The follow-up uses the same executable and menu keys, and delays every movement key by 30 s on the game's input clock. Compare any device loss with the earlier walking launch. The game starts its input clock at the first poll, so a 30 s change in that schedule need not produce an exact 30 s shift in time from process launch. The delayed route also stays out of FPS scoring.
 
+The first delayed trial yielded to a parallel build at 80.70 s, before the movement window. The retry lost the device at 268.39 s and presented its last frame at 268.36 s. Its executable and driver files matched the other input trials, and only the input schedule changed. The launch verified all 12 worker priorities, five empty graphics caches, a fresh story and native 720p output with the separate 4K interface. No foreground overlap was recorded. Relative to the original route, a 30 s input delay moved the observed loss by 5.24 s on the process clock. One run per schedule leaves the trigger open.
+
 ### Keeping a compiler worker available for requests
 
 One experiment keeps the last of ten general workers available for pipelines the title has already requested. The other nine can still compile speculative work, and the two priority workers keep their existing queues. The requested worker keeps the normal order of already-requested jobs, including jobs promoted out of the early queue. Both worker recovery paths preserve that assignment. The switch is off by default.
