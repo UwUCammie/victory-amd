@@ -1096,6 +1096,16 @@ The enumeration should show the shim initialized, the simulated Navi 31 and the 
 
 The RX 7900 XT fixture also ran in this setup on the same installed Mesa 26.3.1 RADV binary and Wine 11.22 with vkd3d-proton `71cae091b06571e` and descriptor heaps enabled. All 16 local compute stages passed DXC validation and made a pipeline with the standard shader settings. The Windows MSVC fixture matched 114 source checksums. A control using the same namespace without the shim found no Vulkan device. The second physical-card comparison can now use the verified executable staged during this off-card run.
 
+Two further off-card comparisons ran the three translator settings in opposite orders, with a new vkd3d cache directory each time. All 16 stages passed DXC validation and made a pipeline in every arm. The table sums time inside host pipeline creation after translation and validation.
+
+| Shader setting | First order | Reverse order |
+| --- | ---: | ---: |
+| Standard | 5.971 s | 6.085 s |
+| Wider raw loads | 5.859 s | 5.860 s |
+| Straight-line block compaction | 6.096 s | 6.149 s |
+
+Compaction was slower in both off-card orders and in the first physical pair. Wider raw loads saved 0.11–0.23 s on these 16 fixtures. Their gameplay effect is open. The benchmark keeps the standard settings for cold first boot. The full fixture took 41–42 s per arm, including translation, DXC validation and startup. The device namespace leaves the physical card available throughout.
+
 The first repeat after the separate build timer took effect verified its executable 6.71 s after the last parallel-build notice and reached 107.77 s before yielding to a new build. The next 95 s diagnostic completed without overlap. These checks measure available test time.
 
 The 1280×720 output test used the same display-patch executable as the 1080p run. It began with a 19,319 MiB local GPU budget. The standing character and window were visible at 115, 125, 142 and 149 s. From 115–149 s the complete intervals added up to **784 successful presents in 32.70 s (23.98 FPS)** at 4,883 draws/frame. The two independent motion samples measured 23.75 and 24.56 changes/s. Submission preparation averaged 40.25 ms/frame. The GPU queue was empty for 17.52 ms/frame. The setting changes the title's output to 1280×720; the original desktop run used 3840×2160. The startup budgets differ from the earlier 1080p measurement.
