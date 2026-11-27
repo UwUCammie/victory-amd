@@ -7,7 +7,8 @@ import unittest
 
 from cold_boot import (
     accepted_frames, buffer_prefetch_activity, compute_reserve_activity, device_loss_before_overlap,
-    loaded_vkd3d_build, raw_twin_activity, report, upload_pool_activity, verify_wait_budgets, window,
+    interrupted_prefix, loaded_vkd3d_build, raw_twin_activity, report, upload_pool_activity,
+    verify_wait_budgets, window,
 )
 from first_room import SessionFailed
 
@@ -233,6 +234,40 @@ class ColdBootTests(unittest.TestCase):
     def test_terminal_failure_invalidates_even_earlier_frames(self):
         with self.assertRaises(SessionFailed):
             accepted_frames([trace(0), "VIctory: unhandled exception 0xc0000005"], self.launched)
+
+    def test_interrupted_prefix_keeps_the_full_score_excluded(self):
+        with TemporaryDirectory() as work:
+            run = Path(work)
+            meta = run / "launch.json"
+            launch = {"start_utc": self.launched.isoformat(), "end_utc": self.launched.replace(second=5).isoformat(),
+                      "timeout": 10, "story_slots": 0,
+                      "empty_cache_directories": dict.fromkeys(("cache", "vkd3dcache", "mesa", "xdg", "dxvk"), 0)}
+            meta.write_text(json.dumps(launch))
+            marker = run / "foreground-overlap"
+            marker.write_text(self.launched.replace(second=4).isoformat())
+            (run / "exit-code").write_text("0")
+            (run / "vkd3d.log").write_text("vkd3d-proton - build: abcd012345\n")
+            log = run / "run.log"
+            before = "\n".join(trace(us) for us in (0, 1_000_000, 2_000_000, 3_000_000))
+            log.write_text(before)
+            result = interrupted_prefix(run, meta, 3_000_000, expected_vkd3d="abcd012")
+            self.assertEqual(result["frames"], 2)
+            self.assertEqual(result["overlap_seconds"], 4)
+            self.assertEqual(result["vkd3d_build"], "abcd012345")
+            self.assertTrue(result["diagnostic_prefix"])
+            with self.assertRaisesRegex(ValueError, "foreground GPU overlap"):
+                report(run, meta, 0, 3_000_000)
+            with self.assertRaisesRegex(ValueError, "before the guard"):
+                interrupted_prefix(run, meta, 4_000_000)
+            with self.assertRaisesRegex(ValueError, "no present"):
+                interrupted_prefix(run, meta, 3_500_000)
+            log.write_text(before + "\nVIctory: host GPU failure: device removed")
+            with self.assertRaises(SessionFailed):
+                interrupted_prefix(run, meta, 3_000_000)
+            log.write_text(before)
+            (run / "validation-overlap").touch()
+            with self.assertRaisesRegex(ValueError, "trusted cutoff"):
+                interrupted_prefix(run, meta, 3_000_000)
 
     def test_interface_requires_success_at_the_output_site_before_present(self):
         host = "INFO victory_gpu::host: presenting to a window width=1280 height=720"

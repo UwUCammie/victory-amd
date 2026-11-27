@@ -162,6 +162,42 @@ def check_overlap(run, metadata):
         raise ValueError("external validation or profiling overlapped this run")
 
 
+def verify_cold_launch(launch):
+    if launch.get("empty_cache_directories") != dict.fromkeys(("cache", "vkd3dcache", "mesa", "xdg", "dxvk"), 0):
+        raise ValueError("expected five empty cache directories at launch")
+    if launch.get("story_slots") != 0:
+        raise ValueError("expected a new story")
+
+
+def interrupted_prefix(run, metadata, stop, *, expected_output=None, expected_interface=None, expected_vkd3d=None):
+    """Report a diagnostic window strictly before a completed guard interruption."""
+    metadata_dir = metadata.parent
+    if (metadata_dir / "validation-overlap").exists() or (run / "gpu-overlap.txt").exists():
+        raise ValueError("other overlap lacks a trusted cutoff for this prefix")
+    launch = json.loads(metadata.read_text())
+    verify_cold_launch(launch)
+    if "end_utc" not in launch or not (run / "exit-code").is_file():
+        raise ValueError("expected a completed interrupted attempt")
+    if launch.get("device_lost_utc"):
+        raise ValueError("renderer failure before the guard interruption")
+    launched = datetime.fromisoformat(launch["start_utc"])
+    ended = datetime.fromisoformat(launch["end_utc"])
+    overlap = datetime.fromisoformat((metadata_dir / "foreground-overlap").read_text().strip())
+    cutoff = (overlap - launched) // MICROSECOND
+    if overlap > ended or not 0 < stop < min(cutoff, 300_000_000, launch["timeout"] * 1_000_000):
+        raise ValueError("diagnostic window must end before the guard and full score window")
+    with (run / "run.log").open(encoding="utf-8", errors="replace") as log:
+        frames = accepted_frames(log, launched, expected_output=expected_output, expected_interface=expected_interface)
+    if not any(stop <= frame < cutoff for frame in frames):
+        raise ValueError("no present at or after the window end before the guard")
+    result = {"diagnostic_prefix": True, "overlap_seconds": cutoff / 1e6,
+              **window(frames, 0, stop)}
+    if expected_vkd3d is not None:
+        with (run / "vkd3d.log").open(errors="replace") as log:
+            result["vkd3d_build"] = loaded_vkd3d_build(log, expected_vkd3d)
+    return result
+
+
 def loaded_vkd3d_build(lines, expected):
     """Verify the build actually loaded by the process against a commit prefix."""
     if not re.fullmatch(r"[0-9a-f]{7,40}", expected.lower()):
@@ -339,10 +375,7 @@ def report(run, metadata, start, stop, *, stalls=0, expected_output=None, expect
         raise ValueError("waiting for final launcher metadata")
     if not live and (run / "exit-code").read_text().strip() != "124":
         raise ValueError("run did not finish its scheduled timeout")
-    if launch.get("empty_cache_directories") != dict.fromkeys(("cache", "vkd3dcache", "mesa", "xdg", "dxvk"), 0):
-        raise ValueError("expected five empty cache directories at launch")
-    if launch.get("story_slots") != 0:
-        raise ValueError("expected a new story")
+    verify_cold_launch(launch)
     launched = datetime.fromisoformat(launch["start_utc"])
     duration = None if live else (datetime.fromisoformat(launch["end_utc"]) - launched) // MICROSECOND
     if not 0 <= start < stop <= launch["timeout"] * 1_000_000 or (duration is not None and stop > duration):
