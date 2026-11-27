@@ -1440,11 +1440,15 @@ An independent experiment keeps the dominator tree until a branch is pruned and 
 
 The Wine branch can scan just the card buffers that have dirty ranges. On the maintainer's RX 7900 GRE, the copy work on the submission thread went from 2.60 to 1.30 ms per frame. The 720p cold pair uses one executable based on `1d4c13d2`, the same input, fresh story slots, five empty graphics caches and a 300 s window starting at launch. Its profiles differ only in `VICTORY_CARD_TOUCHED`, with write-back on in both. The runtime announces the active scan. Before gameplay, a generated host-buffer test checks writes before and after registration, overlapping byte ranges, clean buffers, and a new write after the earlier ranges have been consumed. Both scans must pass. [Upstream change](https://github.com/borntofrag34/VIctory-7900XTX/commit/79409be9), [Test and benchmark build](https://github.com/UwUCammie/VIctory-7900XTX/commit/8687cd22)
 
-Both scan modes passed the generated test on the RX 7900 XT with RADV 26.3.1, Wine 11.22 and vkd3d-proton `71cae091b06571e`. The test build matched 114 runtime source checksums and the release matched 178. The first launch confirmed the control scan and yielded to another build at 19.37 s. Both profiles remain in the queue for a full measurement. [Upstream discussion](https://github.com/avatarmanz/VIctory-7900XTX/pull/440#issuecomment-7222889474)
+Both scan modes passed the generated test on the RX 7900 XT with RADV 26.3.1, Wine 11.22 and vkd3d-proton `71cae091b06571e`. The test build matched 114 runtime source checksums and the release matched 178. Both first launches reported the expected scan, used the same executable, driver and input, and yielded to other builds at 19.37 s with scanning all copies and 27.60 s with scanning changed copies. The guard excluded both launches from full scoring. [Upstream discussion](https://github.com/avatarmanz/VIctory-7900XTX/pull/440#issuecomment-7222889474)
 
 ### Screen waits that span a diagnostic cutoff
 
 The completion trace records a screen wait after it returns. A short run can end with no completed wait even while a caller is blocked. The opt-in queue trace now records when screen waits actually begin and end, with an ID for each call. The report counts waits still open at the cutoff, time already spent waiting, and overlap with complete present gaps. Pending durations are lower bounds. The trace uses the 10 s compute profile, stays outside the cold score, and has parser coverage for overlapping waits and a completion beyond the cutoff. [Runtime trace source](https://github.com/UwUCammie/VIctory-7900XTX/commit/15d0ebaf)
+
+### Ray page limits in the indoor route
+
+The NVIDIA branch now recycles fault-mapped pages once it reaches its memory budget. The current Wine branch also has a lifetime cap. I checked the cap warning in the full 720p reference, a saved geometry run, and the latest long indoor reflection run for each setting. All four logs sampled missing copies and emitted zero cap warnings. The ray-page change addresses an exhausted cap. The cause of the indoor flicker in these captures remains open. [Upstream change](https://github.com/fxceless/victory-fork/commit/3e573d25)
 
 ### Half-precision views in fresh descriptor tables
 
