@@ -59,6 +59,11 @@ AVATAR_WINE_LATE_SUBMIT_PROFILES = {
     "vkd3d-master-avatar-wine-440-late-submit-cpu": "0",
     "vkd3d-master-avatar-wine-440-late-submit-touched-cpu": "1",
 }
+AVATAR_WINE_FULL_DIRTY_SCAN_MODES = {
+    "vkd3d-master-avatar-wine-440-late-full-scan-off": "0",
+    "vkd3d-master-avatar-wine-440-late-full-scan-on": "1",
+}
+AVATAR_WINE_LATE_SUBMIT_MODES = (*AVATAR_WINE_LATE_SUBMIT_PROFILES, *AVATAR_WINE_FULL_DIRTY_SCAN_MODES)
 LATE_SUBMIT_SAMPLE = (235, 6)
 LATE_SUBMIT_TIMEOUT = 250
 AVATAR_WINE_SCREEN_WAITER_SCORES = {
@@ -75,7 +80,7 @@ AVATAR_WINE_CAPTURE_OBSERVERS = {
     **dict.fromkeys(AVATAR_WINE_RECORDED_COMPUTE, False),
     **dict.fromkeys(AVATAR_WINE_RECORDED_SCREEN, False),
     **dict.fromkeys(AVATAR_WINE_RECORDED_SCREEN_SCORES, False),
-    **dict.fromkeys(AVATAR_WINE_LATE_SUBMIT_PROFILES, False),
+    **dict.fromkeys(AVATAR_WINE_LATE_SUBMIT_MODES, False),
     **dict.fromkeys(AVATAR_WINE_SCREEN_WAITER_SCORES, False),
     **dict.fromkeys(AVATAR_WINE_WRITE_WATCH_GAPS, False),
 }
@@ -168,7 +173,7 @@ AVATAR_WINE_MODES = AVATAR_WINE_COMPUTE_BUDGETS | dict.fromkeys(
      AVATAR_WINE_COMPILER_CACHE, AVATAR_WINE_BOOL_SIMPLIFY, AVATAR_WINE_LATEST_CONTROL,
      AVATAR_WINE_LATEST_SHADERS, AVATAR_WINE_FACES, *AVATAR_WINE_FACE_TRACE_LIMITS, *AVATAR_WINE_CONSTRUCTOR_POOLS,
      *AVATAR_WINE_WAITER_SWITCHES, *AVATAR_WINE_QUEUE_TIMINGS, *AVATAR_WINE_STAGE_TIMINGS,
-     *AVATAR_WINE_RECORDED_SCREEN_SCORES, *AVATAR_WINE_LATE_SUBMIT_PROFILES), 10000
+     *AVATAR_WINE_RECORDED_SCREEN_SCORES, *AVATAR_WINE_LATE_SUBMIT_MODES), 10000
 ) | dict.fromkeys((*AVATAR_WINE_SCREEN_LIMITS, *AVATAR_WINE_SCREEN_WORKERS, "vkd3d-master-avatar-wine-440-early-2560-wait2000",
                    "vkd3d-master-avatar-wine-440-early-3072-wait2000", AVATAR_WINE_LEGACY_FMA,
                    AVATAR_WINE_FACES_2S, AVATAR_WINE_SCREEN_QUEUE_TRACE), 2000)
@@ -260,7 +265,7 @@ def benchmark_flags(mode):
     if mode in AVATAR_WINE_RECORDED_COMPUTE:
         flags.update(VICTORY_EARLY_RECORDED_COMPUTE=AVATAR_WINE_RECORDED_COMPUTE[mode],
                      VICTORY_RECORDED_COMPUTE_TRACE="1")
-    if mode in (*AVATAR_WINE_RECORDED_SCREEN, *AVATAR_WINE_RECORDED_SCREEN_SCORES, *AVATAR_WINE_LATE_SUBMIT_PROFILES):
+    if mode in (*AVATAR_WINE_RECORDED_SCREEN, *AVATAR_WINE_RECORDED_SCREEN_SCORES, *AVATAR_WINE_LATE_SUBMIT_MODES):
         trace = mode in AVATAR_WINE_RECORDED_SCREEN
         switches = AVATAR_WINE_RECORDED_SCREEN if trace else AVATAR_WINE_RECORDED_SCREEN_SCORES
         flags.update(VICTORY_EARLY_RECORDED_SCREEN=switches.get(mode, "0"),
@@ -269,6 +274,9 @@ def benchmark_flags(mode):
                      VICTORY_RECORDED_COMPUTE_TRACE="0")
     if mode in AVATAR_WINE_LATE_SUBMIT_PROFILES:
         flags["VICTORY_CARD_TOUCHED"] = AVATAR_WINE_LATE_SUBMIT_PROFILES[mode]
+    if mode in AVATAR_WINE_FULL_DIRTY_SCAN_MODES:
+        flags.update(VICTORY_CARD_TOUCHED="0",
+                     VICTORY_CARD_SKIP_CLEAN_UPGRADES=AVATAR_WINE_FULL_DIRTY_SCAN_MODES[mode])
     return flags
 
 
@@ -367,6 +375,14 @@ def verify_recorded_screen_score(lines, launched, stop, enabled):
              for _, line in windowed_log_lines(lines, launched, stop, (label,))]
     if modes != [f"enabled={str(enabled).lower()} trace=false"]:
         raise ValueError("recorded screen pipeline score mode did not match")
+
+
+def verify_clean_reference_check(lines, launched, stop, enabled):
+    label = "card copy clean reference check "
+    modes = [line.rsplit(label, 1)[1].strip()
+             for _, line in windowed_log_lines(lines, launched, stop, (label,))]
+    if modes != [f"enabled={str(enabled).lower()}"]:
+        raise ValueError("card copy clean reference check did not match")
 
 
 def verify_pipeline_workers(lines, launched, stop, expected):

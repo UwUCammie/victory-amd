@@ -1520,6 +1520,10 @@ The first sample ran from 235.07 to 241.32 s with no overlap or lost perf sample
 
 The next diagnostic uses the same executable and sampling window, with `VICTORY_CARD_TOUCHED=1` as its only runtime change. The control reported the full scan. The candidate must report that it visits only buffers marked dirty. Both use fresh story state, five empty graphics caches and capture-free launches.
 
+The first touched-only attempt lost the GPU at 113.35 s, before CPU sampling, with no foreground overlap. The runtime reported device removal and vkd3d-proton reported Vulkan device loss. The experiment remains off. The failure does not establish that the switch caused it.
+
+A separate opt-in experiment keeps the full scan and its registration order. Each registry entry shares the existing dirty flag with the buffer. The scan takes that flag using the same atomic exchange and only upgrades a weak buffer reference if the flag was set. Dead buffers are pruned in both modes. The guarded tests check dirty ranges marked before and after registration, repeat consumption and registration order. The profiling pair uses the same new executable, holds the touched-only strategy off, and varies only `VICTORY_CARD_SKIP_CLEAN_UPGRADES`. Both tests and gameplay profiling are pending. [Full-scan experiment](https://github.com/UwUCammie/VIctory-7900XTX/commit/70751085)
+
 ### General pipeline workers in the opening
 
 The six-, ten- and fourteen-worker launches used the same Wine executable, input, three driver DLLs and loaded vkd3d-proton `71cae091b06571e`. Each used 1280×720 with a 4K interface, a fresh story, five empty graphics caches, two priority workers, a 3 KiB early compute cutoff and a 10 s compute wait. The runtime reported the requested general worker count. Separate builds interrupted the three launches at 208.78 s, 80.54 s and 60.81 s, respectively. Every prefix below ended before its interruption and had a subsequent accepted present before the guard fired.
