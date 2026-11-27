@@ -1355,6 +1355,8 @@ The ninth probe ran for 300.03 s with no overlap. It passed the earlier device-r
 
 The queue also has a probe on the exact early-face executable that lost the device at 266.90 s. It reuses that launch profile and enables the same vkd3d-proton diagnostics. Both probes require the actual driver revision, and title runtime failures are reported separately from timeouts and device loss.
 
+The two diagnostic executables use different source checks. The write-back probe includes its write-combined implementation. The early-face build does not compile that module, so its probe checks the face and pipeline sources instead. Both checks still validate every runtime source recorded by the PDB. A failed probe is held for inspection while other eligible runs continue.
+
 The first fault probe yielded to a parallel build at 202.54 s, before either recorded failure time. The updated Wine PR has a guard from #351 that drops individual out-of-range copy commands. Its caller could still mark a skipped step as taken and redirect a slot to scratch that was never filled. The follow-up checks both halves of every planned copy and the staging range before creating a list or recording shadow changes. If a range fails, the whole speculative batch returns to the existing waiting path. The physical RX 7900 XT flight fixture checks a valid earlier copy and an invalid later destination before exercising the normal in-bounds route. Ten focused Windows MSVC Wine tests and the separate flight test passed, with 111 PDB source checksums. The replacement write-back control and candidate use a new matched executable and keep the original failures excluded. [Source follow-up](https://github.com/borntofrag34/VIctory-7900XTX/pull/1), [Cold test source](https://github.com/UwUCammie/VIctory-7900XTX/commit/1b3ab197)
 
 The 3 KiB repeat compiled the additional facial-deformation pipeline at 3.14 s and first bound it at 64.31 s. The driver’s skin was visible in the private car close-up at 160 s. The two cutoffs had 2,855 and 2,868 accepted presents over the first 160 s, with P99 of 502 and 881 ms and longest gaps of 11.92 and 12.05 s, respectively. The 3 KiB arm had 92 reported waits without a result versus 101 at 2.5 KiB. The interrupt at 162.87 s excludes this repeat from the full score. These results show that the extra pipeline consistently compiled early, with comparable present counts and a longer tail in this pair.
@@ -1511,6 +1513,8 @@ The screen-on run yielded to another renderer at 265.90 s. Both untraced runs co
 | Time in gaps over 100 ms | 168.68 s | 191.99 s |
 
 On this prefix, lookahead made the longest gaps worse and reduced the number of presents. The on arm remains without a full score, and the switch stays off by default.
+
+The late submission diagnostic reruns the screen-off executable and profiles its Wine process for six seconds starting 235 seconds after launch. `launch_profile.py` checks the executable digest and selects the process by the exact launch marker and command line. The guard still yields to foreground work. The runner also checks the driver, wait budget, untraced screen mode and output dimensions, and records how many presents occurred during the sample. The 250 s profiling launch remains outside cold FPS scoring. `pe_perf_profile.py --thread victory-submit` resolves the submission thread against the matched PDB.
 
 ### General pipeline workers in the opening
 

@@ -55,6 +55,9 @@ AVATAR_WINE_RECORDED_SCREEN_SCORES = {
     "vkd3d-master-avatar-wine-440-recorded-screen-cold-off": "0",
     "vkd3d-master-avatar-wine-440-recorded-screen-cold-on": "1",
 }
+AVATAR_WINE_LATE_SUBMIT_PROFILE = "vkd3d-master-avatar-wine-440-late-submit-cpu"
+LATE_SUBMIT_SAMPLE = (235, 6)
+LATE_SUBMIT_TIMEOUT = 250
 AVATAR_WINE_SCREEN_WAITER_SCORES = {
     "vkd3d-master-avatar-wine-440-merged-screen-waiter-off": "0",
     "vkd3d-master-avatar-wine-440-merged-screen-waiter-on": "screen",
@@ -69,6 +72,7 @@ AVATAR_WINE_CAPTURE_OBSERVERS = {
     **dict.fromkeys(AVATAR_WINE_RECORDED_COMPUTE, False),
     **dict.fromkeys(AVATAR_WINE_RECORDED_SCREEN, False),
     **dict.fromkeys(AVATAR_WINE_RECORDED_SCREEN_SCORES, False),
+    AVATAR_WINE_LATE_SUBMIT_PROFILE: False,
     **dict.fromkeys(AVATAR_WINE_SCREEN_WAITER_SCORES, False),
     **dict.fromkeys(AVATAR_WINE_WRITE_WATCH_GAPS, False),
 }
@@ -161,7 +165,7 @@ AVATAR_WINE_MODES = AVATAR_WINE_COMPUTE_BUDGETS | dict.fromkeys(
      AVATAR_WINE_COMPILER_CACHE, AVATAR_WINE_BOOL_SIMPLIFY, AVATAR_WINE_LATEST_CONTROL,
      AVATAR_WINE_LATEST_SHADERS, AVATAR_WINE_FACES, *AVATAR_WINE_FACE_TRACE_LIMITS, *AVATAR_WINE_CONSTRUCTOR_POOLS,
      *AVATAR_WINE_WAITER_SWITCHES, *AVATAR_WINE_QUEUE_TIMINGS, *AVATAR_WINE_STAGE_TIMINGS,
-     *AVATAR_WINE_RECORDED_SCREEN_SCORES), 10000
+     *AVATAR_WINE_RECORDED_SCREEN_SCORES, AVATAR_WINE_LATE_SUBMIT_PROFILE), 10000
 ) | dict.fromkeys((*AVATAR_WINE_SCREEN_LIMITS, *AVATAR_WINE_SCREEN_WORKERS, "vkd3d-master-avatar-wine-440-early-2560-wait2000",
                    "vkd3d-master-avatar-wine-440-early-3072-wait2000", AVATAR_WINE_LEGACY_FMA,
                    AVATAR_WINE_FACES_2S, AVATAR_WINE_SCREEN_QUEUE_TRACE), 2000)
@@ -253,10 +257,10 @@ def benchmark_flags(mode):
     if mode in AVATAR_WINE_RECORDED_COMPUTE:
         flags.update(VICTORY_EARLY_RECORDED_COMPUTE=AVATAR_WINE_RECORDED_COMPUTE[mode],
                      VICTORY_RECORDED_COMPUTE_TRACE="1")
-    if mode in (*AVATAR_WINE_RECORDED_SCREEN, *AVATAR_WINE_RECORDED_SCREEN_SCORES):
+    if mode in (*AVATAR_WINE_RECORDED_SCREEN, *AVATAR_WINE_RECORDED_SCREEN_SCORES, AVATAR_WINE_LATE_SUBMIT_PROFILE):
         trace = mode in AVATAR_WINE_RECORDED_SCREEN
         switches = AVATAR_WINE_RECORDED_SCREEN if trace else AVATAR_WINE_RECORDED_SCREEN_SCORES
-        flags.update(VICTORY_EARLY_RECORDED_SCREEN=switches[mode],
+        flags.update(VICTORY_EARLY_RECORDED_SCREEN=switches.get(mode, "0"),
                      VICTORY_RECORDED_SCREEN_TRACE=str(int(trace)),
                      VICTORY_EARLY_RECORDED_COMPUTE="0",
                      VICTORY_RECORDED_COMPUTE_TRACE="0")
