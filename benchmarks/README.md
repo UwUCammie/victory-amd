@@ -1075,6 +1075,8 @@ The returned start and stop times work with `first_room.py`. Missing captures mo
 
 The guarded launcher uses `guard_quiet.sh` after polling both resources. A parallel CPU build starts a five-second quiet period, and GPU activity starts a separate 45-second period. The launcher still yields immediately on either active resource and excludes the attempt from full scoring. A CPU build never extends the GPU's recovery period.
 
+The first repeat after the separate build timer took effect verified its executable 6.71 s after the last parallel-build notice and reached 107.77 s before yielding to a new build. The next 95 s diagnostic completed without overlap. These checks measure available test time.
+
 The 1280×720 output test used the same display-patch executable as the 1080p run. It began with a 19,319 MiB local GPU budget. The standing character and window were visible at 115, 125, 142 and 149 s. From 115–149 s the complete intervals added up to **784 successful presents in 32.70 s (23.98 FPS)** at 4,883 draws/frame. The two independent motion samples measured 23.75 and 24.56 changes/s. Submission preparation averaged 40.25 ms/frame. The GPU queue was empty for 17.52 ms/frame. The setting changes the title's output to 1280×720; the original desktop run used 3840×2160. The startup budgets differ from the earlier 1080p measurement.
 
 On separate Series X dialogue runs the original compute-wait build kept the seated character's lips almost closed. With the renderer and shader changes from AvatarManz #114 the jaw moved, but the upper lip pulled upward and left a large opening during the same turn toward the server. Both runs had facial skin and started with over 19 GiB of local GPU budget. [Paired dialogue result and setup](https://github.com/avatarmanz/VIctory-7900XTX/pull/114#issuecomment-7190790065)
@@ -1271,6 +1273,8 @@ A second matched pair extended the common cold window to 105 s. With the cutoff 
 | Time in gaps over 100 ms | 46.21 s | 45.83 s | 46.01 s |
 
 The first dispatch trace ran with the cutoff off and the 10 s wait. Another build interrupted it at 63.37 s. In the first 60 s, all four selected compute shaders were requested. Three recorded their first dispatch by 28.24 s. The fourth was requested twice without a ready pipeline and had no recorded dispatch in that window. The trace measures command-list recording. The queued diagnostic repeats the measurement with a 3 KiB cutoff on the same executable. [Wine PR update](https://github.com/borntofrag34/VIctory-7900XTX/pull/11#issuecomment-7220506173)
+
+The second cutoff-off trace completed its 95 s run without a resource overlap. Each of the four selected shaders encountered an unavailable pipeline on its first recorded attempt. All four had recorded a dispatch by 72.97 s. Of 33 events logged through 88 s, 20 attempts found no pipeline and 13 recorded a dispatch, all on the direct route. The matching 3 KiB launch on the same executable yielded at about 22 s. It left the full trace comparison pending.
 
 The next pipeline creation experiment hashes the borrowed translation bytes directly and queries the host's anisotropic point-mip capability once. It keeps the same hash inputs, including an empty slice for a missing stage, and passes the same shader bytes to the driver. The Windows checks and matched cold run are queued with the 3 KiB cutoff and 10 s wait. [Experiment source](https://github.com/UwUCammie/VIctory-7900XTX/commit/31127dcf)
 
