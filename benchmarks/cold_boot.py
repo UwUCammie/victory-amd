@@ -91,15 +91,18 @@ def accepted_frames(lines, launched, compute_drops=None, *, expected_output=None
     return frames
 
 
-def window(frames, start, stop, *, stalls=0, compute_drops=()):
+def window(frames, start, stop, *, stalls=0, compute_drops=(), compute_gap_ms=None):
     """Times in microseconds. A present at start counts. One at stop does not."""
     if not 0 <= start < stop:
         raise ValueError("expected 0 <= start < stop")
     if stalls < 0:
         raise ValueError("stall count must be nonnegative")
+    if compute_gap_ms is not None and compute_gap_ms <= 0:
+        raise ValueError("compute gap threshold must be positive")
     times = [t for t in frames if start <= t < stop]
     edges = [start, *times, stop]
-    spans = sorted(b - a for a, b in zip(edges, edges[1:]) if b > a)
+    gaps = [(a, b) for a, b in zip(edges, edges[1:]) if b > a]
+    spans = sorted(b - a for a, b in gaps)
     def percentile(p):
         return spans[math.ceil(p * len(spans)) - 1] / 1000
     result = {
@@ -110,10 +113,10 @@ def window(frames, start, stop, *, stalls=0, compute_drops=()):
         "holds_over_ms": {ms: sum(t > ms * 1000 for t in spans) for ms in (50, 100, 250, 1000)},
         "seconds_in_holds_over_100ms": sum(t for t in spans if t > 100_000) / 1e6,
     }
-    if stalls:
+    if stalls or compute_gap_ms is not None:
         # Reports from multiple threads can arrive out of UTC order.
         drops = sorted(compute_drops)
-        gaps = ((a, b) for a, b in zip(edges, edges[1:]) if a < b)
+    if stalls:
         longest = nlargest(stalls, gaps, key=lambda gap: gap[1] - gap[0])
         result["largest_gaps"] = []
         for a, b in longest:
@@ -124,6 +127,16 @@ def window(frames, start, stop, *, stalls=0, compute_drops=()):
                 "compute_drop_reports": count,
                 "first_compute_drop_after_gap_start_s": (drops[first] - a) / 1e6 if count else None,
             })
+    if compute_gap_ms is not None:
+        threshold = compute_gap_ms * 1000
+        long_gaps = [(a, b) for a, b in gaps if b - a >= threshold]
+        result["long_gap_compute_drops"] = {
+            "threshold_ms": compute_gap_ms,
+            "gaps": len(long_gaps),
+            "gaps_with_notice": sum(bisect_left(drops, b) > bisect_left(drops, a)
+                                    for a, b in long_gaps),
+            "seconds_in_gaps": sum(b - a for a, b in long_gaps) / 1e6,
+        }
     return result
 
 
@@ -154,7 +167,7 @@ def loaded_vkd3d_build(lines, expected):
 
 
 def report(run, metadata, start, stop, *, stalls=0, expected_output=None, expected_interface=None,
-           expected_vkd3d=None, progress=False):
+           expected_vkd3d=None, progress=False, compute_gap_ms=None):
     launch = json.loads(metadata.read_text())
     check_overlap(run, metadata)
     live = progress and "end_utc" not in launch
@@ -170,7 +183,7 @@ def report(run, metadata, start, stop, *, stalls=0, expected_output=None, expect
     duration = None if live else (datetime.fromisoformat(launch["end_utc"]) - launched) // MICROSECOND
     if not 0 <= start < stop <= launch["timeout"] * 1_000_000 or (duration is not None and stop > duration):
         raise ValueError("window outside the timed observation")
-    drops = [] if stalls else None
+    drops = [] if stalls or compute_gap_ms is not None else None
     with (run / "run.log").open(encoding="utf-8", errors="replace") as log:
         records = (line for line in log if line.endswith("\n")) if live else log
         frames = accepted_frames(records, launched, drops, expected_output=expected_output,
@@ -179,7 +192,8 @@ def report(run, metadata, start, stop, *, stalls=0, expected_output=None, expect
         raise ValueError("present trace has not yet covered the requested window")
     if duration is not None and frames[-1] > duration:
         raise ValueError("frame trace extends beyond launcher metadata")
-    result = {"first_present_seconds": frames[0] / 1e6, **window(frames, start, stop, stalls=stalls, compute_drops=drops)}
+    result = {"first_present_seconds": frames[0] / 1e6,
+              **window(frames, start, stop, stalls=stalls, compute_drops=drops, compute_gap_ms=compute_gap_ms)}
     if expected_vkd3d is not None:
         with (run / "vkd3d.log").open(errors="replace") as log:
             result["vkd3d_build"] = loaded_vkd3d_build(log, expected_vkd3d)
@@ -202,6 +216,8 @@ if __name__ == "__main__":
     parser.add_argument("--progress", action="store_true", help="allow a provisional reading after a live trace crosses --stop")
     parser.add_argument("--expect-vkd3d", metavar="COMMIT", help="verify the loaded vkd3d-proton revision from the driver log")
     parser.add_argument("--stalls", type=int, default=0, help="list the N longest gaps and compute-drop notices in each")
+    parser.add_argument("--compute-gap-ms", type=int, metavar="MS",
+                        help="count gaps at least this long and how many include a compute-drop notice")
     parser.add_argument("--expect-output", type=output_size, metavar="WIDTHxHEIGHT",
                         help="require this host swap-chain size throughout the run")
     parser.add_argument("--expect-interface", type=output_size, metavar="WIDTHxHEIGHT",
@@ -210,7 +226,7 @@ if __name__ == "__main__":
     try:
         result = report(args.run, args.metadata, args.start * 1_000_000, args.stop * 1_000_000, stalls=args.stalls,
                         expected_output=args.expect_output, expected_interface=args.expect_interface,
-                        expected_vkd3d=args.expect_vkd3d, progress=args.progress)
+                        expected_vkd3d=args.expect_vkd3d, progress=args.progress, compute_gap_ms=args.compute_gap_ms)
     except (ValueError, KeyError, OSError) as error:
         parser.exit(1, f"{error}\n")
     print(json.dumps(result, indent=2))

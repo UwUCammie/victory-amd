@@ -67,6 +67,19 @@ class ColdBootTests(unittest.TestCase):
             with self.subTest(offsets=offsets), self.assertRaises(ValueError):
                 accepted_frames([trace(t) for t in offsets], self.launched)
 
+    def test_compute_gap_count_includes_both_window_edges_and_excludes_stop(self):
+        result = window([1_000_000, 4_000_000], 0, 6_000_000, compute_gap_ms=2000,
+                        compute_drops=[6_000_000, 1_000_000, 999_999])
+        self.assertEqual(result["long_gap_compute_drops"], {
+            "threshold_ms": 2000, "gaps": 2, "gaps_with_notice": 1, "seconds_in_gaps": 5,
+        })
+        result = window([1_000_000, 4_000_000], 0, 6_000_000, compute_gap_ms=1000,
+                        compute_drops=[6_000_000, 1_000_000, 999_999])
+        self.assertEqual(result["long_gap_compute_drops"]["gaps_with_notice"], 2)
+        self.assertNotIn("largest_gaps", result)
+        with self.assertRaisesRegex(ValueError, "threshold"):
+            window([1_000_000], 0, 2_000_000, compute_gap_ms=0)
+
     def test_verifies_host_output_at_creation_and_resize(self):
         create = "INFO victory_gpu::host: presenting to a window width=1280 height=720 format=28"
         resize = "INFO victory_gpu::host: the swap chain's buffers were made again for another size or format "
