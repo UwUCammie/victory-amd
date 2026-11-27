@@ -163,6 +163,8 @@ def check_overlap(run, metadata):
 
 
 def verify_cold_launch(launch):
+    if launch.get("diagnostic_only"):
+        raise ValueError("diagnostic-only run cannot be scored")
     if launch.get("empty_cache_directories") != dict.fromkeys(("cache", "vkd3dcache", "mesa", "xdg", "dxvk"), 0):
         raise ValueError("expected five empty cache directories at launch")
     if launch.get("story_slots") != 0:

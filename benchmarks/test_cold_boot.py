@@ -219,6 +219,10 @@ class ColdBootTests(unittest.TestCase):
             log.write_text(trace(0) + "\n" + trace(1_000_000) + "\n" + trace("partial"))
             preview = report(run, meta, 0, 2_000_000, progress=True)
             self.assertTrue(preview.pop("provisional"))
+            meta.write_text(json.dumps(dict(launch, diagnostic_only=True)))
+            with self.assertRaisesRegex(ValueError, "diagnostic-only"):
+                report(run, meta, 0, 2_000_000, progress=True)
+            meta.write_text(json.dumps(launch))
             (run / "foreground-overlap").touch()
             with self.assertRaisesRegex(ValueError, "overlap"):
                 report(run, meta, 0, 2_000_000, progress=True)
