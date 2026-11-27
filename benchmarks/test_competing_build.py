@@ -1,3 +1,5 @@
+import os
+import subprocess
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -33,3 +35,34 @@ class CompetingBuildTests(unittest.TestCase):
             self.assertFalse(busy(proc, exclude_session=8))
             process(proc, 11, "ninja", 9, ("-j", "4"))
             self.assertTrue(busy(proc, exclude_session=8))
+
+
+class GuardQuietTests(unittest.TestCase):
+    def guard(self, runtime, kind, now):
+        helper = Path(__file__).with_name("guard_quiet.sh")
+        return subprocess.run(
+            ["bash", "-c", 'source "$1" && goal30_guard_busy "$2" "$3" "$4"',
+             "guard-test", helper, kind, runtime, str(now)],
+            check=False,
+        ).returncode
+
+    def test_build_stamps_only_the_short_quiet_period(self):
+        with TemporaryDirectory() as tmp:
+            runtime = Path(tmp)
+            self.assertEqual(self.guard(runtime, "build", 0), 0)
+            self.assertFalse((runtime / "goal30-verified-resource-busy").exists())
+            os.utime(runtime / "goal30-verified-build-busy", (100, 100))
+            self.assertEqual(self.guard(runtime, "idle", 104), 0)
+            self.assertEqual(self.guard(runtime, "idle", 105), 1)
+
+    def test_gpu_quiet_period_survives_a_later_build(self):
+        with TemporaryDirectory() as tmp:
+            runtime = Path(tmp)
+            self.assertEqual(self.guard(runtime, "gpu", 0), 0)
+            gpu = runtime / "goal30-verified-resource-busy"
+            os.utime(gpu, (100, 100))
+            self.assertEqual(self.guard(runtime, "build", 0), 0)
+            os.utime(runtime / "goal30-verified-build-busy", (120, 120))
+            self.assertEqual(gpu.stat().st_mtime, 100)
+            self.assertEqual(self.guard(runtime, "idle", 144), 0)
+            self.assertEqual(self.guard(runtime, "idle", 145), 1)
