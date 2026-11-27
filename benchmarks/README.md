@@ -1102,3 +1102,13 @@ python -B benchmarks/cold_boot.py "$run" "$launch" --start 0 --stop 300 \
 ```
 
 The first 500 ms attempt reached the car dialogue on the RX 7900 XT. The passenger's face and skin were visible in a local capture saved 161.55 seconds after launch. The run yielded to another build 17.90 seconds later, so it has no 300-second result. This observation covers one shot. Matched character and lighting checks still require the complete pair.
+
+### Selecting write-watch requests left after the first pass
+
+The write-watch pass skips a range when one earlier request covers it. A tree can track those covering ranges without scanning the entire request list repeatedly. The generated fixture compares the exact request sequence, including overlapping ranges that are only covered by a union. Across 400 generated sequences, the first tree implementation selected the same requests as the scan. With 4,096 shuffled disjoint inputs it took 6.82 ms versus 0.47 ms in eight alternating timing pairs, while 16 such inputs took 77 ns versus 247 ns. Dense nested inputs were slower across the tested sizes. The timings cover selection on the host, with no kernel calls. [First implementation](https://github.com/UwUCammie/VIctory-7900XTX/commit/4eafaf72)
+
+The candidate keeps the scan unless at least 128 requests have already been collected and at least 128 inputs are left. Both versions can be checked with their respective source checkout.
+
+```sh
+python -B benchmarks/write_watch_ranges.py PATH_TO_CHECKOUT
+```
