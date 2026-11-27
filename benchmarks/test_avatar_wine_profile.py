@@ -13,15 +13,17 @@ from avatar_wine_profile import (AVATAR_WINE_BOOL_SIMPLIFY, AVATAR_WINE_COMPILER
                                  queue_claim_activity, verify_constructor_pool, verify_notification_mode, verify_pipeline_workers, verify_waiter_priority, writeback_activity)
 from cold_boot import verify_wait_budgets
 from avatar_wine_profile import AVATAR_WINE_CARD_TOUCHED, AVATAR_WINE_SCREEN_WAIT_BOUNDARIES, screen_wait_progress, verify_card_dirty_scan
-from avatar_wine_profile import AVATAR_WINE_CAPTURE_OBSERVERS, verify_capture_observers
+from avatar_wine_profile import AVATAR_WINE_CAPTURE_OBSERVERS, AVATAR_WINE_MERGED_COLD, AVATAR_WINE_OBSERVERS_OFF, AVATAR_WINE_OBSERVERS_ON, verify_capture_observers
 from avatar_wine_profile import AVATAR_WINE_SCREEN_WAITER_DIAGNOSTICS, verify_screen_waiter_priority
 
 
 class AvatarWineProfileTests(unittest.TestCase):
     def test_observer_pair_uses_the_same_runtime_flags(self):
-        off, on = AVATAR_WINE_CAPTURE_OBSERVERS
-        self.assertEqual(benchmark_flags(off), benchmark_flags(on))
-        self.assertEqual(benchmark_flags(off), benchmark_flags(next(iter(AVATAR_WINE_CARD_TOUCHED))))
+        off = benchmark_flags(AVATAR_WINE_OBSERVERS_OFF)
+        self.assertEqual(off, benchmark_flags(AVATAR_WINE_OBSERVERS_ON))
+        self.assertEqual(off, benchmark_flags(AVATAR_WINE_MERGED_COLD))
+        self.assertEqual(off, benchmark_flags(next(iter(AVATAR_WINE_CARD_TOUCHED))))
+        self.assertFalse(AVATAR_WINE_CAPTURE_OBSERVERS[AVATAR_WINE_MERGED_COLD])
 
     def test_observer_modes_require_matching_metadata_and_outputs(self):
         with TemporaryDirectory() as directory:

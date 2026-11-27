@@ -34,9 +34,11 @@ AVATAR_WINE_CARD_TOUCHED = {
     "vkd3d-master-avatar-wine-440-card-touched-off": "0",
     "vkd3d-master-avatar-wine-440-card-touched-on": "1",
 }
+AVATAR_WINE_OBSERVERS_OFF = "vkd3d-master-avatar-wine-440-observers-off"
+AVATAR_WINE_OBSERVERS_ON = "vkd3d-master-avatar-wine-440-observers-on"
+AVATAR_WINE_MERGED_COLD = "vkd3d-master-avatar-wine-440-merged-cold"
 AVATAR_WINE_CAPTURE_OBSERVERS = {
-    "vkd3d-master-avatar-wine-440-observers-off": False,
-    "vkd3d-master-avatar-wine-440-observers-on": True,
+    AVATAR_WINE_OBSERVERS_OFF: False, AVATAR_WINE_OBSERVERS_ON: True, AVATAR_WINE_MERGED_COLD: False,
 }
 AVATAR_WINE_FACE_WORKER_COUNTS = {
     "vkd3d-master-avatar-wine-440-faces-workers6": 6,
