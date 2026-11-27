@@ -30,6 +30,10 @@ AVATAR_WINE_FACES_OFF = "vkd3d-master-avatar-wine-440-faces-early-off"
 AVATAR_WINE_FACES_EARLY = "vkd3d-master-avatar-wine-440-faces-early"
 AVATAR_WINE_FACES_2S = "vkd3d-master-avatar-wine-440-faces-early-2s"
 AVATAR_WINE_FACES_HALF_FIX = "vkd3d-master-avatar-wine-440-faces-listed-half"
+AVATAR_WINE_DEVICE_FAULT_PROFILES = {
+    "vkd3d-master-avatar-wine-440-wc-fault-probe": "vkd3d-master-avatar-wine-440-wc-off",
+    "vkd3d-master-avatar-wine-440-faces-fault-probe": AVATAR_WINE_FACES_EARLY,
+}
 AVATAR_WINE_PIPELINE_INPUTS = "vkd3d-master-avatar-wine-440-pipeline-inputs"
 AVATAR_WINE_CARD_TOUCHED = {
     "vkd3d-master-avatar-wine-440-card-touched-off": "0",
