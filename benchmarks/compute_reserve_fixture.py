@@ -1,4 +1,4 @@
-"""Compile the renderer's queue and its policy tests without a Windows target."""
+"""Compile pipeline scheduling tests without a Windows target."""
 
 import argparse
 import os
@@ -57,21 +57,31 @@ mod queue {
 """
 
 
-def fixture(source):
+def test_function(source, name):
+    start = source.index(f"    fn {name}()")
+    end = source.index("\n    }", start) + len("\n    }")
+    return "    #[test]\n" + source[start:end]
+
+
+def queue_fixture(source):
     constants = source[source.index("const NOT_QUEUED:"):source.index("/// How many workers may make pipelines")]
     queue = source[source.index("struct Queue {"):source.index("static QUEUE:")]
     workers = source[source.index("fn worker_count("):source.index("/// Starts the workers")]
-    tests = []
-    for name in TESTS:
-        start = source.index(f"    fn {name}()")
-        end = source.index("\n    }", start) + len("\n    }")
-        tests.append("    #[test]\n" + source[start:end])
+    tests = [test_function(source, name) for name in TESTS]
     return HARNESS + constants + queue + workers + "\n" + "\n\n".join(tests) + "\n}\n"
+
+
+def budget_fixture(source):
+    start = source.index("fn reserve_wait(")
+    end = source.index("\n}", start) + len("\n}")
+    test = test_function(source, "late_pipeline_wait_keeps_newer_frame_budget")
+    return "use std::time::Duration;\n" + source[start:end] + "\nmod tests {\n    use super::*;\n" + test + "\n}\n"
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("checkout", type=Path, help="checkout containing the strict compute reserve patch")
+    parser.add_argument("checkout", type=Path, help="checkout containing the pipeline scheduler patch")
+    parser.add_argument("--graphics-budget", action="store_true", help="test the late graphics wait budget instead of the queue")
     parser.add_argument("--scratch", type=Path, help="existing directory for the temporary native test executable")
     args = parser.parse_args()
     source = (args.checkout / "crates/victory-gpu/src/pipeline/make.rs").read_text(encoding="utf-8")
@@ -80,7 +90,7 @@ def main():
         generated = root / "queue.rs"
         binary = root / ("queue.exe" if os.name == "nt" else "queue")
         with generated.open("w", encoding="utf-8", newline="\n") as output:
-            output.write(fixture(source))
+            output.write(budget_fixture(source) if args.graphics_budget else queue_fixture(source))
         subprocess.run(["rustc", "--edition=2024", "--test", str(generated), "-o", str(binary)], check=True)
         environment = dict(os.environ, VICTORY_PIPELINE_WORKERS="16")
         subprocess.run([str(binary), "--nocapture", "--test-threads=1"], env=environment, check=True)

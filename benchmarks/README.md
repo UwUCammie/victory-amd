@@ -651,6 +651,16 @@ The clean run accepted **2,610 presents in the first 300 seconds (8.70 FPS)**, w
 
 The control accepted 566 presents between 30 and 220 seconds (2.98 FPS). Across three subdivisions of that interval, median reported preparation was 111–150 ms/frame, with copies accounting for 60–92 ms/frame. Those are medians of renderer samples. The full-window FPS is from the accepted-present trace. A private close-up around 190 seconds showed eyes and teeth with the facial surface missing, reproducing the earlier observation on a clean run. The same car close-up showed facial skin at about 192 seconds with compute wait enabled. The enabled capture predates that attempt’s build overlap by about 24 seconds. Both launches used the same executable, driver files and inputs. A complete enabled timing is pending. [Upstream discussion](https://github.com/avatarmanz/VIctory-7900XTX/pull/166#issuecomment-7211416953)
 
+### Out-of-order graphics wait budgets
+
+The revised compute scheduler keeps a newer compute frame when a recorder arrives late. Its graphics and screen wait path still reset the budget whenever a recorder presents a different frame number. An older recorder could therefore replace the newer budget, and the next recorder on the newer frame could take a fresh allowance. The [follow-up](https://github.com/UwUCammie/VIctory-7900XTX/commit/2fb4f80c) carries over [AMD #52](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/52) on the exact revised scheduler base.
+
+The native check extracts the budget function and its regression. It verifies older, current and newer frames in both shared and non-shared modes.
+
+```sh
+python -B benchmarks/compute_reserve_fixture.py PATH_TO_BUDGET_CHECKOUT --graphics-budget
+```
+
 ### Keeping one general pipeline worker available for compute
 
 The default revised scheduler lets a screen pass use the last general worker. The [strict reserve experiment](https://github.com/UwUCammie/VIctory-7900XTX/commit/2c7a51f0) leaves screen work to its dedicated workers when only the reserved general worker is available. In both arms, compute and graphics waits stay at 500 ms. The only switch changes from `VICTORY_COMPUTE_STRICT_RESERVE=0` to `1`.
