@@ -218,6 +218,21 @@ Seven alternating pairs per case ran on one Ryzen 7 9700X core. All 56 favored t
 
 From the source checkout, run `python3 /path/to/benchmarks/stream_relay_flags.py 830dc191 2b8bce96`. The fixture measures the flag collection and sort, including the removed temporary allocation.
 
+### Relay readback range deduplication
+
+The relay profile included samples in SipHash. I tested the readback path's set of (copy key, start, end) tuples with the renderer's existing address hash. The fixture uses aligned synthetic keys and checks that both sets admit the same number of ranges and bytes. Seven alternating pairs per case ran on core 3 of a Ryzen 7 9700X with Rust 1.98.1. All 42 pairs favored the address hash.
+
+| Candidate tuples | Input | Random state, µs per list | Address hash, µs per list |
+| ---: | --- | ---: | ---: |
+| 64 | Unique | 2.566 | 0.859 |
+| 512 | Unique | 19.928 | 5.793 |
+| 4,096 | Unique | 184.514 | 68.536 |
+| 64 | Repeated | 1.141 | 0.379 |
+| 512 | Repeated | 9.098 | 2.743 |
+| 4,096 | Repeated | 72.810 | 20.728 |
+
+Each repeated input includes up to three copies of each tuple. Run `taskset -c 3 python3 benchmarks/relay_address_hash.py /path/to/victory` with a Rust toolchain. The experiment measures only set allocation, lookup, insertion and byte counting. The Windows MSVC check passed on revision `5a78284a`. Gameplay timing is pending.
+
 ### Last changed byte during copy-back
 
 A sampled 720p run put 57 of the relay thread's 997 on-CPU samples inside the runtime image in the reverse byte scan. The AVX2 variant finds the last unequal byte from a comparison mask. It keeps the scalar tail, short-range and non-AVX2 paths.
