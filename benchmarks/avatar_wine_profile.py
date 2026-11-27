@@ -674,6 +674,27 @@ def screen_wait_progress(lines, launched, stop, frames):
     }
 
 
+def stage_trace_coverage(lines, launched, stop, ended, frames):
+    """Verify the cutoff using a present or a live pipeline event during a stall."""
+    if not frames or ended < stop:
+        raise ValueError("pipeline timing trace did not cover the observation window")
+    last_present = frames[-1]
+    coverage = {
+        "last_present_us": last_present,
+        "tail_without_present_us": max(0, stop - last_present),
+    }
+    if last_present >= stop:
+        return coverage
+    phase = "victory_gpu::pipeline::timing: host pipeline timing us="
+    claim = "victory_gpu::pipeline::make: a requested pipeline reached a worker us="
+    last_event = max((at for at, _ in windowed_log_lines(lines, launched, ended, (phase, claim))
+                      if at >= stop), default=None)
+    if last_event is None:
+        raise ValueError("pipeline timing trace did not reach the cutoff during a present gap")
+    coverage["last_pipeline_event_us"] = last_event
+    return coverage
+
+
 def pipeline_stage_activity(lines, launched, stop, frames):
     """Measure how host pipeline phases overlap compute waits and long gaps."""
     label = "host pipeline timing"

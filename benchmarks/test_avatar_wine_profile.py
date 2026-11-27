@@ -17,10 +17,32 @@ from avatar_wine_profile import AVATAR_WINE_CAPTURE_OBSERVERS, AVATAR_WINE_MERGE
 from avatar_wine_profile import AVATAR_WINE_SCREEN_WAITER_DIAGNOSTICS, AVATAR_WINE_SCREEN_WAITER_SCORES, verify_screen_waiter_priority
 from avatar_wine_profile import AVATAR_WINE_WRITE_WATCH_GAPS, verify_write_watch_gap
 from avatar_wine_profile import (AVATAR_WINE_RECORDED_COMPUTE, AVATAR_WINE_RECORDED_SCREEN,
-                                 recorded_compute_activity, recorded_screen_activity)
+                                 recorded_compute_activity, recorded_screen_activity, stage_trace_coverage)
+from first_room import DeviceLost
 
 
 class AvatarWineProfileTests(unittest.TestCase):
+    def test_stage_trace_covers_present_gap_with_a_live_worker(self):
+        start = datetime(2026, 11, 27, 8, tzinfo=timezone.utc)
+        lines = [
+            "2026-11-27T08:00:04Z INFO unrelated: host pipeline timing us=8000",
+            "2026-11-27T08:00:05Z INFO victory_gpu::pipeline::timing: host pipeline timing us=3000",
+            "2026-11-27T08:00:06Z INFO victory_gpu::pipeline::make: a requested pipeline reached a worker us=500",
+        ]
+        self.assertEqual(stage_trace_coverage(lines, start, 5_000_000, 6_000_000, [2_000_000]), {
+            "last_present_us": 2_000_000, "tail_without_present_us": 3_000_000,
+            "last_pipeline_event_us": 5_000_000,
+        })
+        self.assertEqual(stage_trace_coverage([], start, 5_000_000, 6_000_000, [5_500_000]), {
+            "last_present_us": 5_500_000, "tail_without_present_us": 0,
+        })
+        with self.assertRaises(ValueError):
+            stage_trace_coverage(lines[:1], start, 4_000_000, 6_000_000, [2_000_000])
+        with self.assertRaises(ValueError):
+            stage_trace_coverage(lines, start, 5_000_000, 4_999_999, [2_000_000])
+        with self.assertRaises(DeviceLost):
+            stage_trace_coverage([*lines, "host GPU failure:"], start, 5_000_000, 6_000_000, [2_000_000])
+
     def test_recorded_compute_pair_changes_only_lookahead_and_clips_replay(self):
         for arm, value in AVATAR_WINE_RECORDED_COMPUTE.items():
             self.assertEqual(benchmark_flags(arm), dict(benchmark_flags(AVATAR_WINE_MERGED_COLD),
