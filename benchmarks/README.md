@@ -264,6 +264,12 @@ I compared the same reflection build with and without the live-quad translator c
 
 The candidate had ten gaps of at least 9.5 seconds, versus thirteen in the control. The average was slightly higher and the P99 gap more than doubled. This is one pair. I confirmed several matched shots in the living room. The diffuse and bright couch areas looked similar in these snapshots. The 4 Hz capture and available matches did not establish whether the reported diner flicker changed. Gameplay settings stay as before. [Candidate source](https://github.com/UwUCammie/victory-amd/commit/c5049ab8) · [Original quad work](https://github.com/avatarmanz/VIctory-7900XTX/pull/354)
 
+### Single decode for shader write classification
+
+The single-decode change for classifying buffer writes accepted 2,096 presents in the first 300 seconds (6.99 FPS). The two stock launches accepted 2,589 and 2,651 (8.63 and 8.84 FPS). The candidate had a 3,859 ms P99 gap and an 11.44 s longest gap, with 217.39 s spent in gaps over 100 ms. Stock P99 was 2,438 and 1,840 ms. The candidate had ten gaps of at least 9.5 s, nine with a first compute-drop notice. Sixteen overlapped launches were excluded.
+
+The three scored launches used the same renderer flags, timed input, 1280×720 output, 4K interface loader bytes, empty story slots, five empty graphics caches, and GE vkd3d-proton `cae8353ed7959c4`. I checked the candidate's live runtime flags and distinct executable digest. Its PDB matched 168 source checksums. The early candidate samples show an exterior where the two stock runs had reached different shots. Later samples show visible faces in both the candidate and stock. This comparison does not establish a visual change or a cold-boot speedup. [AMD PR](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/11)
+
 ### Revised CPU fixtures
 
 On the Ryzen 7 9700X, the [portable-only AVX2 revision](https://github.com/UwUCammie/VIctory-7900XTX/commit/9b96f866) agreed with the original outputs in the same three-way merge fixture. At 64 KiB, the median paired time changes for equal, sparse and dense inputs were −69.71%, −24.36% and −26.51% for baseline x86-64. With `-C target-cpu=x86-64-v3`, the stock loop is selected and the respective changes were 0.00%, −0.21% and −0.01%. The 31-byte measurements varied at nanosecond scale. Seven serial pairs per case.
