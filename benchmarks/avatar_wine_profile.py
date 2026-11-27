@@ -16,6 +16,7 @@ AVATAR_WINE_WRITEBACK_SWITCHES = {
 AVATAR_WINE_EARLY_LIMITS = {
     "vkd3d-master-avatar-wine-440-early-off": 0,
     "vkd3d-master-avatar-wine-440-early-1k": 1024,
+    "vkd3d-master-avatar-wine-440-early-2560": 2560,
 }
 AVATAR_WINE_MODES = AVATAR_WINE_COMPUTE_BUDGETS | dict.fromkeys(
     (*AVATAR_WINE_WRITEBACK_SWITCHES, *AVATAR_WINE_EARLY_LIMITS), 10000
