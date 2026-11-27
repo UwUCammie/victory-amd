@@ -1209,6 +1209,8 @@ Another 2.5 KiB launch made the same pipeline at 2.63 s and also showed both fac
 
 The first two 2 s attempts yielded to parallel builds at 163.39 s and 252.53 s. The second made the facial-deformation pipeline at 2.65 s. Both faces showed skin in the car at 175 s, and the driver's close-up at 160 s showed skin and a centered subtitle in the first attempt. These samples cover face visibility. Lip motion and indoor lighting still need separate checks.
 
+A later 3 KiB launch with the same 2 s compute wait completed all 300 s and accepted 5,053 presents, or 16.84 FPS. It used native 720p, the 4K interface, five empty caches, a fresh story and vkd3d-proton `71cae091b06571e`, without a foreground interruption. P99 was 457.17 ms and gaps over 100 ms accounted for 162.19 s. External captures were active. The opening car close-up showed visible facial skin and a centered subtitle. This run is a visual cross-check and a timing measurement with capture overhead.
+
 The second 2 s attempt and the 10 s attempt that yielded at 253.70 s had the same executable, three driver file digests, loaded vkd3d-proton build, five initially empty caches, new story, 720p output, input and 2.5 KiB cutoff. The first 245 s precede either overlap marker.
 
 | Compute budget | Accepted presents | P99 interval | Longest gap | Time in gaps above 100 ms | Reported waits without a pipeline result |

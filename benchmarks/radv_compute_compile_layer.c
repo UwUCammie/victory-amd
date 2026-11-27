@@ -56,6 +56,13 @@ static Device *find_device(VkDevice handle)
     return device;
 }
 
+static void report_compute_calls(const Device *device)
+{
+    fprintf(stderr, "compute compile layer enabled=%u calls=%u flagged=%u bypassed=%u\n",
+            (unsigned)device->enabled, atomic_load(&device->compute_calls), atomic_load(&device->flagged),
+            atomic_load(&device->bypassed));
+}
+
 static VKAPI_ATTR VkResult VKAPI_CALL create_instance(const VkInstanceCreateInfo *info,
         const VkAllocationCallbacks *allocator, VkInstance *handle)
 {
@@ -165,9 +172,7 @@ static VKAPI_ATTR void VKAPI_CALL destroy_device(VkDevice handle, const VkAlloca
         return;
     PFN_vkDestroyDevice destroy = (PFN_vkDestroyDevice)device->get(handle, "vkDestroyDevice");
     destroy(handle, allocator);
-    fprintf(stderr, "compute compile layer enabled=%u calls=%u flagged=%u bypassed=%u\n",
-            (unsigned)device->enabled, atomic_load(&device->compute_calls), atomic_load(&device->flagged),
-            atomic_load(&device->bypassed));
+    report_compute_calls(device);
     free(device);
 }
 
@@ -196,19 +201,22 @@ static VKAPI_ATTR VkResult VKAPI_CALL create_compute_pipelines(VkDevice handle, 
     Device *device = find_device(handle);
     if (!device || !device->compute)
         return VK_ERROR_INITIALIZATION_FAILED;
-    atomic_fetch_add_explicit(&device->compute_calls, 1, memory_order_relaxed);
-    if (!device->enabled)
-        return device->compute(handle, cache, count, infos, allocator, pipelines);
-
-    if (count == 1) {
-        VkComputePipelineCreateInfo info = infos[0];
-        VkPipelineCreateFlags2CreateInfo flags2;
-        if (request_fast_compile(&info, &flags2)) {
+    VkComputePipelineCreateInfo info;
+    VkPipelineCreateFlags2CreateInfo flags2;
+    if (device->enabled) {
+        if (count == 1)
+            info = infos[0];
+        if (count == 1 && request_fast_compile(&info, &flags2)) {
             atomic_fetch_add_explicit(&device->flagged, 1, memory_order_relaxed);
-            return device->compute(handle, cache, 1, &info, allocator, pipelines);
+            infos = &info;
+        } else {
+            atomic_fetch_add_explicit(&device->bypassed, 1, memory_order_relaxed);
         }
     }
-    atomic_fetch_add_explicit(&device->bypassed, 1, memory_order_relaxed);
+    unsigned calls = atomic_fetch_add_explicit(&device->compute_calls, 1, memory_order_relaxed) + 1;
+    /* Wine fixtures can exit without destroying their process-wide device. */
+    if (calls == 1 || calls == 3 || calls == 16)
+        report_compute_calls(device);
     return device->compute(handle, cache, count, infos, allocator, pipelines);
 }
 
