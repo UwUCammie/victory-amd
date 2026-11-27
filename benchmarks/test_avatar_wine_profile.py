@@ -1,8 +1,8 @@
 from datetime import datetime, timezone
 import unittest
 
-from avatar_wine_profile import (AVATAR_WINE_BOOL_SIMPLIFY, AVATAR_WINE_COMPILER_CACHE, AVATAR_WINE_CONSTRUCTOR_POOLS, AVATAR_WINE_EARLY_LIMITS, AVATAR_WINE_FACE_EARLY_LIMITS, AVATAR_WINE_FACE_TRACE, AVATAR_WINE_FACES, AVATAR_WINE_FACES_2S, AVATAR_WINE_FACES_EARLY, AVATAR_WINE_FACES_OFF, AVATAR_WINE_KEEP_TRANSLATED, AVATAR_WINE_LATEST_CONTROL, AVATAR_WINE_LATEST_SHADERS,
-                                 AVATAR_WINE_NOTIFY_SWITCHES, AVATAR_WINE_SCREEN_LIMITS, AVATAR_WINE_SINGLE_PARSE,
+from avatar_wine_profile import (AVATAR_WINE_BOOL_SIMPLIFY, AVATAR_WINE_COMPILER_CACHE, AVATAR_WINE_CONSTRUCTOR_POOLS, AVATAR_WINE_EARLY_LIMITS, AVATAR_WINE_FACE_EARLY_LIMITS, AVATAR_WINE_FACE_TRACE, AVATAR_WINE_FACE_TRACE_EARLY, AVATAR_WINE_FACES, AVATAR_WINE_FACES_2S, AVATAR_WINE_FACES_EARLY, AVATAR_WINE_FACES_OFF, AVATAR_WINE_KEEP_TRANSLATED, AVATAR_WINE_LATEST_CONTROL, AVATAR_WINE_LATEST_SHADERS,
+                                 AVATAR_WINE_NOTIFY_SWITCHES, AVATAR_WINE_PIPELINE_INPUTS, AVATAR_WINE_SCREEN_LIMITS, AVATAR_WINE_SINGLE_PARSE,
                                  AVATAR_WINE_QUEUE_TIMING, AVATAR_WINE_QUEUE_TIMINGS, AVATAR_WINE_SCREEN_WORKERS, AVATAR_WINE_VALUE_USE_INDEX, AVATAR_WINE_WAITER_SWITCHES,
                                  AVATAR_WINE_WRITEBACK_SWITCHES, benchmark_flags, compute_wait_activity,
                                  early_compute_activity, early_screen_activity, observed_profile,
@@ -22,7 +22,9 @@ class AvatarWineProfileTests(unittest.TestCase):
                          dict(benchmark_flags(AVATAR_WINE_FACES_OFF), VICTORY_EARLY_COMPUTE_MAX_BYTES="3072"))
         self.assertEqual(benchmark_flags(AVATAR_WINE_FACES_2S),
                          dict(benchmark_flags(AVATAR_WINE_FACES_EARLY), VICTORY_COMPUTE_WAIT_MS="2000"))
-        self.assertEqual(benchmark_flags(AVATAR_WINE_FACE_TRACE), benchmark_flags(AVATAR_WINE_FACES))
+        self.assertEqual(benchmark_flags(AVATAR_WINE_FACE_TRACE), benchmark_flags(AVATAR_WINE_FACES_OFF))
+        self.assertEqual(benchmark_flags(AVATAR_WINE_FACE_TRACE_EARLY), benchmark_flags(AVATAR_WINE_FACES_EARLY))
+        self.assertEqual(benchmark_flags(AVATAR_WINE_PIPELINE_INPUTS), benchmark_flags(AVATAR_WINE_FACES_EARLY))
 
     def test_compute_stage_overlap_uses_unique_traces_and_unions_repeated_waits(self):
         started = datetime(2026, 11, 27, 8, tzinfo=timezone.utc)

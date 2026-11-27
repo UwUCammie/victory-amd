@@ -1251,6 +1251,19 @@ Both first-70-second windows matched the 10 s compute wait, other runtime settin
 
 The 10 s retry yielded to a concurrent build at 71.76 s after 1,446 presents in the first 70 s. The 2 s attempt also yielded, at 22.80 s before the first sustained pause. The 0-byte and 3 KiB cutoff arms now use the same executable and a 10 s wait, and both require the runtime to report the requested byte limit. This will isolate the cutoff from the executable change in the first comparison.
 
+The matched 0-byte control reproduced the missing skin in the same street dialogue shot. The 3 KiB run showed the face at the same dialogue line. The binary, 10 s wait, driver files, input and cache setup were identical. Each run was interrupted by a parallel build after the first 70 s, so the full cold average remains pending.
+
+| First 70 s | 0 bytes | 3 KiB, first attempt | 3 KiB, second attempt |
+| --- | ---: | ---: | ---: |
+| Accepted presents | 1,438 | 1,452 | 1,446 |
+| P99 present interval | 38.84 ms | 100.78 ms | 91.14 ms |
+| Longest present gap | 20.05 s | 10.49 s | 11.00 s |
+| Time in gaps over 100 ms | 46.21 s | 45.83 s | 46.01 s |
+
+The first dispatch trace ran with the cutoff off and the 10 s wait. Another build interrupted it at 63.37 s. In the first 60 s, all four selected compute shaders were requested. Three recorded their first dispatch by 28.24 s. The fourth was requested twice without a ready pipeline and had no recorded dispatch in that window. The trace measures command-list recording. The queued diagnostic repeats the measurement with a 3 KiB cutoff on the same executable. [Wine PR update](https://github.com/borntofrag34/VIctory-7900XTX/pull/11#issuecomment-7220506173)
+
+The next pipeline creation experiment hashes the borrowed translation bytes directly and queries the host's anisotropic point-mip capability once. It keeps the same hash inputs, including an empty slice for a missing stage, and passes the same shader bytes to the driver. The Windows checks and matched cold run are queued with the 3 KiB cutoff and 10 s wait. [Experiment source](https://github.com/UwUCammie/VIctory-7900XTX/commit/31127dcf)
+
 An opt-in dispatch trace records whether selected direct and indirect compute calls reached the host command list. It reports first attempts, reasons that recording stopped, and the first successful recording. It keeps the first-success report even after eight rejections, exercised by a focused Windows MSVC test under Wine 11.22 with 113 runtime source checksums verified. The 95 s diagnostic run uses the original cold settings and is excluded from FPS scoring. The report summarizes counts and timings and measures record-time behavior. [Dispatch trace source](https://github.com/UwUCammie/VIctory-7900XTX/commit/f00c43cb)
 
 An experimental index for half-view shader analysis preserved shader bytes, binding metadata and error results across eight alternating native passes. In a stratified 256-input sample, 254 translated and summed median time was 2.751 s before and 2.814 s after. A separate 2,048-input discovery slice yielded four shaders with half views. Their summed medians were 1.633 ms before and 1.656 ms after. The index showed no speed gain in either sample, so the current gameplay candidate uses the original analysis. [Experimental index](https://github.com/UwUCammie/VIctory-7900XTX/commit/dae694e2)
