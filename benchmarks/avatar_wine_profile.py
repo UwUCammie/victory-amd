@@ -28,6 +28,7 @@ AVATAR_WINE_FACES = "vkd3d-master-avatar-wine-440-faces"
 AVATAR_WINE_FACES_OFF = "vkd3d-master-avatar-wine-440-faces-early-off"
 AVATAR_WINE_FACES_EARLY = "vkd3d-master-avatar-wine-440-faces-early"
 AVATAR_WINE_FACES_2S = "vkd3d-master-avatar-wine-440-faces-early-2s"
+AVATAR_WINE_FACES_HALF_FIX = "vkd3d-master-avatar-wine-440-faces-listed-half"
 AVATAR_WINE_PIPELINE_INPUTS = "vkd3d-master-avatar-wine-440-pipeline-inputs"
 AVATAR_WINE_FACE_WORKER_COUNTS = {
     "vkd3d-master-avatar-wine-440-faces-workers6": 6,
@@ -45,6 +46,7 @@ AVATAR_WINE_FACE_EARLY_LIMITS = {
     AVATAR_WINE_FACES_OFF: 0,
     AVATAR_WINE_FACES_EARLY: 3072,
     AVATAR_WINE_FACES_2S: 3072,
+    AVATAR_WINE_FACES_HALF_FIX: 3072,
     AVATAR_WINE_PIPELINE_INPUTS: 3072,
     **dict.fromkeys(AVATAR_WINE_FACE_WORKER_COUNTS, 3072),
 }
