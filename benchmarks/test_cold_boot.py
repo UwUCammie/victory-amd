@@ -7,7 +7,7 @@ import unittest
 
 from cold_boot import (
     accepted_frames, buffer_prefetch_activity, compute_reserve_activity, device_loss_before_overlap,
-    interrupted_prefix, loaded_vkd3d_build, raw_twin_activity, report, upload_pool_activity,
+    interrupted_prefix, loaded_vkd3d_build, raw_twin_activity, renderer_cost_samples, report, upload_pool_activity,
     verify_wait_budgets, window,
 )
 from first_room import SessionFailed
@@ -18,6 +18,16 @@ def trace(offset):
 
 
 class ColdBootTests(unittest.TestCase):
+    def test_renderer_cost_samples_clip_both_window_edges(self):
+        start = datetime(2026, 11, 26, tzinfo=timezone.utc)
+        lines = [f"2026-11-26T00:00:0{sec}Z INFO the card's clock per frame: nothing of ours queued {cost} ms"
+                 for sec, cost in enumerate((100, 5, 7, 100))]
+        self.assertEqual(renderer_cost_samples(lines, start, 1_000_000, 3_000_000), {
+            "GPU queue empty": {"reports": 2, "median_ms": 6.0},
+        })
+        with self.assertRaises(SessionFailed):
+            renderer_cost_samples([*lines, "VIctory: unhandled exception 0xc0000005"], start, 1_000_000, 3_000_000)
+
     def test_preserves_a_device_loss_before_the_guard_interruption(self):
         guard = datetime(2026, 11, 27, 9, 25, 30, 307028, tzinfo=timezone.utc)
         before = "\x1b[2m2026-11-27T09:25:29.649074Z\x1b[0m ERROR host GPU device removed after submission"

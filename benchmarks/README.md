@@ -1499,6 +1499,19 @@ Both 82 s diagnostics finished without overlap on the RX 7900 XT. The 75 s windo
 
 The longest stall was shorter, with nearly the same total time in long gaps and fewer presentations. The next paired 300 s launches turn tracing off and verify the mode the runtime reports.
 
+The full screen-off control accepted 3,832 presents over 300 s, or 12.77 FPS. Its P99 gap was 491 ms and it spent 179.35 s in gaps over 100 ms. Over 225–300 s, it accepted 999 presents versus 2,829 on the older 21.93 FPS reference. The median logged submission preparation cost over that interval rose from 19.55 to 47.40 ms per frame. The median time with an empty GPU queue rose from 5.60 to 22.95 ms. The renderer provided 68 and 56 reports respectively, and these medians weight each report once. The releases and capture settings differ, so this is a lead for profiling the submission thread, while the same-executable screen A/B isolates the new switch.
+
+The screen-on run yielded to another renderer at 265.90 s. Both untraced runs covered the first 260 s with the identical release, driver and inputs, and showed the expected switch in their runtime logs.
+
+| First 260 s | Lookahead off | Lookahead on |
+| --- | ---: | ---: |
+| Accepted presents | 3,178 | 2,758 |
+| Longest present gap | 11.21 s | 20.03 s |
+| P99 present gap | 531 ms | 1,837 ms |
+| Time in gaps over 100 ms | 168.68 s | 191.99 s |
+
+On this prefix, lookahead made the longest gaps worse and reduced the number of presents. The on arm remains without a full score, and the switch stays off by default.
+
 ### General pipeline workers in the opening
 
 The six-, ten- and fourteen-worker launches used the same Wine executable, input, three driver DLLs and loaded vkd3d-proton `71cae091b06571e`. Each used 1280×720 with a 4K interface, a fresh story, five empty graphics caches, two priority workers, a 3 KiB early compute cutoff and a 10 s compute wait. The runtime reported the requested general worker count. Separate builds interrupted the three launches at 208.78 s, 80.54 s and 60.81 s, respectively. Every prefix below ended before its interruption and had a subsequent accepted present before the guard fired.

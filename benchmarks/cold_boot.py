@@ -7,8 +7,9 @@ from bisect import bisect_left
 from datetime import datetime, timedelta
 from heapq import nlargest
 from pathlib import Path
+from statistics import median
 
-from first_room import DEVICE_LOST_MARKERS, TIMESTAMP, session_lines
+from first_room import COSTS, DEVICE_LOST_MARKERS, TIMESTAMP, session_lines
 
 MICROSECOND = timedelta(microseconds=1)
 MARKER = "victory_bench: accepted present"
@@ -264,6 +265,25 @@ def windowed_log_lines(lines, launched, stop, markers):
         at = (datetime.fromisoformat(timestamp[0].replace("Z", "+00:00")) - launched) // MICROSECOND
         if 0 <= at < stop:
             yield at, line
+
+
+def renderer_cost_samples(lines, launched, start, stop):
+    """Summarize the logged per-frame costs without assuming uniform frame counts."""
+    if not 0 <= start < stop:
+        raise ValueError("expected 0 <= start < stop")
+    samples = {label: [] for label in COSTS}
+    for line in session_lines(lines):
+        timestamp = TIMESTAMP.search(line)
+        if timestamp is None:
+            continue
+        elapsed = (datetime.fromisoformat(timestamp[0].replace("Z", "+00:00")) - launched) // MICROSECOND
+        if start <= elapsed < stop:
+            for label, pattern in COSTS.items():
+                match = pattern.search(line)
+                if match:
+                    samples[label].append(float(match[1]))
+    return {label: {"reports": len(values), "median_ms": median(values)}
+            for label, values in samples.items() if values}
 
 
 def upload_pool_activity(lines, launched, stop, expected):
