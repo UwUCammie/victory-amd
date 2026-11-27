@@ -34,6 +34,10 @@ AVATAR_WINE_CARD_TOUCHED = {
     "vkd3d-master-avatar-wine-440-card-touched-off": "0",
     "vkd3d-master-avatar-wine-440-card-touched-on": "1",
 }
+AVATAR_WINE_CAPTURE_OBSERVERS = {
+    "vkd3d-master-avatar-wine-440-observers-off": False,
+    "vkd3d-master-avatar-wine-440-observers-on": True,
+}
 AVATAR_WINE_FACE_WORKER_COUNTS = {
     "vkd3d-master-avatar-wine-440-faces-workers6": 6,
     "vkd3d-master-avatar-wine-440-faces-workers14": 14,
@@ -53,6 +57,7 @@ AVATAR_WINE_FACE_EARLY_LIMITS = {
     AVATAR_WINE_FACES_HALF_FIX: 3072,
     AVATAR_WINE_PIPELINE_INPUTS: 3072,
     **dict.fromkeys(AVATAR_WINE_CARD_TOUCHED, 3072),
+    **dict.fromkeys(AVATAR_WINE_CAPTURE_OBSERVERS, 3072),
     **dict.fromkeys(AVATAR_WINE_FACE_WORKER_COUNTS, 3072),
 }
 AVATAR_WINE_EARLY_LIMITS = {
@@ -96,9 +101,13 @@ AVATAR_WINE_SCREEN_QUEUE_TRACE = "vkd3d-master-avatar-wine-440-faces-screen-queu
 AVATAR_WINE_SCREEN_QUEUE_10S = "vkd3d-master-avatar-wine-440-faces-screen-queue-10s"
 AVATAR_WINE_SCREEN_QUEUE_PRIORITY = "vkd3d-master-avatar-wine-440-faces-screen-queue-10s-on"
 AVATAR_WINE_SCREEN_WAIT_BOUNDARIES = "vkd3d-master-avatar-wine-440-faces-screen-wait-boundaries"
+AVATAR_WINE_SCREEN_WAITER_DIAGNOSTICS = {
+    "vkd3d-master-avatar-wine-440-screen-waiter-off": "0",
+    "vkd3d-master-avatar-wine-440-screen-waiter-on": "screen",
+}
 AVATAR_WINE_SCREEN_QUEUE_TRACES = (
     AVATAR_WINE_SCREEN_QUEUE_TRACE, AVATAR_WINE_SCREEN_QUEUE_10S, AVATAR_WINE_SCREEN_QUEUE_PRIORITY,
-    AVATAR_WINE_SCREEN_WAIT_BOUNDARIES,
+    AVATAR_WINE_SCREEN_WAIT_BOUNDARIES, *AVATAR_WINE_SCREEN_WAITER_DIAGNOSTICS,
 )
 AVATAR_WINE_STAGE_TIMINGS = {
     "vkd3d-master-avatar-wine-440-stage-timing-off": "0",
@@ -108,6 +117,7 @@ AVATAR_WINE_STAGE_TIMINGS = {
     AVATAR_WINE_SCREEN_QUEUE_10S: "0",
     AVATAR_WINE_SCREEN_QUEUE_PRIORITY: "1",
     AVATAR_WINE_SCREEN_WAIT_BOUNDARIES: "0",
+    **AVATAR_WINE_SCREEN_WAITER_DIAGNOSTICS,
 }
 STAGE_TRACE_SECONDS = 82
 STAGE_TRACE_CUTOFF = 75_000_000
@@ -169,8 +179,8 @@ def benchmark_flags(mode):
     if mode in AVATAR_WINE_WRITEBACK_SWITCHES:
         flags.update(VICTORY_WC_STATS="1", VICTORY_WC_NO_BACK=AVATAR_WINE_WRITEBACK_SWITCHES[mode],
                      VICTORY_WC_NO_BACK_MIN_KB="64", VICTORY_WC_KEEP_STORES="0", VICTORY_WC_CENSUS="0")
-    if mode in AVATAR_WINE_CARD_TOUCHED:
-        flags.update(VICTORY_CARD_TOUCHED=AVATAR_WINE_CARD_TOUCHED[mode],
+    if mode in AVATAR_WINE_CARD_TOUCHED or mode in AVATAR_WINE_CAPTURE_OBSERVERS:
+        flags.update(VICTORY_CARD_TOUCHED=AVATAR_WINE_CARD_TOUCHED.get(mode, "0"),
                      VICTORY_WC_NO_BACK="0", VICTORY_WC_KEEP_STORES="0")
     if mode in AVATAR_WINE_EARLY_LIMITS:
         flags["VICTORY_EARLY_COMPUTE_MAX_BYTES"] = str(AVATAR_WINE_EARLY_LIMITS[mode])
@@ -201,6 +211,21 @@ def benchmark_flags(mode):
     if mode in AVATAR_WINE_FACE_WORKER_COUNTS:
         flags["VICTORY_PIPELINE_WORKERS"] = str(AVATAR_WINE_FACE_WORKER_COUNTS[mode])
     return flags
+
+
+def verify_capture_observers(launch, capture_dir, enabled):
+    """Check which observer processes started and whether they wrote captures."""
+    expected = ["stills", "clip"] if enabled else []
+    flags = launch.get("runtime_flags", {})
+    if launch.get("capture_observers") != expected or launch.get("runtime_capture") != "0":
+        raise ValueError("capture observer launch did not match the requested mode")
+    if any(name.startswith("VICTORY_CAPTURE") for name in flags):
+        raise ValueError("runtime capture must be unset in both modes")
+    stills = any(path.stat().st_size > 0 for path in capture_dir.glob("private-*.png"))
+    clip_path = capture_dir / "private-dialogue.mkv"
+    clip = clip_path.is_file() and clip_path.stat().st_size > 0
+    if (stills, clip) != (enabled, enabled):
+        raise ValueError("capture observer outputs did not match the requested mode")
 
 
 def verify_card_dirty_scan(lines, launched, stop, enabled):
@@ -456,6 +481,14 @@ def verify_waiter_priority(lines, launched, stop, expected):
         seen.add(value[1] == "true")
     if seen != {expected}:
         raise ValueError("pipeline waiter priority does not match the requested mode")
+
+
+def verify_screen_waiter_priority(lines, launched, stop, enabled):
+    label = "pipeline priority for active waiters"
+    modes = [line.rsplit(label, 1)[1].strip()
+             for _, line in windowed_log_lines(lines, launched, stop, (label,))]
+    if modes != [f"enabled=false screen_only={str(enabled).lower()}"]:
+        raise ValueError("screen-only pipeline waiter priority did not match")
 
 
 def queue_claim_activity(lines, launched, stop, frames, *, screen=False):

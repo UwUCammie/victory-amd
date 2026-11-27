@@ -1,4 +1,6 @@
 from datetime import datetime, timezone
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
 
 from avatar_wine_profile import (AVATAR_WINE_BOOL_SIMPLIFY, AVATAR_WINE_COMPILER_CACHE, AVATAR_WINE_CONSTRUCTOR_POOLS, AVATAR_WINE_EARLY_LIMITS, AVATAR_WINE_FACE_EARLY_LIMITS, AVATAR_WINE_FACE_TRACE, AVATAR_WINE_FACE_TRACE_EARLY, AVATAR_WINE_FACE_WORKER_COUNTS, AVATAR_WINE_FACES, AVATAR_WINE_FACES_2S, AVATAR_WINE_FACES_EARLY, AVATAR_WINE_FACES_HALF_FIX, AVATAR_WINE_FACES_OFF, AVATAR_WINE_KEEP_TRANSLATED, AVATAR_WINE_LATEST_CONTROL, AVATAR_WINE_LATEST_SHADERS,
@@ -11,9 +13,33 @@ from avatar_wine_profile import (AVATAR_WINE_BOOL_SIMPLIFY, AVATAR_WINE_COMPILER
                                  queue_claim_activity, verify_constructor_pool, verify_notification_mode, verify_pipeline_workers, verify_waiter_priority, writeback_activity)
 from cold_boot import verify_wait_budgets
 from avatar_wine_profile import AVATAR_WINE_CARD_TOUCHED, AVATAR_WINE_SCREEN_WAIT_BOUNDARIES, screen_wait_progress, verify_card_dirty_scan
+from avatar_wine_profile import AVATAR_WINE_CAPTURE_OBSERVERS, verify_capture_observers
+from avatar_wine_profile import AVATAR_WINE_SCREEN_WAITER_DIAGNOSTICS, verify_screen_waiter_priority
 
 
 class AvatarWineProfileTests(unittest.TestCase):
+    def test_observer_pair_uses_the_same_runtime_flags(self):
+        off, on = AVATAR_WINE_CAPTURE_OBSERVERS
+        self.assertEqual(benchmark_flags(off), benchmark_flags(on))
+        self.assertEqual(benchmark_flags(off), benchmark_flags(next(iter(AVATAR_WINE_CARD_TOUCHED))))
+
+    def test_observer_modes_require_matching_metadata_and_outputs(self):
+        with TemporaryDirectory() as directory:
+            captures = Path(directory)
+            off = {"capture_observers": [], "runtime_capture": "0"}
+            on = dict(off, capture_observers=["stills", "clip"])
+            verify_capture_observers(off, captures, False)
+            with self.assertRaises(ValueError):
+                verify_capture_observers(on, captures, True)
+            (captures / "private-25.png").write_bytes(b"still")
+            (captures / "private-dialogue.mkv").write_bytes(b"clip")
+            verify_capture_observers(on, captures, True)
+            with self.assertRaises(ValueError):
+                verify_capture_observers(off, captures, False)
+            with self.assertRaises(ValueError):
+                verify_capture_observers(dict(on, runtime_flags={"VICTORY_CAPTURE_WORLD": "0"}),
+                                         captures, True)
+
     def test_card_touched_pair_keeps_writeback_and_profile_fixed(self):
         for mode, switch in AVATAR_WINE_CARD_TOUCHED.items():
             self.assertEqual(benchmark_flags(mode),
@@ -56,6 +82,20 @@ class AvatarWineProfileTests(unittest.TestCase):
                          dict(benchmark_flags(AVATAR_WINE_SCREEN_QUEUE_10S), VICTORY_PIPELINE_WAITERS_FIRST="1"))
         self.assertEqual(benchmark_flags(AVATAR_WINE_SCREEN_WAIT_BOUNDARIES),
                          benchmark_flags(AVATAR_WINE_SCREEN_QUEUE_10S))
+        for mode, setting in AVATAR_WINE_SCREEN_WAITER_DIAGNOSTICS.items():
+            self.assertEqual(benchmark_flags(mode),
+                             dict(benchmark_flags(AVATAR_WINE_SCREEN_QUEUE_10S),
+                                  VICTORY_PIPELINE_WAITERS_FIRST=setting))
+
+    def test_screen_waiter_priority_uses_the_runtime_marker(self):
+        start = datetime(2026, 11, 27, 8, tzinfo=timezone.utc)
+        lines = ["2026-11-27T08:00:01Z INFO pipeline priority for active waiters enabled=false screen_only=true"]
+        verify_screen_waiter_priority(lines, start, 2_000_000, True)
+        verify_waiter_priority(lines, start, 2_000_000, False)
+        with self.assertRaises(ValueError):
+            verify_screen_waiter_priority(lines, start, 2_000_000, False)
+        with self.assertRaises(ValueError):
+            verify_screen_waiter_priority([lines[0].replace("enabled=false", "enabled=true")], start, 2_000_000, True)
 
     def test_screen_wait_uses_pipeline_key_when_two_pipelines_share_shaders(self):
         started = datetime(2026, 11, 27, 8, tzinfo=timezone.utc)
