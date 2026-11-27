@@ -853,6 +853,19 @@ wine "$gpu_test_exe" --exact \
 
 Build the binary once with `cargo test -p victory-gpu --lib --target x86_64-pc-windows-msvc --no-run`. The grouped command is for cases sharing the same process configuration. Trials that compare switches read once at process startup still need separate launches.
 
+## Reusing the relay readback snapshot
+
+A five-second profile counted 140 of 3,353 samples inside the runtime image in `card_merge_relay`. The [AMD change](https://github.com/UwUCammie/VIctory-7900XTX/commit/e0f47673) brings over the [empty-exclusion fast path](https://github.com/fxceless/victory-fork/pull/1427), keeps the AMD sent-range index, and reuses the original title-byte snapshot across the fetched pieces in a relay batch.
+
+Two Windows MSVC tests passed under Wine on an RX 7900 XT with RADV 26.3.1 and GE vkd3d-proton `cae8353ed7959c4`. The generated landing test checked 80 pairs with and without exclusions. It compared the bytes written to title memory and the CPU reference bytes with the parallel landing path.
+
+The [snapshot fixture](relay_snapshot.rs) uses a counting allocator on generated 4, 8, 12 and 16 KiB inputs. Over 11 alternating pairs on one Ryzen 7 9700X core, allocation and reallocation calls per 6,400 snapshots fell from 6,400 to 300 in every pair. The instrumented medians were 69.8 and 60.0 ns per snapshot. Nine pairs favored reuse. This isolates the snapshot copy and allocator work. Gameplay timing is pending.
+
+```sh
+rustc --edition=2024 -O benchmarks/relay_snapshot.rs -o /tmp/relay-snapshot
+/tmp/relay-snapshot
+```
+
 ## Testing the relay merge without the game
 
 The independent Linux fixture imports the renderer's AVX2 merge code. It compares always storing the 32-byte vector with the equality check from #1178, which avoids loading or modifying the destination if the GPU and reference bytes match. Each pattern uses 4 MiB of synthetic data. Both paths have to match the expected reference bytes, destination bytes and change flag. The renderer's three alignment, tail and CPU-write tests also pass in 0.02 s.
