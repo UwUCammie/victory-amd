@@ -1077,6 +1077,25 @@ The guarded launcher uses `guard_quiet.sh` after polling both resources. A paral
 
 CPU-only cross-builds can prepare an executable while another process holds the GPU. Use one low-priority compiler job and hold the CPU validation lock while staging the executable and checking its PDB. A competing parallel build pauses the cross-build. The launcher checks foreground GPU activity before the validation lock, then uses the five-second CPU quiet period when the lock is the only active resource.
 
+#### Compile with RADV while the GPU is busy
+
+Mesa's no-op AMDGPU shim lets the installed RADV driver compile for a simulated Navi 31. `radv_compile_only.py` runs a fixture in a private device namespace with only the shim's render node. It disables the Mesa shader cache and keeps the display and host Wine sockets outside the fixture. Give it a writable directory for the fixture's files and pass the game's files only through explicit local manifests when needed. Use this to screen pipeline creation and compiler time. Gameplay FPS, output comparisons and GPU faults still need the physical Radeon. [Mesa AMDGPU shim](https://gitlab.freedesktop.org/mesa/mesa/-/blob/mesa-26.3.1/src/amd/drm-shim/README.md)
+
+With the Mesa 26.3.1 source tree and Meson available, build only the shim. The launcher still loads the device's installed RADV ICD.
+
+```sh
+meson setup "$build" "$mesa" -Dgallium-drivers=[] -Dvulkan-drivers=amd \
+  -Dplatforms=[] -Dllvm=disabled -Dglx=disabled -Degl=disabled \
+  -Dgbm=disabled -Dgles2=disabled -Dopengl=false -Dvideo-codecs=[] -Dtools=drm-shim
+ninja -j1 -C "$build" src/amd/drm-shim/libamdgpu_noop_drm_shim.so
+python -I benchmarks/radv_compile_only.py --work "$fixture_directory" \
+  --shim "$build/src/amd/drm-shim/libamdgpu_noop_drm_shim.so" -- vulkaninfo --summary
+```
+
+The enumeration should show the shim initialized, the simulated Navi 31 and the installed RADV version. For a Wine fixture, use a separate prefix inside the writable fixture directory and check the executable, PDB and runtime DLLs before measuring. The simulated device name here is RX 7900 XTX. Use a fresh vkd3d cache directory per process when comparing pipeline creation times.
+
+The RX 7900 XT fixture also ran in this setup on the same installed Mesa 26.3.1 RADV binary and Wine 11.22 with vkd3d-proton `71cae091b06571e` and descriptor heaps enabled. All 16 local compute stages passed DXC validation and made a pipeline with the standard shader settings. The Windows MSVC fixture matched 114 source checksums. A control using the same namespace without the shim found no Vulkan device. The second physical-card comparison can now use the verified executable staged during this off-card run.
+
 The first repeat after the separate build timer took effect verified its executable 6.71 s after the last parallel-build notice and reached 107.77 s before yielding to a new build. The next 95 s diagnostic completed without overlap. These checks measure available test time.
 
 The 1280×720 output test used the same display-patch executable as the 1080p run. It began with a 19,319 MiB local GPU budget. The standing character and window were visible at 115, 125, 142 and 149 s. From 115–149 s the complete intervals added up to **784 successful presents in 32.70 s (23.98 FPS)** at 4,883 draws/frame. The two independent motion samples measured 23.75 and 24.56 changes/s. Submission preparation averaged 40.25 ms/frame. The GPU queue was empty for 17.52 ms/frame. The setting changes the title's output to 1280×720; the original desktop run used 3840×2160. The startup budgets differ from the earlier 1080p measurement.
