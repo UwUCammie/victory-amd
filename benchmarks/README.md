@@ -1114,3 +1114,7 @@ python -B benchmarks/write_watch_ranges.py PATH_TO_CHECKOUT
 ```
 
 The adaptive implementation also agreed on all 400 generated sequences. Its 4,096 shuffled disjoint inputs took 7.23 ms versus 0.46 ms, and 512 mixed inputs took 13.10 versus 11.52 µs. At 64 mixed inputs it took 356 versus 366 ns. At 4,096 nested inputs only one request survived and the time moved from 2.34 to 3.09 µs. These are eight alternating pairs from a second run of the native fixture. Four range and journal tests and one write-watch generation test passed with the exact MSVC build under Wine 11.22. [Adaptive implementation](https://github.com/UwUCammie/VIctory-7900XTX/commit/968673d7)
+
+### Avatar Wine profile from PR #440
+
+The upstream report uses samples from seconds 140–240 in the first scene on a Radeon RX 7900 GRE. Its fastest runs precede the merge from Avatar main. I staged that profile from `b2bf3d99`, using the existing 1280×720 scene and 3840×2160 interface patch and a trace of successful presents. The test uses the local RX 7900 XT Wine 11.22 setup, vkd3d-proton `71cae091`, a 4 GiB limit for card buffer copies, and an empty story and five empty cache directories. The scripted inputs and the full 300-second scoring interval are the same as in the other cold runs. The launch configuration and runtime flags that can be verified from the log are in `avatar_wine_profile.py`. Timing and private visual validation are pending. [Upstream measurement](https://github.com/avatarmanz/VIctory-7900XTX/pull/440)
