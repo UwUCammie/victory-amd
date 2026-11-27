@@ -5,7 +5,7 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
-from yield_gpu import record_overlap, yield_timeouts
+from yield_gpu import record_overlap, rotate_trials, write_overlap, yield_timeouts
 
 
 class OverlapTest(unittest.TestCase):
@@ -37,9 +37,10 @@ class OverlapTest(unittest.TestCase):
 
     def test_preserves_first_interruption(self):
         self.set_marker(self.marker)
-        self.marker.write_text("first\n")
+        write_overlap(self.marker)
+        first = self.marker.read_text()
         record_overlap(self.proc)
-        self.assertEqual(self.marker.read_text(), "first\n")
+        self.assertEqual(self.marker.read_text(), first)
 
     def test_marker_is_optional(self):
         (self.proc / "environ").write_bytes(b"OTHER=value\0")
@@ -51,3 +52,21 @@ class OverlapTest(unittest.TestCase):
         self.set_marker(path)
         record_overlap(self.proc)
         self.assertFalse(path.exists())
+
+    def test_mix_saved_and_cold_launch_dates(self):
+        queue = [(mode,) for mode in ("cold-a", "fixed", "saved", "cold-b")]
+        rotation = {"cold-a", "saved", "cold-b"}
+        alternate = {"saved": ("saved-", "run-start")}
+        for directory, marker, timestamp in (("boot-cold-a-1", "launch.json", 2),
+                                             ("saved-1", "run-start", 10),
+                                             ("boot-cold-b-1", "launch.json", 5)):
+            path = self.root / directory / marker
+            path.parent.mkdir()
+            path.touch()
+            os.utime(path, ns=(timestamp, timestamp))
+
+        self.assertEqual(rotate_trials(queue, rotation, self.root, "boot-", alternate),
+                         [("cold-a",), ("fixed",), ("cold-b",), ("saved",)])
+        (self.root / "saved-1" / "run-start").unlink()
+        self.assertEqual(rotate_trials(queue, rotation, self.root, "boot-", alternate),
+                         [("saved",), ("fixed",), ("cold-a",), ("cold-b",)])

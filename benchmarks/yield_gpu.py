@@ -8,6 +8,15 @@ import subprocess
 import time
 
 
+def write_overlap(marker):
+    """Record the first interruption when multiple guards can see it."""
+    try:
+        with marker.open("x", encoding="utf-8") as output:
+            output.write(datetime.now(timezone.utc).isoformat() + "\n")
+    except FileExistsError:
+        pass
+
+
 def record_overlap(proc):
     """Let the runner distinguish a guard interruption from an early exit."""
     key = b"GOAL30_YIELD_MARKER="
@@ -17,13 +26,32 @@ def record_overlap(proc):
                 continue
             marker = Path(os.fsdecode(item[len(key):]))
             if marker.is_absolute() and marker.name == "foreground-overlap":
-                with marker.open("x", encoding="utf-8") as output:
-                    output.write(datetime.now(timezone.utc).isoformat() + "\n")
+                write_overlap(marker)
             return
-    except (FileExistsError, FileNotFoundError, ProcessLookupError):
+    except (FileNotFoundError, ProcessLookupError):
         pass
     except OSError as error:
         print(f"Could not record overlap for benchmark timeout {proc.name}: {error}", flush=True)
+
+
+def rotate_trials(queue, trials, launch_root, tag_prefix, alternate_launches=None):
+    """Rotate selected entries by last launch while leaving other entries in place."""
+    alternate_launches = alternate_launches or {}
+
+    def last_launch(row):
+        mode = row[0]
+        prefix, marker = alternate_launches.get(mode, (tag_prefix + mode + "-", "launch.json"))
+        last = 0
+        for attempt in launch_root.glob(prefix + "*"):
+            if attempt.name.removeprefix(prefix).isdigit():
+                try:
+                    last = max(last, (attempt / marker).stat().st_mtime_ns)
+                except FileNotFoundError:
+                    pass
+        return last
+
+    rotated = iter(sorted((row for row in queue if row[0] in trials), key=last_launch))
+    return [next(rotated) if row[0] in trials else row for row in queue]
 
 
 def scoped_timeout(proc, unit):
