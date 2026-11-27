@@ -1264,6 +1264,8 @@ The first dispatch trace ran with the cutoff off and the 10 s wait. Another buil
 
 The next pipeline creation experiment hashes the borrowed translation bytes directly and queries the host's anisotropic point-mip capability once. It keeps the same hash inputs, including an empty slice for a missing stage, and passes the same shader bytes to the driver. The Windows checks and matched cold run are queued with the 3 KiB cutoff and 10 s wait. [Experiment source](https://github.com/UwUCammie/VIctory-7900XTX/commit/31127dcf)
 
+Six focused Windows MSVC tests passed under Wine on this integration, with 112 verified runtime source checksums. The optimized release matched 176 runtime source checksums and yielded to a parallel build at 89.04 s. Its first 75 s and the earlier 3 KiB control used the same inputs, loaded driver, three driver binaries, runtime settings and five initially empty caches. Both accepted 1,463 presents. The longest gap rose from 10.49 s to 19.88 s, P99 fell from 186.52 ms to 116.78 ms, and time in gaps above 100 ms was 50.54 s and 50.59 s. The face was visible in the same street dialogue shot. The matched prefix shows no throughput gain. [Wine PR](https://github.com/borntofrag34/VIctory-7900XTX/pull/12)
+
 An opt-in dispatch trace records whether selected direct and indirect compute calls reached the host command list. It reports first attempts, reasons that recording stopped, and the first successful recording. It keeps the first-success report even after eight rejections, exercised by a focused Windows MSVC test under Wine 11.22 with 113 runtime source checksums verified. The 95 s diagnostic run uses the original cold settings and is excluded from FPS scoring. The report summarizes counts and timings and measures record-time behavior. [Dispatch trace source](https://github.com/UwUCammie/VIctory-7900XTX/commit/f00c43cb)
 
 An experimental index for half-view shader analysis preserved shader bytes, binding metadata and error results across eight alternating native passes. In a stratified 256-input sample, 254 translated and summed median time was 2.751 s before and 2.814 s after. A separate 2,048-input discovery slice yielded four shaders with half views. Their summed medians were 1.633 ms before and 1.656 ms after. The index showed no speed gain in either sample, so the current gameplay candidate uses the original analysis. [Experimental index](https://github.com/UwUCammie/VIctory-7900XTX/commit/dae694e2)
@@ -1345,6 +1347,16 @@ The second timing launch completed its 105 s timeout without overlap, with prior
 | Time in gaps above 100 ms | 72.76 s | 72.90 s |
 
 Waits after the last shader translation was logged overlapped 26.60 s of complete long gaps with priority off and 52.58 s with priority on. The scheduler shortened the longest gap and moved more waiting after translation in this pair. Both launches remain diagnostic, with full 300 s comparison pending. [Experimental source](https://github.com/UwUCammie/VIctory-7900XTX/commit/b004cdec)
+
+The same two queue traces had 19 and 12 additional claims eligible to wait for a shared unfinished translation. The estimated total was 0.470 and 0.421 worker-seconds respectively across the first 100 s. This estimate uses the worker claim and prior stage's translation completion as the earliest possible entry. It excludes the first eligible claim for each shader. The covered claims give little reason to change the queue around shared translations.
+
+### Time after shader translation
+
+The stage timing pair uses an 82 s diagnostic launch and checks the first 75 s to cover the three opening stalls more quickly. Each run remains outside cold FPS scoring. The priority-off launch verified 172 runtime source checksums, used five empty caches and the RX 7900 XT with RADV 26.3.1 and vkd3d-proton `71cae091b06571e`, and yielded at 38.03 s to another build.
+
+The complete 10.37 s gap from 26.44 s to 36.81 s overlapped 9.213 s of driver compute pipeline creation, 1.040 s of queue residence and 0.005 s of root signature work. These are wall-clock intervals clipped to logged compute waits inside the gap. Different waits can overlap. The observation suggests looking inside driver creation for the first stall. It does not distinguish time actively compiling from time the calling worker was blocked or descheduled. [Stage timing source](https://github.com/UwUCammie/VIctory-7900XTX/commit/c5bf24c1)
+
+The queued CPU diagnostic uses the same priority-off stage-timing executable and settings. It samples the Wine process for six seconds starting at process age 28 s. The profiling arm remains outside FPS scoring.
 
 ### Reusing command lists at thin replay construction
 
