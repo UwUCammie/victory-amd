@@ -25,20 +25,25 @@ AVATAR_WINE_COMPILER_CACHE = "vkd3d-master-avatar-wine-440-compiler-cache"
 AVATAR_WINE_LATEST_CONTROL = "vkd3d-master-avatar-wine-440-latest-control"
 AVATAR_WINE_LATEST_SHADERS = "vkd3d-master-avatar-wine-440-latest-shaders"
 AVATAR_WINE_FACES = "vkd3d-master-avatar-wine-440-faces"
+AVATAR_WINE_FACES_OFF = "vkd3d-master-avatar-wine-440-faces-early-off"
 AVATAR_WINE_FACES_EARLY = "vkd3d-master-avatar-wine-440-faces-early"
 AVATAR_WINE_FACES_2S = "vkd3d-master-avatar-wine-440-faces-early-2s"
 AVATAR_WINE_FACE_TRACE = "vkd3d-master-avatar-wine-440-face-dispatch-trace"
 FACE_TRACE_SECONDS = 95
 FACE_TRACE_CUTOFF = 88_000_000
+AVATAR_WINE_FACE_EARLY_LIMITS = {
+    AVATAR_WINE_FACES_OFF: 0,
+    AVATAR_WINE_FACES_EARLY: 3072,
+    AVATAR_WINE_FACES_2S: 3072,
+}
 AVATAR_WINE_EARLY_LIMITS = {
     "vkd3d-master-avatar-wine-440-early-off": 0,
     "vkd3d-master-avatar-wine-440-early-1k": 1024,
     "vkd3d-master-avatar-wine-440-early-2560": 2560,
     "vkd3d-master-avatar-wine-440-early-2560-wait2000": 2560,
     "vkd3d-master-avatar-wine-440-early-3072-wait2000": 3072,
-    AVATAR_WINE_FACES_EARLY: 3072,
-    AVATAR_WINE_FACES_2S: 3072,
     AVATAR_WINE_LEGACY_FMA: 3072,
+    **AVATAR_WINE_FACE_EARLY_LIMITS,
 }
 AVATAR_WINE_NOTIFY_SWITCHES = {
     "vkd3d-master-avatar-wine-440-notify-global": "0",
@@ -147,7 +152,7 @@ def benchmark_flags(mode):
     if mode in AVATAR_WINE_STAGE_TIMINGS:
         flags.update(VICTORY_PIPELINE_WAITERS_FIRST=AVATAR_WINE_STAGE_TIMINGS[mode],
                      VICTORY_PIPELINE_QUEUE_TIMING="1", VICTORY_PIPELINE_STAGE_TIMING="1")
-    if mode in (AVATAR_WINE_FACES, AVATAR_WINE_FACES_EARLY, AVATAR_WINE_FACES_2S, AVATAR_WINE_FACE_TRACE):
+    if mode in (AVATAR_WINE_FACES, AVATAR_WINE_FACE_TRACE) or mode in AVATAR_WINE_FACE_EARLY_LIMITS:
         flags["VICTORY_RAW_TYPED_LOADS"] = "1"
     return flags
 

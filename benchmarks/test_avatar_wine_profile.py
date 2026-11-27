@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 import unittest
 
-from avatar_wine_profile import (AVATAR_WINE_BOOL_SIMPLIFY, AVATAR_WINE_COMPILER_CACHE, AVATAR_WINE_CONSTRUCTOR_POOLS, AVATAR_WINE_EARLY_LIMITS, AVATAR_WINE_FACES, AVATAR_WINE_FACES_2S, AVATAR_WINE_FACES_EARLY, AVATAR_WINE_FACE_TRACE, AVATAR_WINE_KEEP_TRANSLATED, AVATAR_WINE_LATEST_CONTROL, AVATAR_WINE_LATEST_SHADERS,
+from avatar_wine_profile import (AVATAR_WINE_BOOL_SIMPLIFY, AVATAR_WINE_COMPILER_CACHE, AVATAR_WINE_CONSTRUCTOR_POOLS, AVATAR_WINE_EARLY_LIMITS, AVATAR_WINE_FACE_EARLY_LIMITS, AVATAR_WINE_FACE_TRACE, AVATAR_WINE_FACES, AVATAR_WINE_FACES_2S, AVATAR_WINE_FACES_EARLY, AVATAR_WINE_FACES_OFF, AVATAR_WINE_KEEP_TRANSLATED, AVATAR_WINE_LATEST_CONTROL, AVATAR_WINE_LATEST_SHADERS,
                                  AVATAR_WINE_NOTIFY_SWITCHES, AVATAR_WINE_SCREEN_LIMITS, AVATAR_WINE_SINGLE_PARSE,
                                  AVATAR_WINE_QUEUE_TIMING, AVATAR_WINE_QUEUE_TIMINGS, AVATAR_WINE_SCREEN_WORKERS, AVATAR_WINE_VALUE_USE_INDEX, AVATAR_WINE_WAITER_SWITCHES,
                                  AVATAR_WINE_WRITEBACK_SWITCHES, benchmark_flags, compute_wait_activity,
@@ -16,8 +16,10 @@ class AvatarWineProfileTests(unittest.TestCase):
     def test_face_build_keeps_the_cold_profile_with_raw_loads_explicit(self):
         self.assertEqual(benchmark_flags(AVATAR_WINE_FACES),
                          dict(benchmark_flags(AVATAR_WINE_LATEST_SHADERS), VICTORY_RAW_TYPED_LOADS="1"))
+        self.assertEqual(benchmark_flags(AVATAR_WINE_FACES_OFF),
+                         dict(benchmark_flags(AVATAR_WINE_FACES), VICTORY_EARLY_COMPUTE_MAX_BYTES="0"))
         self.assertEqual(benchmark_flags(AVATAR_WINE_FACES_EARLY),
-                         dict(benchmark_flags(AVATAR_WINE_FACES), VICTORY_EARLY_COMPUTE_MAX_BYTES="3072"))
+                         dict(benchmark_flags(AVATAR_WINE_FACES_OFF), VICTORY_EARLY_COMPUTE_MAX_BYTES="3072"))
         self.assertEqual(benchmark_flags(AVATAR_WINE_FACES_2S),
                          dict(benchmark_flags(AVATAR_WINE_FACES_EARLY), VICTORY_COMPUTE_WAIT_MS="2000"))
         self.assertEqual(benchmark_flags(AVATAR_WINE_FACE_TRACE), benchmark_flags(AVATAR_WINE_FACES))
@@ -285,7 +287,7 @@ class AvatarWineProfileTests(unittest.TestCase):
         off, on, wider, shorter, larger, legacy_fma = (
             benchmark_flags(mode)
             for mode in AVATAR_WINE_EARLY_LIMITS
-            if mode not in (AVATAR_WINE_FACES_EARLY, AVATAR_WINE_FACES_2S)
+            if mode not in AVATAR_WINE_FACE_EARLY_LIMITS
         )
         self.assertEqual(legacy_fma, larger)
         self.assertEqual(larger.pop("VICTORY_EARLY_COMPUTE_MAX_BYTES"), "3072")
