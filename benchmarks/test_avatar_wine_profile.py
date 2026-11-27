@@ -18,7 +18,8 @@ from avatar_wine_profile import AVATAR_WINE_SCREEN_WAITER_DIAGNOSTICS, AVATAR_WI
 from avatar_wine_profile import AVATAR_WINE_WRITE_WATCH_GAPS, verify_write_watch_gap
 from avatar_wine_profile import (AVATAR_WINE_RECORDED_COMPUTE, AVATAR_WINE_RECORDED_SCREEN,
                                  AVATAR_WINE_FULL_DIRTY_SCAN_MODES, AVATAR_WINE_LATE_SUBMIT_PROFILES,
-                                 AVATAR_WINE_UPSTREAM_COLD, LATE_SUBMIT_SAMPLE, LATE_SUBMIT_TIMEOUT, verify_clean_reference_check,
+                                 AVATAR_WINE_UPSTREAM_COLD, AVATAR_WINE_UPSTREAM_2S, LATE_SUBMIT_SAMPLE,
+                                 LATE_SUBMIT_TIMEOUT, verify_clean_reference_check,
                                  AVATAR_WINE_RECORDED_SCREEN_SCORES, recorded_compute_activity,
                                  recorded_screen_activity, stage_trace_coverage, verify_recorded_screen_score)
 from first_room import DeviceLost
@@ -122,6 +123,11 @@ class AvatarWineProfileTests(unittest.TestCase):
         verify_write_watch_gap(lines, start, 2_000_000, 1024)
         with self.assertRaises(ValueError):
             verify_write_watch_gap(lines, start, 2_000_000, 8192)
+
+    def test_merged_cold_wait_budget_changes_only_the_compute_wait(self):
+        self.assertEqual(benchmark_flags(AVATAR_WINE_UPSTREAM_2S),
+                         dict(benchmark_flags(AVATAR_WINE_UPSTREAM_COLD), VICTORY_COMPUTE_WAIT_MS="2000"))
+        self.assertFalse(AVATAR_WINE_CAPTURE_OBSERVERS[AVATAR_WINE_UPSTREAM_2S])
 
     def test_observer_pair_uses_the_same_runtime_flags(self):
         off = benchmark_flags(AVATAR_WINE_OBSERVERS_OFF)

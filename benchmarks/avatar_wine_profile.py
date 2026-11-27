@@ -43,6 +43,7 @@ AVATAR_WINE_OBSERVERS_OFF = "vkd3d-master-avatar-wine-440-observers-off"
 AVATAR_WINE_OBSERVERS_ON = "vkd3d-master-avatar-wine-440-observers-on"
 AVATAR_WINE_MERGED_COLD = "vkd3d-master-avatar-wine-440-merged-cold"
 AVATAR_WINE_UPSTREAM_COLD = "vkd3d-master-avatar-wine-440-upstream-45ef"
+AVATAR_WINE_UPSTREAM_2S = "vkd3d-master-avatar-wine-440-upstream-45ef-wait2000"
 AVATAR_WINE_WRITE_WATCH_INDEX = "vkd3d-master-avatar-wine-440-write-watch-index"
 AVATAR_WINE_RECORDED_COMPUTE = {
     "vkd3d-master-avatar-wine-440-recorded-compute-off": "0",
@@ -78,6 +79,7 @@ AVATAR_WINE_WRITE_WATCH_GAPS = {
 AVATAR_WINE_CAPTURE_OBSERVERS = {
     AVATAR_WINE_OBSERVERS_OFF: False, AVATAR_WINE_OBSERVERS_ON: True, AVATAR_WINE_MERGED_COLD: False,
     AVATAR_WINE_WRITE_WATCH_INDEX: False, AVATAR_WINE_UPSTREAM_COLD: False,
+    AVATAR_WINE_UPSTREAM_2S: False,
     **dict.fromkeys(AVATAR_WINE_RECORDED_COMPUTE, False),
     **dict.fromkeys(AVATAR_WINE_RECORDED_SCREEN, False),
     **dict.fromkeys(AVATAR_WINE_RECORDED_SCREEN_SCORES, False),
@@ -177,7 +179,7 @@ AVATAR_WINE_MODES = AVATAR_WINE_COMPUTE_BUDGETS | dict.fromkeys(
      *AVATAR_WINE_RECORDED_SCREEN_SCORES, *AVATAR_WINE_LATE_SUBMIT_MODES), 10000
 ) | dict.fromkeys((*AVATAR_WINE_SCREEN_LIMITS, *AVATAR_WINE_SCREEN_WORKERS, "vkd3d-master-avatar-wine-440-early-2560-wait2000",
                    "vkd3d-master-avatar-wine-440-early-3072-wait2000", AVATAR_WINE_LEGACY_FMA,
-                   AVATAR_WINE_FACES_2S, AVATAR_WINE_SCREEN_QUEUE_TRACE), 2000)
+                   AVATAR_WINE_FACES_2S, AVATAR_WINE_SCREEN_QUEUE_TRACE, AVATAR_WINE_UPSTREAM_2S), 2000)
 
 # Source profile: avatarmanz/VIctory-7900XTX#440, b2bf3d99, play.sh and play-1080p.sh.
 # Use the benchmark's scene and UI dimensions, render offline, and keep the
