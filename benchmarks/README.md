@@ -1222,6 +1222,15 @@ The second combined attempt reached 159.65 s before yielding to another build. I
 
 Waits on groups with a translation still pending overlapped 63.68 s of complete gaps of at least one second in the reference and 47.63 s in the combined build. Overlap after the last translation was logged was 32.96 s and 34.38 s, respectively. This run leaves the full 300 s result and visual check open.
 
+The fourth combined attempt yielded to a competing build at 233.41 s. The first 230 s passed the same cold-start checks. The reference and candidate used the same input, flags, caches and driver files, and both loaded vkd3d-proton `71cae091b06571e`. The Windows release candidate matched 171 runtime source checksums. The guard was the first interruption.
+
+| Build | Accepted presents in 230 s | P99 interval | Longest gap | Time in gaps above 100 ms | Compute waits without a result |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Reference | 3,934 | 226.09 ms | 19.93 s | 129.42 s | 38 |
+| Combined shader changes, fourth attempt | 4,724 | 205.53 ms | 20.09 s | 112.00 s | 22 |
+
+Waits with a translation still pending overlapped 86.24 s of complete gaps of at least one second in the reference and 66.35 s in the candidate. After the last logged translation, overlap was 48.80 s and 47.17 s. All stalls from launch count in these prefixes. The candidate still needs a complete 300 s run and a matched visual check.
+
 Grouping completed waits by shader list and compute or screen class shows how concentrated the long stalls were. The exact reference had 30 complete present gaps of at least one second, totaling 122.44 s. Logged waits overlapped 120.96 s. Taking the largest group in each gap accounts for 72.15 s, including 46.49 s in the first 80 s. Three of the first four gaps in that window were at least 80% covered by a single group. The combined shader changes had seven gaps of at least one second in the same window, totaling 49.46 s versus the reference's 51.07 s. The sum of the largest group's overlap in each gap fell from 46.49 s to 35.88 s. Later reference gaps were spread across more groups. Group identity uses logged shader lists, which can be shared by different pipeline configurations. Overlap measures timing and does not establish how many seconds a compiler change can remove.
 
 The same complete gaps can be attributed by the timestamp of each wait's last shader translation. In the full reference, waits for shader groups with a translation still pending overlapped 90.82 s. Waits after all their shader translations were logged overlapped 51.79 s. These intervals overlap when multiple threads wait at once. The first 80 s reference and combined prefixes respectively had 49.30 s and 41.23 s of overlap while translation was pending, and 19.84 s and 25.76 s after translation was logged. Both traces supplied translation markers for every shader in their logged waits. A pending translation includes any time spent waiting for a worker to begin. The timestamps alone cannot divide that interval into queue time and translator execution time.
