@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 import unittest
 
 from avatar_wine_profile import (AVATAR_WINE_EARLY_LIMITS, AVATAR_WINE_NOTIFY_SWITCHES, AVATAR_WINE_SCREEN_LIMITS,
-                                 AVATAR_WINE_SCREEN_WORKERS,
+                                 AVATAR_WINE_SCREEN_WORKERS, AVATAR_WINE_VALUE_USE_INDEX,
                                  AVATAR_WINE_WRITEBACK_SWITCHES, benchmark_flags, compute_wait_activity,
                                  early_compute_activity, early_screen_activity, observed_profile,
                                  pipeline_wait_gap_totals, screen_wait_coverage, screen_worker_activity,
@@ -11,6 +11,10 @@ from cold_boot import verify_wait_budgets
 
 
 class AvatarWineProfileTests(unittest.TestCase):
+    def test_value_use_index_uses_reference_flags(self):
+        self.assertEqual(benchmark_flags(AVATAR_WINE_VALUE_USE_INDEX),
+                         benchmark_flags("vkd3d-master-avatar-wine-440"))
+
     def test_log_confirms_frame_rate_mapping_and_compute_budget(self):
         lines = [
             "frame rate: the title's read of its frame rate setting patched (VICTORY_FRAME_INTERVAL_MS) rate=\x1b[3m60\x1b[0m",

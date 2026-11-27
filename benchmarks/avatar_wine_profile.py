@@ -16,6 +16,7 @@ AVATAR_WINE_WRITEBACK_SWITCHES = {
     "vkd3d-master-avatar-wine-440-wc-bounds-on": "1",
 }
 AVATAR_WINE_LEGACY_FMA = "vkd3d-master-avatar-wine-440-legacy-fma-3072"
+AVATAR_WINE_VALUE_USE_INDEX = "vkd3d-master-avatar-wine-440-value-use-index"
 AVATAR_WINE_EARLY_LIMITS = {
     "vkd3d-master-avatar-wine-440-early-off": 0,
     "vkd3d-master-avatar-wine-440-early-1k": 1024,
@@ -37,7 +38,8 @@ AVATAR_WINE_SCREEN_WORKERS = {
     "vkd3d-master-avatar-wine-440-screen-worker-reserved": "1",
 }
 AVATAR_WINE_MODES = AVATAR_WINE_COMPUTE_BUDGETS | dict.fromkeys(
-    (*AVATAR_WINE_WRITEBACK_SWITCHES, *AVATAR_WINE_EARLY_LIMITS, *AVATAR_WINE_NOTIFY_SWITCHES), 10000
+    (*AVATAR_WINE_WRITEBACK_SWITCHES, *AVATAR_WINE_EARLY_LIMITS, *AVATAR_WINE_NOTIFY_SWITCHES,
+     AVATAR_WINE_VALUE_USE_INDEX), 10000
 ) | dict.fromkeys((*AVATAR_WINE_SCREEN_LIMITS, *AVATAR_WINE_SCREEN_WORKERS, "vkd3d-master-avatar-wine-440-early-2560-wait2000",
                    "vkd3d-master-avatar-wine-440-early-3072-wait2000", AVATAR_WINE_LEGACY_FMA), 2000)
 
