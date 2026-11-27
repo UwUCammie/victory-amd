@@ -42,6 +42,7 @@ AVATAR_WINE_CARD_TOUCHED = {
 AVATAR_WINE_OBSERVERS_OFF = "vkd3d-master-avatar-wine-440-observers-off"
 AVATAR_WINE_OBSERVERS_ON = "vkd3d-master-avatar-wine-440-observers-on"
 AVATAR_WINE_MERGED_COLD = "vkd3d-master-avatar-wine-440-merged-cold"
+AVATAR_WINE_UPSTREAM_COLD = "vkd3d-master-avatar-wine-440-upstream-45ef"
 AVATAR_WINE_WRITE_WATCH_INDEX = "vkd3d-master-avatar-wine-440-write-watch-index"
 AVATAR_WINE_RECORDED_COMPUTE = {
     "vkd3d-master-avatar-wine-440-recorded-compute-off": "0",
@@ -76,7 +77,7 @@ AVATAR_WINE_WRITE_WATCH_GAPS = {
 }
 AVATAR_WINE_CAPTURE_OBSERVERS = {
     AVATAR_WINE_OBSERVERS_OFF: False, AVATAR_WINE_OBSERVERS_ON: True, AVATAR_WINE_MERGED_COLD: False,
-    AVATAR_WINE_WRITE_WATCH_INDEX: False,
+    AVATAR_WINE_WRITE_WATCH_INDEX: False, AVATAR_WINE_UPSTREAM_COLD: False,
     **dict.fromkeys(AVATAR_WINE_RECORDED_COMPUTE, False),
     **dict.fromkeys(AVATAR_WINE_RECORDED_SCREEN, False),
     **dict.fromkeys(AVATAR_WINE_RECORDED_SCREEN_SCORES, False),
@@ -265,7 +266,7 @@ def benchmark_flags(mode):
     if mode in AVATAR_WINE_RECORDED_COMPUTE:
         flags.update(VICTORY_EARLY_RECORDED_COMPUTE=AVATAR_WINE_RECORDED_COMPUTE[mode],
                      VICTORY_RECORDED_COMPUTE_TRACE="1")
-    if mode in (*AVATAR_WINE_RECORDED_SCREEN, *AVATAR_WINE_RECORDED_SCREEN_SCORES, *AVATAR_WINE_LATE_SUBMIT_MODES):
+    if mode in (*AVATAR_WINE_RECORDED_SCREEN, *AVATAR_WINE_RECORDED_SCREEN_SCORES, *AVATAR_WINE_LATE_SUBMIT_PROFILES):
         trace = mode in AVATAR_WINE_RECORDED_SCREEN
         switches = AVATAR_WINE_RECORDED_SCREEN if trace else AVATAR_WINE_RECORDED_SCREEN_SCORES
         flags.update(VICTORY_EARLY_RECORDED_SCREEN=switches.get(mode, "0"),

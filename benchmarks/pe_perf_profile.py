@@ -11,7 +11,7 @@ import subprocess
 from verify_pdb_sources import field, output
 
 
-def runtime_profile(data, executable, launch, thread, focus=()):
+def runtime_profile(data, executable, launch, thread, focus=(), capture=None):
     if not launch["diagnostic_only"]:
         raise ValueError("expected a profiling launch")
     with executable.open("rb") as source:
@@ -36,13 +36,17 @@ def runtime_profile(data, executable, launch, thread, focus=()):
     trace = output("perf", "report", "--dump-raw-trace", "-i", data)
     regions = {int(start, 16) for start, length in re.findall(pattern, trace, re.M)
                if int(length, 16) == mapped_size and (int(start, 16) - rva) % 65536 == 0}
+    if capture is not None:
+        if capture["image_preferred"] != image_base:
+            raise ValueError("captured and executable image bases differ")
+        regions.intersection_update({capture["image_load"] + rva})
     if len(regions) != 1:
         raise ValueError("cannot identify a unique anonymous text mapping")
     start = regions.pop()
     end = start + size
     samples = output("perf", "script", "-i", data, "-F", "comm,ip,dso")
-    anonymous = Counter(int(ip, 16) for ip in re.findall(
-        rf"(?m)^\s*{re.escape(thread)}\s+([0-9a-f]+)\s+\([^)]*perf-\d+\.map\)", samples))
+    thread_samples = re.findall(rf"(?m)^[ \t]*{re.escape(thread)}\s+([0-9a-f]+)\s+\(([^)\n]*)\)", samples)
+    anonymous = Counter(int(ip, 16) for ip, dso in thread_samples if re.search(r"perf-\d+\.map$", dso))
     counts = {hex(image_base + rva + ip - start): count for ip, count in anonymous.items() if start <= ip < end}
     if not counts:
         raise ValueError("no anonymous thread samples match the text mapping")
@@ -80,6 +84,7 @@ def runtime_profile(data, executable, launch, thread, focus=()):
     if not attributed:
         raise ValueError("the text mapping did not resolve to runtime source")
     return {
+        "thread_samples": len(thread_samples),
         "anonymous_thread_samples": sum(anonymous.values()),
         "in_text_section": sum(counts.values()),
         "attributed_to_runtime": attributed,
@@ -95,12 +100,14 @@ if __name__ == "__main__":
     parser.add_argument("executable", type=Path)
     parser.add_argument("launch", type=Path)
     parser.add_argument("--thread", default="victory-pipelin")
+    parser.add_argument("--capture", type=Path, help="Optional process image metadata from launch_profile.py")
     parser.add_argument("--focus", action="append", default=[],
                         help="Count samples for this function regardless of its rank")
     args = parser.parse_args()
     try:
+        capture = json.loads(args.capture.read_text()) if args.capture else None
         result = runtime_profile(args.data, args.executable, json.loads(args.launch.read_text()),
-                                 args.thread, args.focus)
-    except (ValueError, OSError, subprocess.CalledProcessError) as error:
+                                 args.thread, args.focus, capture)
+    except (KeyError, ValueError, OSError, subprocess.CalledProcessError) as error:
         parser.exit(1, f"{error}\n")
     print(json.dumps(result, indent=2))

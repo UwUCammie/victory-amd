@@ -18,7 +18,7 @@ from avatar_wine_profile import AVATAR_WINE_SCREEN_WAITER_DIAGNOSTICS, AVATAR_WI
 from avatar_wine_profile import AVATAR_WINE_WRITE_WATCH_GAPS, verify_write_watch_gap
 from avatar_wine_profile import (AVATAR_WINE_RECORDED_COMPUTE, AVATAR_WINE_RECORDED_SCREEN,
                                  AVATAR_WINE_FULL_DIRTY_SCAN_MODES, AVATAR_WINE_LATE_SUBMIT_PROFILES,
-                                 LATE_SUBMIT_SAMPLE, LATE_SUBMIT_TIMEOUT, verify_clean_reference_check,
+                                 AVATAR_WINE_UPSTREAM_COLD, LATE_SUBMIT_SAMPLE, LATE_SUBMIT_TIMEOUT, verify_clean_reference_check,
                                  AVATAR_WINE_RECORDED_SCREEN_SCORES, recorded_compute_activity,
                                  recorded_screen_activity, stage_trace_coverage, verify_recorded_screen_score)
 from first_room import DeviceLost
@@ -102,7 +102,7 @@ class AvatarWineProfileTests(unittest.TestCase):
         self.assertLess(sum(LATE_SUBMIT_SAMPLE), LATE_SUBMIT_TIMEOUT)
 
     def test_clean_reference_check_preserves_the_full_scan_in_both_profiles(self):
-        baseline = benchmark_flags(next(iter(AVATAR_WINE_LATE_SUBMIT_PROFILES)))
+        baseline = benchmark_flags(AVATAR_WINE_UPSTREAM_COLD)
         for mode, enabled in AVATAR_WINE_FULL_DIRTY_SCAN_MODES.items():
             self.assertEqual(benchmark_flags(mode),
                              dict(baseline, VICTORY_CARD_SKIP_CLEAN_UPGRADES=enabled))
@@ -127,6 +127,7 @@ class AvatarWineProfileTests(unittest.TestCase):
         off = benchmark_flags(AVATAR_WINE_OBSERVERS_OFF)
         self.assertEqual(off, benchmark_flags(AVATAR_WINE_OBSERVERS_ON))
         self.assertEqual(off, benchmark_flags(AVATAR_WINE_MERGED_COLD))
+        self.assertEqual(off, benchmark_flags(AVATAR_WINE_UPSTREAM_COLD))
         self.assertEqual(off, benchmark_flags(next(iter(AVATAR_WINE_CARD_TOUCHED))))
         self.assertFalse(AVATAR_WINE_CAPTURE_OBSERVERS[AVATAR_WINE_MERGED_COLD])
 
