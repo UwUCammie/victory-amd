@@ -1386,6 +1386,24 @@ The second updated Wine control and the second updated compiler/cache attempt bo
 
 Against the earlier verified 21.93 FPS release, the updated compiler/cache attempt accepted 3,105 versus 2,903 presents in the first 170 s and spent 87.22 versus 97.83 s in gaps above 100 ms. P99 increased from 226.09 to 245.92 ms. The driver files, input, runtime flags and initially empty caches matched. Several runtime changes separate these builds, and this longer prefix ends before the interruption. It cannot isolate the indexed lookup's effect or supply a five-minute score.
 
+### General pipeline workers in the opening
+
+The six-, ten- and fourteen-worker launches used the same Wine executable, input, three driver DLLs and loaded vkd3d-proton `71cae091b06571e`. Each used 1280×720 with a 4K interface, a fresh story, five empty graphics caches, two priority workers, a 3 KiB early compute cutoff and a 10 s compute wait. The runtime reported the requested general worker count. Separate builds interrupted the three launches at 208.78 s, 80.54 s and 60.81 s, respectively. Every prefix below ended before its interruption and had a subsequent accepted present before the guard fired.
+
+| First 55 s | 6 workers | 10 workers | 14 workers |
+| --- | ---: | ---: | ---: |
+| Accepted presents | 1,440 | 1,442 | 1,445 |
+| P99 present interval | 44.84 ms | 36.87 ms | 33.80 ms |
+| Longest gap | 10.31 s | 10.31 s | 10.34 s |
+| Time in gaps over 100 ms | 31.10 s | 31.15 s | 31.07 s |
+| Compute waits without a result | 9 | 12 | 11 |
+
+Over the first 75 s, six and ten workers accepted 1,454 and 1,463 presents and spent 50.87 and 50.54 s in gaps over 100 ms, respectively. P99 was 124.87 and 186.52 ms, while the longest gaps were 10.66 and 10.49 s. Both characters' facial skin was visible in the same opening dialogue shot on six and ten workers. The comparable prefixes give little reason to change the worker count. A complete run and a saved indoor rendering check remain pending.
+
+On the ten-worker release, the first two complete long gaps lasted 10.31 and 10.14 s. Logged compute waits overlapped 9.72 and 10.10 s of those gaps, respectively, with no logged screen waits overlapping either. The next comparison changes only the compute wait from 10 s to 2 s on the same build. It keeps the 3 KiB cutoff and checks waits without a result and the same private visual route along with present timing.
+
+The indexed CPU profile also sampled register renaming and live-out lookup. An independent source experiment reuses a predecessor's live-out values when the incoming register set matches. It also keys the existing sorted live-out lists by numeric register index. Native output comparison and timing are queued. [Experimental source](https://github.com/UwUCammie/VIctory-7900XTX/commit/a9912f37)
+
 ### Legacy save migration under Wine
 
 A temporary fixture on the current Wine branch reproduced deletion of a legacy save directory when one blob could not be read. After towiice's fix, migration kept the original directory and committed no partial version. Once the simulated bad entry was repaired, migration succeeded and both blob contents matched. The regression plus ten other save tests passed in the Windows MSVC test executable under Wine 11.22. The existing NTFS hard-link-limit test failed on Btrfs. Both executables matched 163 runtime source checksums. [Wine PR](https://github.com/borntofrag34/VIctory-7900XTX/pull/13)
