@@ -95,8 +95,10 @@ AVATAR_WINE_STAGE_CPU_PROFILES = (AVATAR_WINE_STAGE_CPU_PROFILE, AVATAR_WINE_STA
 AVATAR_WINE_SCREEN_QUEUE_TRACE = "vkd3d-master-avatar-wine-440-faces-screen-queue"
 AVATAR_WINE_SCREEN_QUEUE_10S = "vkd3d-master-avatar-wine-440-faces-screen-queue-10s"
 AVATAR_WINE_SCREEN_QUEUE_PRIORITY = "vkd3d-master-avatar-wine-440-faces-screen-queue-10s-on"
+AVATAR_WINE_SCREEN_WAIT_BOUNDARIES = "vkd3d-master-avatar-wine-440-faces-screen-wait-boundaries"
 AVATAR_WINE_SCREEN_QUEUE_TRACES = (
     AVATAR_WINE_SCREEN_QUEUE_TRACE, AVATAR_WINE_SCREEN_QUEUE_10S, AVATAR_WINE_SCREEN_QUEUE_PRIORITY,
+    AVATAR_WINE_SCREEN_WAIT_BOUNDARIES,
 )
 AVATAR_WINE_STAGE_TIMINGS = {
     "vkd3d-master-avatar-wine-440-stage-timing-off": "0",
@@ -105,6 +107,7 @@ AVATAR_WINE_STAGE_TIMINGS = {
     AVATAR_WINE_SCREEN_QUEUE_TRACE: "0",
     AVATAR_WINE_SCREEN_QUEUE_10S: "0",
     AVATAR_WINE_SCREEN_QUEUE_PRIORITY: "1",
+    AVATAR_WINE_SCREEN_WAIT_BOUNDARIES: "0",
 }
 STAGE_TRACE_SECONDS = 82
 STAGE_TRACE_CUTOFF = 75_000_000
@@ -501,6 +504,39 @@ def queue_claim_activity(lines, launched, stop, frames, *, screen=False):
         f"{kind}_wait_reports": len(waits),
         f"matched_{kind}_wait_reports": matched,
         f"queued_{kind}_overlap_seconds": sum(_wait_overlap(queued, a, b) for a, b in _complete_long_gaps(frames, stop)) / 1e6,
+    }
+
+
+def screen_wait_progress(lines, launched, stop, frames):
+    """Include waits that had started and were still open at the trace cutoff."""
+    began = "screen pipeline wait started"
+    ended = "screen pipeline wait ended"
+    active = {}
+    seen = set()
+    completed = 0
+    for at, line in windowed_log_lines(lines, launched, stop, (began, ended)):
+        match = re.search(r"\bid=(\d+)\b", line)
+        if match is None:
+            raise ValueError("screen wait boundary has no ID")
+        wait = int(match[1])
+        if began in line:
+            if wait in seen:
+                raise ValueError("screen wait started twice")
+            seen.add(wait)
+            active[wait] = at
+        else:
+            start = active.pop(wait, None)
+            if start is None or at < start:
+                raise ValueError("screen wait ended without its start")
+            completed += 1
+    still_waiting = sorted((start, stop) for start in active.values())
+    return {
+        "started": len(seen),
+        "ended": completed,
+        "open_at_cutoff": len(active),
+        "longest_open_wait_seconds": (stop - min(active.values())) / 1e6 if active else 0,
+        "open_wait_gap_overlap_seconds": sum(_wait_overlap(still_waiting, left, right)
+                                             for left, right in _complete_long_gaps(frames, stop)) / 1e6,
     }
 
 

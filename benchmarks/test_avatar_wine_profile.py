@@ -10,7 +10,7 @@ from avatar_wine_profile import (AVATAR_WINE_BOOL_SIMPLIFY, AVATAR_WINE_COMPILER
                                  screen_wait_coverage, screen_worker_activity,
                                  queue_claim_activity, verify_constructor_pool, verify_notification_mode, verify_pipeline_workers, verify_waiter_priority, writeback_activity)
 from cold_boot import verify_wait_budgets
-from avatar_wine_profile import AVATAR_WINE_CARD_TOUCHED, verify_card_dirty_scan
+from avatar_wine_profile import AVATAR_WINE_CARD_TOUCHED, AVATAR_WINE_SCREEN_WAIT_BOUNDARIES, screen_wait_progress, verify_card_dirty_scan
 
 
 class AvatarWineProfileTests(unittest.TestCase):
@@ -54,6 +54,8 @@ class AvatarWineProfileTests(unittest.TestCase):
                                   VICTORY_PIPELINE_QUEUE_TIMING="1", VICTORY_PIPELINE_STAGE_TIMING="1"))
         self.assertEqual(benchmark_flags(AVATAR_WINE_SCREEN_QUEUE_PRIORITY),
                          dict(benchmark_flags(AVATAR_WINE_SCREEN_QUEUE_10S), VICTORY_PIPELINE_WAITERS_FIRST="1"))
+        self.assertEqual(benchmark_flags(AVATAR_WINE_SCREEN_WAIT_BOUNDARIES),
+                         benchmark_flags(AVATAR_WINE_SCREEN_QUEUE_10S))
 
     def test_screen_wait_uses_pipeline_key_when_two_pipelines_share_shaders(self):
         started = datetime(2026, 11, 27, 8, tzinfo=timezone.utc)
@@ -66,6 +68,22 @@ class AvatarWineProfileTests(unittest.TestCase):
         self.assertEqual(result["screen_wait_reports"], 1)
         self.assertEqual(result["matched_screen_wait_reports"], 1)
         self.assertEqual(result["queued_screen_overlap_seconds"], 1)
+
+    def test_screen_waits_still_open_at_cutoff_are_counted_once_in_a_gap(self):
+        started = datetime(2026, 11, 27, 8, tzinfo=timezone.utc)
+        lines = [
+            '2026-11-27T08:00:02Z INFO screen pipeline wait started id=0 frame=4 key="ab"',
+            '2026-11-27T08:00:03Z INFO screen pipeline wait started id=1 frame=4 key="ab"',
+            '2026-11-27T08:00:04Z INFO screen pipeline wait ended id=1',
+            '2026-11-27T08:00:04Z INFO screen pipeline wait started id=2 frame=4 key="bc"',
+            '2026-11-27T08:00:07Z INFO screen pipeline wait ended id=0',
+        ]
+        frames = [1_000_000, 5_000_000, 6_500_000]
+        result = screen_wait_progress(lines, started, 6_000_000, frames)
+        self.assertEqual(result, {"started": 3, "ended": 1, "open_at_cutoff": 2,
+                                  "longest_open_wait_seconds": 4, "open_wait_gap_overlap_seconds": 3})
+        with self.assertRaises(ValueError):
+            screen_wait_progress(lines[2:], started, 6_000_000, frames)
 
     def test_worker_count_requires_the_runtime_marker(self):
         start = datetime(2026, 11, 27, 8, tzinfo=timezone.utc)
