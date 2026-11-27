@@ -1202,6 +1202,17 @@ The single-parse experiment passes the renderer's parsed console program to the 
 
 The priority gameplay comparison now builds the indexed translator together with the fresh-cache path. Both changes use the exact source already validated in their individual tests. The combined candidate differs from the reference only in the two source files. It requires the original runtime flags, private driver digests, resolution and route, five empty caches and all 300 seconds from launch. [Combined experiment source](https://github.com/UwUCammie/VIctory-7900XTX/commit/2d6e4f31)
 
+The combined build verified 171 runtime source checksums and yielded to another build at 83.84 s. Its executable differed as planned and its runtime flags, input, five empty caches and all three driver file digests matched the reference. It loaded vkd3d-proton `71cae091b06571e`. The strict first 80 s prefix qualifies as diagnostic evidence.
+
+| Build | Accepted presents | P99 interval | Longest gap | Time in gaps above 100 ms | Compute pipelines completed |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Reference | 1,444 | 91.69 ms | 19.93 s | 56.02 s | 768 |
+| Combined shader changes | 1,481 | 210.81 ms | 10.69 s | 54.81 s | 808 |
+
+Full 300 s scoring excludes the interrupted launch. The trial remains in rotation.
+
+For successive builds, `build_checkout.py` pins a separate detached worktree at the desired source revision and holds a lock through the command. A stable path allows Cargo to reuse unchanged artifacts. The runner rejects dirty checkouts and keeps the existing executable/PDB source validation before gameplay. A synthetic Git test switched the worktree between two commits and confirmed that a local edit was preserved.
+
 The current queue lets both priority workers take compute, including when an urgent screen pass arrives while both are busy. The next comparison reserves one of those workers for requested screen passes and leaves the other shared. Shared workers keep their existing FIFO order. The policy keeps the same worker count, 2 s compute budget, 10 s screen budget and 2.5 KiB early compute cutoff in both arms. Early screen work is off. Ten focused Windows MSVC tests under Wine passed, with 108 source checksums in the exact test executable's PDB. They cover the reserve and both claim orders without a duplicate compile. The gameplay verifier requires a first claim on the reserved arm. [Candidate source](https://github.com/UwUCammie/VIctory-7900XTX/commit/cc3b85bb)
 
 The first reserved-worker launch claimed a screen pass at 26.45 s and lost the GPU device at 89.10 s. The guard recorded no overlap. The shared control yielded to a separate build at 4.81 s. The runs matched the executable, all three driver digests, new story, five empty caches, inputs and flags except for the worker switch. The driver actually loaded `71cae091b06571e` in both arms. These runs establish that the reserved worker took a pass and that the renderer lost its device. A complete shared control is pending, and the reserved setting remains held.
