@@ -643,6 +643,14 @@ Victory Grimkaaah reports 13.9 FPS in the world with ray tracing, at 4K output o
 
 The shared-buffer pool from Avatar #433 targets allocations made for off-element buffer views and command-list uploads. In the reverse-order 720p runs above, the combined and stock builds peaked at 45 and 70 retained exact views. Their last cumulative mapping counters showed 21,400 and 19,800 waits and 15.6 and 18.0 seconds across threads. Those totals include allocations from all callers and can overlap. The AMD adaptation has both settings opt-in. The first hardware fixture uses the upload pool alone and exercises list-reset ownership. [Upstream discussion](https://github.com/avatarmanz/VIctory-7900XTX/pull/433#issuecomment-7211359080) · [AMD candidate](https://github.com/UwUCammie/VIctory-7900XTX/commit/acfb2357)
 
+### Cold follow-up with the 500 ms compute scheduler
+
+This run used the revised [Avatar #166](https://github.com/avatarmanz/VIctory-7900XTX/pull/166) scheduler with the [720p interface and present trace overlay](https://github.com/UwUCammie/VIctory-7900XTX/commit/a995ba9c). The loaded driver was vkd3d-proton `71cae091b06571e`. The log confirmed a 500 ms graphics wait. The control used compute wait off.
+
+The clean run accepted **2,610 presents in the first 300 seconds (8.70 FPS)**, with a 627 ms P99 and a 2.51 s longest gap. It spent 210.75 seconds in gaps over 100 ms. Eight overlapping control attempts were excluded. The first enabled attempt yielded to another GPU client and was excluded. The enabled runtime logged both 500 ms budgets before it yielded.
+
+The control accepted 566 presents between 30 and 220 seconds (2.98 FPS). Across three subdivisions of that interval, median reported preparation was 111–150 ms/frame, with copies accounting for 60–92 ms/frame. Those are medians of renderer samples. The full-window FPS is from the accepted-present trace. A private close-up around 190 seconds showed eyes and teeth with the facial surface missing, reproducing the earlier observation on a clean run. The matched compute-on timing and visual checks are pending. [Upstream discussion](https://github.com/avatarmanz/VIctory-7900XTX/pull/166#issuecomment-7211416953)
+
 ### Late card-step fills on the AMD branch
 
 [Avatar #434](https://github.com/avatarmanz/VIctory-7900XTX/pull/434) traced stretched geometry to constant-buffer fills that read too early. [AMD #56](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/56) ports the check with `VICTORY_CARD_STEPS_LEARN=1` opt-in. The Windows MSVC build passed nine Wine tests, including a fixture with changed and unchanged pages for both fill paths. The separate flight test is pending.
