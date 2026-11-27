@@ -1161,6 +1161,19 @@ Both fixed windows include launch and stutters. The 2 s trial had a shorter maxi
 
 I also staged an independent comparison of the shared completion notification against per-pipeline notifications. The latter wakes only threads waiting on the pipeline that completed, including when a failed compile is handled. The same-binary experiment keeps the 10 s budget and 2.5 KiB cutoff and checks the active notification setting in the log. [Source change](https://github.com/UwUCammie/VIctory-7900XTX/commit/16805bb1), [Wine test source](https://github.com/UwUCammie/VIctory-7900XTX/commit/fd1b42e0)
 
+The 2 s compute trial still used the separate 10 s wait for passes over the screen. I reconstructed the reported waits from their end times and durations and clipped them to complete present gaps. Within each category, overlapping thread intervals count once. The categories can overlap in wall time, and the intervals show where each wait was active.
+
+| Gap start after launch | Present gap | Overlap with screen waits | Overlap with compute waits |
+| --- | ---: | ---: | ---: |
+| 47.88 s | 11.918 s | 11.913 s | 2.986 s |
+| 59.94 s | 10.469 s | 10.000 s | 2.622 s |
+| 37.72 s | 9.978 s | 9.978 s | 2.000 s |
+| 70.50 s | 5.949 s | 5.831 s | 2.075 s |
+
+One mesh/pixel pipeline repeatedly hit the screen wait limit in both budgets. Its two stages total 5,088 bytes. The next comparison queues existing screen-pass candidates up to 6 KiB at creation on the normal early workers. Both arms keep the 10 s screen wait, 2 s compute wait and 2.5 KiB early compute cutoff, using the same binary and cold protocol. The existing reserved workers still take requested passes. Check the full timing and private matching visuals before recommending the setting. [Proposed change](https://github.com/UwUCammie/VIctory-7900XTX/commit/59241786), [Wine test source](https://github.com/UwUCammie/VIctory-7900XTX/commit/c97188bd)
+
+The first write-back control yielded to a parallel build at 221.18 s. It used the staged driver and logged 29 write-combined statistics intervals and zero kept-declaration intervals before 210 s. A complete same-binary control and candidate remain necessary for a write-back result.
+
 ### Null constant-buffer descriptors
 
 Adapted the stale-slot fix from fxceless #304 to the Wine build. The Windows MSVC tests verified that null writes replace an existing descriptor in both title record formats. The RX 7900 XT test under Wine 11.22 and vkd3d-proton `71cae091b06571e` also replaced live host views with typed null views, cleared their raw twins, and confirmed that the device remained available. The executable and PDB matched 108 runtime source checksums. [Upstream fix](https://github.com/fxceless/victory-fork/pull/304), [Wine test source](https://github.com/UwUCammie/VIctory-7900XTX/commit/0989cf16)

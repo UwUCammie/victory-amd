@@ -1,9 +1,10 @@
 from datetime import datetime, timezone
 import unittest
 
-from avatar_wine_profile import (AVATAR_WINE_EARLY_LIMITS, AVATAR_WINE_NOTIFY_SWITCHES, AVATAR_WINE_WRITEBACK_SWITCHES,
-                                 benchmark_flags, compute_wait_activity, early_compute_activity, observed_profile,
-                                 verify_notification_mode, writeback_activity)
+from avatar_wine_profile import (AVATAR_WINE_EARLY_LIMITS, AVATAR_WINE_NOTIFY_SWITCHES, AVATAR_WINE_SCREEN_LIMITS,
+                                 AVATAR_WINE_WRITEBACK_SWITCHES, benchmark_flags, compute_wait_activity,
+                                 early_compute_activity, early_screen_activity, observed_profile,
+                                 screen_wait_coverage, verify_notification_mode, writeback_activity)
 from cold_boot import verify_wait_budgets
 
 
@@ -70,6 +71,36 @@ class AvatarWineProfileTests(unittest.TestCase):
             verify_notification_mode([event], started, 2_000_000, False)
         with self.assertRaises(ValueError):
             verify_notification_mode([event], started, 1_000_000, True)
+
+    def test_early_screen_changes_only_its_logged_byte_limit(self):
+        off, enabled = map(benchmark_flags, AVATAR_WINE_SCREEN_LIMITS)
+        self.assertEqual(off.pop("VICTORY_EARLY_SCREEN_MAX_BYTES"), "0")
+        self.assertEqual(enabled.pop("VICTORY_EARLY_SCREEN_MAX_BYTES"), "6144")
+        self.assertEqual(off, enabled)
+        self.assertEqual(enabled["VICTORY_COMPUTE_WAIT_MS"], "2000")
+        self.assertEqual(enabled["VICTORY_SCREEN_WAIT_MS"], "10000")
+        started = datetime(2026, 11, 27, 8, tzinfo=timezone.utc)
+        limit = "2026-11-27T08:00:01Z INFO cold screen pipeline byte limit bytes=6144"
+        event = "2026-11-27T08:00:02Z INFO first small screen pipeline started at creation"
+        self.assertEqual(early_screen_activity([limit, event], started, 3_000_000, 6144), {
+            "limit_bytes": 6144, "first_early_screen_seconds": 2.0,
+        })
+        with self.assertRaises(ValueError):
+            early_screen_activity([limit], started, 3_000_000, 6144)
+
+    def test_wait_coverage_clips_gaps_and_does_not_double_count_threads(self):
+        started = datetime(2026, 11, 27, 8, tzinfo=timezone.utc)
+        logs = [
+            "2026-11-27T08:00:03Z INFO a pass over the screen was waited for ms=1800 made=true",
+            "2026-11-27T08:00:02Z INFO a pass over the screen was waited for ms=1500 made=false",
+            "2026-11-27T08:00:02Z INFO a compute pass was waited for ms=800 made=true",
+            "2026-11-27T08:00:05Z INFO a compute pass was waited for ms=4500 made=true",
+        ]
+        rows = screen_wait_coverage(logs, started, 4_000_000, [1_000_000, 2_900_000, 3_500_000, 4_500_000])
+        self.assertEqual(rows, [
+            {"start_seconds": 1.0, "gap_ms": 1900, "screen_overlap_ms": 1900, "compute_overlap_ms": 800},
+            {"start_seconds": 2.9, "gap_ms": 600, "screen_overlap_ms": 100, "compute_overlap_ms": 0},
+        ])
 
     def test_writeback_activity_rejects_a_wrong_mode_or_threshold(self):
         started = datetime(2026, 11, 27, 8, tzinfo=timezone.utc)
