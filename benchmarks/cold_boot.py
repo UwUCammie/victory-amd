@@ -186,20 +186,24 @@ def verify_wait_budgets(lines, *, graphics_ms=None, compute_ms=None):
         raise ValueError(f"reported compute waits {sorted(compute)}, expected {compute_ms} ms")
 
 
+def windowed_log_lines(lines, launched, stop, markers):
+    for line in session_lines(lines):
+        if not any(marker in line for marker in markers):
+            continue
+        timestamp = TIMESTAMP.search(line)
+        if timestamp is None:
+            raise ValueError("runtime counter line has no timestamp")
+        at = (datetime.fromisoformat(timestamp[0].replace("Z", "+00:00")) - launched) // MICROSECOND
+        if 0 <= at < stop:
+            yield at, line
+
+
 def upload_pool_activity(lines, launched, stop, expected):
     """Verify the upload-only switch and collect the last counters before the cutoff."""
     modes = set()
     latest_pool = latest_map = None
-    for line in session_lines(lines):
-        if not any(marker in line for marker in (
-                "list upload pool (", "their buffers used again (", "new card memory waited for until it is mapped")):
-            continue
-        timestamp = TIMESTAMP.search(line)
-        if timestamp is None:
-            raise ValueError("upload comparison line has no timestamp")
-        at = (datetime.fromisoformat(timestamp[0].replace("Z", "+00:00")) - launched) // MICROSECOND
-        if not 0 <= at < stop:
-            continue
+    markers = ("list upload pool (", "their buffers used again (", "new card memory waited for until it is mapped")
+    for at, line in windowed_log_lines(lines, launched, stop, markers):
         if "list upload pool (" in line:
             match = re.search(r"list upload pool \(VICTORY_UPLOAD_POOL=([01])\)", line)
             if match is None:
@@ -229,9 +233,35 @@ def upload_pool_activity(lines, launched, stop, expected):
     }
 
 
+def buffer_prefetch_activity(lines, launched, stop, expected):
+    """Verify the buffer prefetch setting and record the latest observed use."""
+    modes = set()
+    latest = None
+    for at, line in windowed_log_lines(lines, launched, stop, ("title buffer prefetch ",)):
+        if "since launch:" in line:
+            match = re.search(r"since launch: (\d+) queued, (\d+) made, (\d+) used, (\d+) MiB spare", line)
+            if match is None or not expected:
+                raise ValueError("unexpected buffer prefetch activity")
+            if latest is None or at >= latest[0]:
+                latest = at, tuple(map(int, match.groups()))
+        else:
+            match = re.search(r"\(VICTORY_BUFFER_PREFETCH=([01])\)", line)
+            if match is None:
+                raise ValueError("unrecognized buffer prefetch switch")
+            modes.add(int(match[1]))
+    if modes != {expected}:
+        raise ValueError(f"reported buffer prefetch switches {sorted(modes)}, expected {expected}")
+    activity = None
+    if latest is not None:
+        activity = dict(zip(("queued", "prepared", "used", "spare_mib"), latest[1]))
+        activity["sample_seconds"] = latest[0] / 1e6
+    return {"enabled": bool(expected), "activity": activity}
+
+
 def report(run, metadata, start, stop, *, stalls=0, expected_output=None, expected_interface=None,
            expected_vkd3d=None, progress=False, compute_gap_ms=None,
-           expected_graphics_wait_ms=None, expected_compute_wait_ms=None, expected_upload_pool=None):
+           expected_graphics_wait_ms=None, expected_compute_wait_ms=None, expected_upload_pool=None,
+           expected_buffer_prefetch=None):
     launch = json.loads(metadata.read_text())
     check_overlap(run, metadata)
     live = progress and "end_utc" not in launch
@@ -264,6 +294,9 @@ def report(run, metadata, start, stop, *, stalls=0, expected_output=None, expect
     if expected_upload_pool is not None:
         with (run / "run.log").open(encoding="utf-8", errors="replace") as log:
             result["upload_pool"] = upload_pool_activity(log, launched, stop, expected_upload_pool)
+    if expected_buffer_prefetch is not None:
+        with (run / "run.log").open(encoding="utf-8", errors="replace") as log:
+            result["buffer_prefetch"] = buffer_prefetch_activity(log, launched, stop, expected_buffer_prefetch)
     if expected_vkd3d is not None:
         with (run / "vkd3d.log").open(errors="replace") as log:
             result["vkd3d_build"] = loaded_vkd3d_build(log, expected_vkd3d)
@@ -291,6 +324,8 @@ if __name__ == "__main__":
                         help="verify the logged compute wait budget (0 expects no announcement)")
     parser.add_argument("--expect-upload-pool", type=int, choices=(0, 1),
                         help="verify the upload switch and report mapping and pool counters")
+    parser.add_argument("--expect-buffer-prefetch", type=int, choices=(0, 1),
+                        help="verify the buffer prefetch setting and report observable reuse")
     parser.add_argument("--stalls", type=int, default=0, help="list the N longest gaps and compute-drop notices in each")
     parser.add_argument("--compute-gap-ms", type=int, metavar="MS",
                         help="count gaps at least this long and how many include a compute-drop notice")
@@ -304,7 +339,8 @@ if __name__ == "__main__":
                         expected_output=args.expect_output, expected_interface=args.expect_interface,
                         expected_vkd3d=args.expect_vkd3d, progress=args.progress, compute_gap_ms=args.compute_gap_ms,
                         expected_graphics_wait_ms=args.expect_graphics_wait_ms,
-                        expected_compute_wait_ms=args.expect_compute_wait_ms, expected_upload_pool=args.expect_upload_pool)
+                        expected_compute_wait_ms=args.expect_compute_wait_ms, expected_upload_pool=args.expect_upload_pool,
+                        expected_buffer_prefetch=args.expect_buffer_prefetch)
     except (ValueError, KeyError, OSError) as error:
         parser.exit(1, f"{error}\n")
     print(json.dumps(result, indent=2))

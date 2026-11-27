@@ -5,7 +5,10 @@ from tempfile import TemporaryDirectory
 import json
 import unittest
 
-from cold_boot import accepted_frames, loaded_vkd3d_build, report, upload_pool_activity, verify_wait_budgets, window
+from cold_boot import (
+    accepted_frames, buffer_prefetch_activity, loaded_vkd3d_build, report, upload_pool_activity,
+    verify_wait_budgets, window,
+)
 from first_room import SessionFailed
 
 
@@ -65,6 +68,22 @@ class ColdBootTests(unittest.TestCase):
                               ([disabled, sample], 0)):
             with self.subTest(lines=lines, switch=switch), self.assertRaises(ValueError):
                 upload_pool_activity(lines, self.launched, 5_000_000, switch)
+
+    def test_buffer_prefetch_checks_switch_and_cold_cutoff(self):
+        prefix = "2026-11-26T00:00:01Z INFO title buffer prefetch "
+        enabled = prefix + "(\x1b[3mVICTORY_BUFFER_PREFETCH=1\x1b[0m)"
+        disabled = enabled.replace("PREFETCH=1", "PREFETCH=0")
+        early = prefix + "since launch: 42 queued, 7 made, 6 used, 1 MiB spare"
+        late = early.replace("00:00:01", "00:05:00").replace("6 used", "7 used")
+        self.assertEqual(buffer_prefetch_activity([enabled, late, early], self.launched, 300_000_000, 1), {
+            "enabled": True,
+            "activity": {"sample_seconds": 1, "queued": 42, "prepared": 7, "used": 6, "spare_mib": 1},
+        })
+        self.assertEqual(buffer_prefetch_activity([disabled], self.launched, 300_000_000, 0),
+                         {"enabled": False, "activity": None})
+        for lines, mode in (([enabled, disabled], 1), ([early], 1), ([disabled, early], 0)):
+            with self.subTest(lines=lines, mode=mode), self.assertRaises(ValueError):
+                buffer_prefetch_activity(lines, self.launched, 300_000_000, mode)
 
     def test_edges_count_against_fps(self):
         frames = accepted_frames([trace(t) for t in (0, 50_000, 200_000, 250_000, 2_000_000)], self.launched)

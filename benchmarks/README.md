@@ -653,7 +653,7 @@ The control accepted 566 presents between 30 and 220 seconds (2.98 FPS). Across 
 
 ### Late card-step fills on the AMD branch
 
-[Avatar #434](https://github.com/avatarmanz/VIctory-7900XTX/pull/434) traced stretched geometry to constant-buffer fills that read too early. [AMD #56](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/56) ports the check with `VICTORY_CARD_STEPS_LEARN=1` opt-in. The Windows MSVC build passed nine Wine tests, including a fixture with changed and unchanged pages for both fill paths. The separate flight test is pending.
+[Avatar #434](https://github.com/avatarmanz/VIctory-7900XTX/pull/434) traced stretched geometry to constant-buffer fills that read too early. [AMD #56](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/56) ports the check with `VICTORY_CARD_STEPS_LEARN=1` opt-in. The Windows MSVC build passed nine Wine tests, including a fixture with changed and unchanged pages for both fill paths. The separate flight test passed with learning off and on on RX 7900 XT, RADV 26.3.1 and GE vkd3d-proton `cae8353ed7959c4`. [Hardware result](https://github.com/avatarmanz/VIctory-7900XTX/pull/434#issuecomment-7211813455)
 
 The [720p integration](https://github.com/UwUCammie/VIctory-7900XTX/commit/a9624438) is for a saved indoor camera replay. Both launches use the same copied save and caches, executable, stock GE driver DLLs, relay stage 2 and card steps 2. The only switch is `VICTORY_CARD_STEPS_LEARN`. Check the reported switch, the number of pages learned and submissions that waited, and comparable camera angles in the private recordings. The saved-route observation does not enter the cold-start FPS series.
 
@@ -670,6 +670,20 @@ python -B benchmarks/cold_boot.py RUN_DIR LAUNCH_JSON --stop 300 \
 ```
 
 Use `--expect-upload-pool 0` for the control. The scorer checks which setting the shared upload path used and reports the latest cumulative pool and mapping counters logged before the cutoff, with their sample times. Mapping waits include all callers and may overlap. Both arms are timed from launch. Gameplay results are pending.
+
+### Cold title-buffer allocation prefetch
+
+The [experimental integration](https://github.com/UwUCammie/VIctory-7900XTX/commit/08298c2a) queues exact 64 KiB-aligned allocation sizes while title buffers are declared. A worker can hold up to 64 MiB of fresh shared buffers, with 128 pending requests and a 4 MiB maximum per allocation. A first-use request can take a prepared allocation of the same size. The existing shadow and memory placement decisions still run at first use. Grimkaaah’s different copy-ahead implementation reported a shorter first-world freeze on Windows. [Source measurements](https://github.com/Grimkaaah/Victory-Grimkaaah/blob/7dbe7931/CHANGES.md)
+
+For the cold pair, set `VICTORY_BUFFER_PREFETCH=0` and then `1` on the same executable. Use the same stock GE driver files, Series X profile and input sequence. Start each launch with five empty graphics caches and no story slots.
+
+```sh
+python -B benchmarks/cold_boot.py RUN_DIR LAUNCH_JSON --stop 300 \
+  --expect-output 1280x720 --expect-interface 3840x2160 \
+  --expect-vkd3d cae8353e --expect-buffer-prefetch 1
+```
+
+Use `--expect-buffer-prefetch 0` to check the control. The report includes the last queued, prepared and used counts before 300 seconds. The test measures whether moving allocation work earlier helps the entire launch. Gameplay timing is pending.
 
 ### Verify pipeline-library persistence without the game
 
