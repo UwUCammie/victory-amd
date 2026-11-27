@@ -11,7 +11,7 @@ import subprocess
 from verify_pdb_sources import field, output
 
 
-def runtime_profile(data, executable, launch, thread):
+def runtime_profile(data, executable, launch, thread, focus=()):
     if not launch["diagnostic_only"]:
         raise ValueError("expected a profiling launch")
     with executable.open("rb") as source:
@@ -53,6 +53,7 @@ def runtime_profile(data, executable, launch, thread):
     )
     functions = Counter()
     files = Counter()
+    focused = dict.fromkeys(focus, 0)
     attributed = 0
     for line in response.stdout.splitlines():
         record = json.loads(line)
@@ -73,6 +74,8 @@ def runtime_profile(data, executable, launch, thread):
             files[path] += hits
         for name in owners:
             functions[name] += hits
+        for name in focused.keys() & {owner.rsplit("::", 1)[-1] for owner in owners}:
+            focused[name] += hits
 
     if not attributed:
         raise ValueError("the text mapping did not resolve to runtime source")
@@ -80,6 +83,7 @@ def runtime_profile(data, executable, launch, thread):
         "anonymous_thread_samples": sum(anonymous.values()),
         "in_text_section": sum(counts.values()),
         "attributed_to_runtime": attributed,
+        "requested_function_samples": focused,
         "inclusive_source_samples": files.most_common(12),
         "inclusive_function_samples": functions.most_common(18),
     }
@@ -91,9 +95,12 @@ if __name__ == "__main__":
     parser.add_argument("executable", type=Path)
     parser.add_argument("launch", type=Path)
     parser.add_argument("--thread", default="victory-pipelin")
+    parser.add_argument("--focus", action="append", default=[],
+                        help="Count samples for this function regardless of its rank")
     args = parser.parse_args()
     try:
-        result = runtime_profile(args.data, args.executable, json.loads(args.launch.read_text()), args.thread)
+        result = runtime_profile(args.data, args.executable, json.loads(args.launch.read_text()),
+                                 args.thread, args.focus)
     except (ValueError, OSError, subprocess.CalledProcessError) as error:
         parser.exit(1, f"{error}\n")
     print(json.dumps(result, indent=2))

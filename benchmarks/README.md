@@ -1366,7 +1366,21 @@ The second CPU diagnostic completed without overlap. The sample covered about 30
 
 The trace recorded 429 compute pipeline creation calls intersecting that first gap. Their clipped durations totaled 28.27 worker-seconds, with a peak of seven simultaneous calls. The stage traces and profiling data describe different kinds of work, so their totals cannot be added. The next cold comparison uses the same face build and 3 KiB cutoff with six, ten or fourteen general workers. The two priority workers and the compute wait remain fixed. Each arm checks the count the runtime reports.
 
-`pe_perf_profile.py` checks the executable against the launch digest, matches its PDB and identifies the recorded anonymous mapping by the executable's aligned text section. All 6,908 anonymous pipeline worker samples were inside that section. Of those, 5,486 mapped to project source lines, with 3,782 passing through shader lowering and 1,693 passing through `computed_with` and its inlined calls. These counts are inclusive. This confirms that the indexed operand lookup already staged in the cold build addresses a hotspot on the live opening route. The matched CPU diagnostic changes only that lookup, keeping the original executable's tracing configuration, driver and launch settings. [Indexed profiling build](https://github.com/UwUCammie/VIctory-7900XTX/commit/8c050aaa)
+`pe_perf_profile.py` checks the executable against the launch digest, matches its PDB and identifies the recorded anonymous mapping by the executable's aligned text section. All 6,908 anonymous pipeline worker samples were inside that section. Of those, 5,486 mapped to project source lines, with 3,782 passing through shader lowering. These counts are inclusive. The matched CPU diagnostic changes only the indexed operand lookup, keeping the tracing configuration, driver files and launch settings. [Indexed profiling build](https://github.com/UwUCammie/VIctory-7900XTX/commit/8c050aaa)
+
+Both diagnostics completed without overlap. The corresponding CPU samples covered 30.32–36.59 s and 30.31–36.54 s from launch, inside the first long frame gap in each run. Counting each sample once per method, including inlined variants, gave the following comparison.
+
+| Measure | Original lookup | Indexed lookup |
+| --- | ---: | ---: |
+| Samples through `computed_with` | 1,743 | 1 |
+| Samples through `read_as_number` | 1,812 | 1 |
+| Samples through shader lowering | 3,782 | 345 |
+| First long frame gap | 10.345 s | 10.338 s |
+| Accepted presents through 75 s | 1,448 | 1,471 |
+| Time in gaps over 100 ms through 75 s | 50.97 s | 50.37 s |
+| P99 present interval through 75 s | 42.29 ms | 107.13 ms |
+
+The index removes most of the sampled operand lookup work. Radeon driver creation still dominates the sampled stall, with 60.42% of user-mode samples on the indexed build. The first long gap was effectively the same. The 75 s profiling windows remain diagnostic. The cold FPS score still requires 300 s on an unprofiled build.
 
 The second updated Wine control and the second updated compiler/cache attempt both yielded to parallel builds. The first 65 s were clear in both. The arms accepted 1,438 and 1,442 presents, spent 41.10 and 41.05 s in gaps above 100 ms and logged 27 and 21 waits without a pipeline result. The compiler/cache attempt ran to 176.60 s before yielding. This matched prefix remains outside full FPS scoring.
 
