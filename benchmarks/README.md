@@ -1174,6 +1174,8 @@ One mesh/pixel pipeline repeatedly hit the screen wait limit in both budgets. It
 
 The first write-back control yielded to a parallel build at 221.18 s. It used the staged driver and logged 29 write-combined statistics intervals and zero kept-declaration intervals before 210 s. A complete same-binary control and candidate remain necessary for a write-back result.
 
+The fourth write-back control also yielded, at 197.75 s. The driver's skin was missing in the private car close-up at 160 s and the passenger's face was visible at 175 s. The runtime logged decoration-bake draws from 24.50 s and a successful wait for the tracked facial-deformation pipeline at 76.44 s. Those events show that pipeline was available by the car shot. They leave open whether an earlier dispatch was missed and whether the already recorded bakes affected this face. Keep this sample outside the 300 s timing result. [Related loading-rate investigation](https://github.com/avatarmanz/VIctory-7900XTX/pull/449)
+
 ### Null constant-buffer descriptors
 
 Adapted the stale-slot fix from fxceless #304 to the Wine build. The Windows MSVC tests verified that null writes replace an existing descriptor in both title record formats. The RX 7900 XT test under Wine 11.22 and vkd3d-proton `71cae091b06571e` also replaced live host views with typed null views, cleared their raw twins, and confirmed that the device remained available. The executable and PDB matched 108 runtime source checksums. [Upstream fix](https://github.com/fxceless/victory-fork/pull/304), [Wine test source](https://github.com/UwUCammie/VIctory-7900XTX/commit/0989cf16)
