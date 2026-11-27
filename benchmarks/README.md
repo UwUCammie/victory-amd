@@ -1100,3 +1100,5 @@ python -B benchmarks/cold_boot.py "$run" "$launch" --start 0 --stop 300 \
   --expect-output 1280x720 --expect-interface 3840x2160 --expect-vkd3d 71cae091 \
   --expect-graphics-wait-ms 500 --expect-compute-wait-ms 10000 --expect-compute-frame-ms 500
 ```
+
+The first 500 ms attempt reached the car dialogue on the RX 7900 XT. The passenger's face and skin were visible in a local capture saved 161.55 seconds after launch. The run yielded to another build 17.90 seconds later, so it has no 300-second result. This observation covers one shot. Matched character and lighting checks still require the complete pair.
