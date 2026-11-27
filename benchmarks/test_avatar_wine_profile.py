@@ -17,7 +17,7 @@ from avatar_wine_profile import AVATAR_WINE_CAPTURE_OBSERVERS, AVATAR_WINE_MERGE
 from avatar_wine_profile import AVATAR_WINE_SCREEN_WAITER_DIAGNOSTICS, AVATAR_WINE_SCREEN_WAITER_SCORES, verify_screen_waiter_priority
 from avatar_wine_profile import AVATAR_WINE_WRITE_WATCH_GAPS, verify_write_watch_gap
 from avatar_wine_profile import (AVATAR_WINE_RECORDED_COMPUTE, AVATAR_WINE_RECORDED_SCREEN,
-                                 AVATAR_WINE_LATE_SUBMIT_PROFILE, LATE_SUBMIT_SAMPLE, LATE_SUBMIT_TIMEOUT,
+                                 AVATAR_WINE_LATE_SUBMIT_PROFILES, LATE_SUBMIT_SAMPLE, LATE_SUBMIT_TIMEOUT,
                                  AVATAR_WINE_RECORDED_SCREEN_SCORES, recorded_compute_activity,
                                  recorded_screen_activity, stage_trace_coverage, verify_recorded_screen_score)
 from first_room import DeviceLost
@@ -94,9 +94,10 @@ class AvatarWineProfileTests(unittest.TestCase):
                 verify_recorded_screen_score(lines, start, 2_000_000, True)
 
     def test_late_submit_profiler_uses_the_screen_off_control(self):
-        mode = AVATAR_WINE_LATE_SUBMIT_PROFILE
-        self.assertEqual(benchmark_flags(mode), benchmark_flags(next(iter(AVATAR_WINE_RECORDED_SCREEN_SCORES))))
-        self.assertFalse(AVATAR_WINE_CAPTURE_OBSERVERS[mode])
+        baseline = benchmark_flags(next(iter(AVATAR_WINE_RECORDED_SCREEN_SCORES)))
+        for mode, touched in AVATAR_WINE_LATE_SUBMIT_PROFILES.items():
+            self.assertEqual(benchmark_flags(mode), dict(baseline, VICTORY_CARD_TOUCHED=touched))
+            self.assertFalse(AVATAR_WINE_CAPTURE_OBSERVERS[mode])
         self.assertLess(sum(LATE_SUBMIT_SAMPLE), LATE_SUBMIT_TIMEOUT)
 
     def test_write_watch_gap_pair_uses_the_same_cold_profile(self):
