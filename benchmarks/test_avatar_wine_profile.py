@@ -17,6 +17,7 @@ from avatar_wine_profile import AVATAR_WINE_CAPTURE_OBSERVERS, AVATAR_WINE_MERGE
 from avatar_wine_profile import AVATAR_WINE_SCREEN_WAITER_DIAGNOSTICS, AVATAR_WINE_SCREEN_WAITER_SCORES, verify_screen_waiter_priority
 from avatar_wine_profile import AVATAR_WINE_WRITE_WATCH_GAPS, verify_write_watch_gap
 from avatar_wine_profile import AVATAR_WINE_WORKER_PRIORITY_SCORES, verify_pipeline_worker_priorities
+from avatar_wine_profile import AVATAR_WINE_REQUESTED_WORKER_SCORES, verify_requested_worker
 from avatar_wine_profile import (AVATAR_WINE_RECORDED_COMPUTE, AVATAR_WINE_RECORDED_SCREEN,
                                  AVATAR_WINE_FULL_DIRTY_SCAN_MODES, AVATAR_WINE_FULL_DIRTY_SCAN_SCORES,
                                  AVATAR_WINE_LATE_SUBMIT_PROFILES,
@@ -152,6 +153,21 @@ class AvatarWineProfileTests(unittest.TestCase):
             lines[-1] = lines[-1].replace(f"effective={priority}", "effective=0")
             with self.assertRaises(ValueError):
                 verify_pipeline_worker_priorities(lines, start, 2_000_000, lowest == "1")
+
+    def test_requested_worker_scores_change_only_reservation(self):
+        baseline = dict(benchmark_flags(AVATAR_WINE_UPSTREAM_COLD),
+                        VICTORY_PIPELINE_WORKERS="10", VICTORY_PIPELINE_LOWEST="1")
+        for mode, enabled in AVATAR_WINE_REQUESTED_WORKER_SCORES.items():
+            self.assertEqual(benchmark_flags(mode), dict(baseline, VICTORY_PIPELINE_RESERVE_REQUESTED=enabled))
+            self.assertFalse(AVATAR_WINE_CAPTURE_OBSERVERS[mode])
+        start = datetime(2026, 11, 27, tzinfo=timezone.utc)
+        event = "2026-11-27T00:00:01Z INFO pipeline worker reserved for requested work worker=9"
+        verify_requested_worker([event], start, 2_000_000, True)
+        verify_requested_worker([event], start, 1_000_000, False)
+        with self.assertRaises(ValueError):
+            verify_requested_worker([event], start, 2_000_000, False)
+        with self.assertRaises(ValueError):
+            verify_requested_worker([], start, 2_000_000, True)
 
     def test_observer_pair_uses_the_same_runtime_flags(self):
         off = benchmark_flags(AVATAR_WINE_OBSERVERS_OFF)
