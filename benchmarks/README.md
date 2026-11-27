@@ -671,6 +671,8 @@ The native check passed on the extracted deadline code. It verifies that a delay
 python -B benchmarks/compute_reserve_fixture.py PATH_TO_DEADLINE_CHECKOUT --compute-deadline
 ```
 
+The [combined 720p build](https://github.com/UwUCammie/VIctory-7900XTX/commit/ea99e42a) adds both budget fixes to the revised scheduler control. The compare step checks different runtime digests, the same three driver DLLs, the same inputs and flags, and both logged 500 ms wait settings. The first 300 seconds are timed from two separate cold boots. The output check and matched car close-up are part of the comparison.
+
 ### Keeping one general pipeline worker available for compute
 
 The default revised scheduler lets a screen pass use the last general worker. The [strict reserve experiment](https://github.com/UwUCammie/VIctory-7900XTX/commit/2c7a51f0) leaves screen work to its dedicated workers when only the reserved general worker is available. In both arms, compute and graphics waits stay at 500 ms. The only switch changes from `VICTORY_COMPUTE_STRICT_RESERVE=0` to `1`.
