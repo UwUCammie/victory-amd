@@ -19,6 +19,7 @@ AVATAR_WINE_LEGACY_FMA = "vkd3d-master-avatar-wine-440-legacy-fma-3072"
 AVATAR_WINE_VALUE_USE_INDEX = "vkd3d-master-avatar-wine-440-value-use-index"
 AVATAR_WINE_KEEP_TRANSLATED = "vkd3d-master-avatar-wine-440-keep-translated"
 AVATAR_WINE_SINGLE_PARSE = "vkd3d-master-avatar-wine-440-single-parse"
+AVATAR_WINE_BOOL_SIMPLIFY = "vkd3d-master-avatar-wine-440-bool-simplify"
 AVATAR_WINE_COMPILER_CACHE = "vkd3d-master-avatar-wine-440-compiler-cache"
 AVATAR_WINE_EARLY_LIMITS = {
     "vkd3d-master-avatar-wine-440-early-off": 0,
@@ -40,10 +41,14 @@ AVATAR_WINE_SCREEN_WORKERS = {
     "vkd3d-master-avatar-wine-440-screen-worker-shared": "0",
     "vkd3d-master-avatar-wine-440-screen-worker-reserved": "1",
 }
+AVATAR_WINE_CONSTRUCTOR_POOLS = {
+    "vkd3d-master-avatar-wine-440-list-pool-off": "0",
+    "vkd3d-master-avatar-wine-440-list-pool-on": "1",
+}
 AVATAR_WINE_MODES = AVATAR_WINE_COMPUTE_BUDGETS | dict.fromkeys(
     (*AVATAR_WINE_WRITEBACK_SWITCHES, *AVATAR_WINE_EARLY_LIMITS, *AVATAR_WINE_NOTIFY_SWITCHES,
      AVATAR_WINE_VALUE_USE_INDEX, AVATAR_WINE_KEEP_TRANSLATED, AVATAR_WINE_SINGLE_PARSE,
-     AVATAR_WINE_COMPILER_CACHE), 10000
+     AVATAR_WINE_COMPILER_CACHE, AVATAR_WINE_BOOL_SIMPLIFY, *AVATAR_WINE_CONSTRUCTOR_POOLS), 10000
 ) | dict.fromkeys((*AVATAR_WINE_SCREEN_LIMITS, *AVATAR_WINE_SCREEN_WORKERS, "vkd3d-master-avatar-wine-440-early-2560-wait2000",
                    "vkd3d-master-avatar-wine-440-early-3072-wait2000", AVATAR_WINE_LEGACY_FMA), 2000)
 
@@ -106,6 +111,8 @@ def benchmark_flags(mode):
     if mode in AVATAR_WINE_SCREEN_WORKERS:
         flags.update(VICTORY_EARLY_COMPUTE_MAX_BYTES="2560", VICTORY_SCREEN_WAIT_MS="10000",
                      VICTORY_EARLY_SCREEN_MAX_BYTES="0", VICTORY_RESERVE_SCREEN_WORKER=AVATAR_WINE_SCREEN_WORKERS[mode])
+    if mode in AVATAR_WINE_CONSTRUCTOR_POOLS:
+        flags.update(VICTORY_LIST_POOL="1", VICTORY_LIST_CREATE_POOL=AVATAR_WINE_CONSTRUCTOR_POOLS[mode])
     return flags
 
 
@@ -330,6 +337,18 @@ def pipeline_wait_translation_coverage(lines, launched, stop, frames):
         f"{kind}_overlap_seconds": sum(_wait_overlap(waits, a, b) for a, b in gaps) / 1e6
         for kind, waits in spans.items()
     }
+
+
+def verify_constructor_pool(lines, launched, stop, expected):
+    label = "host list reuse at construction"
+    seen = set()
+    for _, line in windowed_log_lines(lines, launched, stop, (label,)):
+        outcome = re.search(r"\breuse=(true|false)\b", line)
+        if outcome is None:
+            raise ValueError("host list reuse log has no flag")
+        seen.add(outcome[1] == "true")
+    if seen != {expected}:
+        raise ValueError("host list reuse does not match the requested mode")
 
 
 def verify_notification_mode(lines, launched, stop, expected):

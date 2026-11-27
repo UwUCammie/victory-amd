@@ -1,21 +1,21 @@
 from datetime import datetime, timezone
 import unittest
 
-from avatar_wine_profile import (AVATAR_WINE_COMPILER_CACHE, AVATAR_WINE_EARLY_LIMITS, AVATAR_WINE_KEEP_TRANSLATED,
+from avatar_wine_profile import (AVATAR_WINE_BOOL_SIMPLIFY, AVATAR_WINE_COMPILER_CACHE, AVATAR_WINE_CONSTRUCTOR_POOLS, AVATAR_WINE_EARLY_LIMITS, AVATAR_WINE_KEEP_TRANSLATED,
                                  AVATAR_WINE_NOTIFY_SWITCHES, AVATAR_WINE_SCREEN_LIMITS, AVATAR_WINE_SINGLE_PARSE,
                                  AVATAR_WINE_SCREEN_WORKERS, AVATAR_WINE_VALUE_USE_INDEX,
                                  AVATAR_WINE_WRITEBACK_SWITCHES, benchmark_flags, compute_wait_activity,
                                  early_compute_activity, early_screen_activity, observed_profile,
                                  pipeline_wait_gap_totals, pipeline_wait_group_coverage, pipeline_wait_translation_coverage,
                                  screen_wait_coverage, screen_worker_activity,
-                                 verify_notification_mode, writeback_activity)
+                                 verify_constructor_pool, verify_notification_mode, writeback_activity)
 from cold_boot import verify_wait_budgets
 
 
 class AvatarWineProfileTests(unittest.TestCase):
     def test_shader_source_comparisons_use_reference_flags(self):
         for mode in (AVATAR_WINE_VALUE_USE_INDEX, AVATAR_WINE_KEEP_TRANSLATED,
-                     AVATAR_WINE_SINGLE_PARSE, AVATAR_WINE_COMPILER_CACHE):
+                     AVATAR_WINE_SINGLE_PARSE, AVATAR_WINE_COMPILER_CACHE, AVATAR_WINE_BOOL_SIMPLIFY):
             with self.subTest(mode=mode):
                 self.assertEqual(benchmark_flags(mode), benchmark_flags("vkd3d-master-avatar-wine-440"))
 
@@ -188,6 +188,21 @@ class AvatarWineProfileTests(unittest.TestCase):
             "translation_logged_overlap_seconds": 2.0,
             "translation_unknown_overlap_seconds": 0.5,
         })
+
+    def test_constructor_pool_flags_and_announcement(self):
+        off, on = map(benchmark_flags, AVATAR_WINE_CONSTRUCTOR_POOLS)
+        self.assertEqual(off["VICTORY_LIST_POOL"], "1")
+        self.assertEqual(on.pop("VICTORY_LIST_CREATE_POOL"), "1")
+        self.assertEqual(off.pop("VICTORY_LIST_CREATE_POOL"), "0")
+        self.assertEqual(off, on)
+        started = datetime(2026, 11, 27, 8, tzinfo=timezone.utc)
+        off_line = "2026-11-27T08:00:02Z INFO host list reuse at construction reuse=false"
+        on_line = off_line.replace("false", "true")
+        verify_constructor_pool([off_line], started, 3_000_000, False)
+        verify_constructor_pool([on_line], started, 3_000_000, True)
+        for lines in ([off_line], [on_line, off_line], []):
+            with self.assertRaises(ValueError):
+                verify_constructor_pool(lines, started, 3_000_000, True)
 
     def test_writeback_activity_rejects_a_wrong_mode_or_threshold(self):
         started = datetime(2026, 11, 27, 8, tzinfo=timezone.utc)
