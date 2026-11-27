@@ -222,7 +222,14 @@ I used the same combined executable as the control for a second experiment that 
 
 The first three new candidate attempts yielded to other builds. A fourth ended at about 20 seconds on its own, with process exit code 0 and no device-loss marker. I excluded all four attempts from the five-minute comparison. The candidate executable and PDB matched all 168 checked sources. [Candidate source](https://github.com/UwUCammie/VIctory-7900XTX/commit/1cb9c955)
 
-Three later attempts also yielded. The longest of those ran for about 244 seconds before a competing build started. Another yielded when a different client took the render device. Each retry starts with five newly empty caches. The queued retry still needs a complete 300-second capture before this comparison has a candidate score.
+Three later attempts also yielded. The longest of those ran for about 244 seconds before a competing build started. Another yielded when a different client took the render device. Each retry started with five newly empty caches. Attempt eight completed with no overlapping render client or build. Both scored runs used GE vkd3d-proton `cae8353ed7959c4`, the same runtime flags, and the same scripted input on the RX 7900 XT.
+
+| First 300 seconds | Presents | Average FPS | P99 gap | Longest gap | Gaps over 1 s | Time in gaps over 100 ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Combined, repeated control | 2,314 | 7.71 | 2,589 ms | 11.40 s | 29 | 208.71 s |
+| Combined plus relay hash and deferred slow history | 2,451 | 8.17 | 993 ms | 11.39 s | 24 | 199.97 s |
+
+The candidate counted 137 more presents and 8.73 fewer seconds in gaps over 100 ms in this pair. Both controls with the same executable and settings from the earlier run orders reached higher averages than this candidate (9.91 and 10.49 FPS). Both scored runs showed faces and visible scenes later, and the candidate reached a different indoor scene by the end. They had black or underlit samples at different times, and the candidate also had washed-out samples. The roughly eleven-second stalls persisted. This pair leaves the separate contribution of either change and any effect on rendering unresolved. The gameplay default stays on the existing build.
 
 ### Descriptor heap binding
 
