@@ -9,6 +9,11 @@ AVATAR_WINE_COMPUTE_BUDGETS = {
     "vkd3d-master-avatar-wine-440": 10000,
     "vkd3d-master-avatar-wine-440-wait500": 500,
 }
+AVATAR_WINE_WRITEBACK_SWITCHES = {
+    "vkd3d-master-avatar-wine-440-wc-off": "0",
+    "vkd3d-master-avatar-wine-440-wc-on": "1",
+}
+AVATAR_WINE_MODES = AVATAR_WINE_COMPUTE_BUDGETS | dict.fromkeys(AVATAR_WINE_WRITEBACK_SWITCHES, 10000)
 
 # Source profile: avatarmanz/VIctory-7900XTX#440, b2bf3d99, play.sh and play-1080p.sh.
 # Use the benchmark's scene and UI dimensions, render offline, and keep the
@@ -53,6 +58,14 @@ AVATAR_WINE_720 = {
 }
 
 
+def benchmark_flags(mode):
+    flags = dict(AVATAR_WINE_720, VICTORY_COMPUTE_WAIT_MS=str(AVATAR_WINE_MODES[mode]))
+    if mode in AVATAR_WINE_WRITEBACK_SWITCHES:
+        flags.update(VICTORY_WC_STATS="1", VICTORY_WC_NO_BACK=AVATAR_WINE_WRITEBACK_SWITCHES[mode],
+                     VICTORY_WC_NO_BACK_MIN_KB="64", VICTORY_WC_KEEP_STORES="0", VICTORY_WC_CENSUS="0")
+    return flags
+
+
 def observed_profile(lines):
     """Report active-path evidence alongside the timed result."""
     observed = {
@@ -87,3 +100,22 @@ def compute_wait_activity(lines, launched, stop):
         totals["without_pipeline_result"] += match[2] == "false"
         totals["longest_reported_wait_ms"] = max(totals["longest_reported_wait_ms"], int(match[1]))
     return totals
+
+
+def writeback_activity(lines, launched, stop, enabled):
+    stats = "title memory by what the title asked for (VICTORY_WC_STATS)"
+    kept = "shaders' writes into write-combined title memory left on the card"
+    stats_count = kept_count = positive_count = 0
+    for _, line in windowed_log_lines(lines, launched, stop, (stats, kept)):
+        if stats in line:
+            stats_count += 1
+        else:
+            match = re.search(r"\bper frame: (\d+) declarations", line)
+            if match is None or "under 64 KiB kept" not in line:
+                raise ValueError("unexpected write-combined memory report")
+            kept_count += 1
+            positive_count += int(match[1]) > 0
+    if not stats_count or bool(kept_count) != enabled:
+        raise ValueError("write-back diagnostics do not match the requested mode")
+    return {"statistics_intervals": stats_count, "kept_intervals": kept_count,
+            "intervals_with_kept_declarations": positive_count}

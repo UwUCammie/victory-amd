@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 import unittest
 
-from avatar_wine_profile import compute_wait_activity, observed_profile
+from avatar_wine_profile import AVATAR_WINE_WRITEBACK_SWITCHES, benchmark_flags, compute_wait_activity, observed_profile, writeback_activity
 from cold_boot import verify_wait_budgets
 
 
@@ -47,3 +47,23 @@ class AvatarWineProfileTests(unittest.TestCase):
             "without_pipeline_result": 1,
             "longest_reported_wait_ms": 10000,
         })
+
+    def test_writeback_arms_change_only_the_writeback_switch(self):
+        off, on = map(benchmark_flags, AVATAR_WINE_WRITEBACK_SWITCHES)
+        self.assertEqual(off.pop("VICTORY_WC_NO_BACK"), "0")
+        self.assertEqual(on.pop("VICTORY_WC_NO_BACK"), "1")
+        self.assertEqual(off, on)
+        self.assertEqual(on["VICTORY_WC_CENSUS"], "0")
+
+    def test_writeback_activity_rejects_a_wrong_mode_or_threshold(self):
+        started = datetime(2026, 11, 27, 8, tzinfo=timezone.utc)
+        counters = "2026-11-27T08:00:01Z INFO title memory by what the title asked for (VICTORY_WC_STATS)"
+        kept = "2026-11-27T08:00:01Z INFO shaders' writes into write-combined title memory left on the card (VICTORY_WC_NO_BACK, under 64 KiB kept), per frame: 2 declarations"
+        self.assertEqual(writeback_activity([counters, kept], started, 2_000_000, True), {
+            "statistics_intervals": 1, "kept_intervals": 1, "intervals_with_kept_declarations": 1,
+        })
+        self.assertEqual(writeback_activity([counters], started, 2_000_000, False)["kept_intervals"], 0)
+        with self.assertRaises(ValueError):
+            writeback_activity([counters, kept], started, 2_000_000, False)
+        with self.assertRaises(ValueError):
+            writeback_activity([counters, kept.replace("64 KiB", "32 KiB")], started, 2_000_000, True)
