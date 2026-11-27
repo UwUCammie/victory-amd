@@ -253,6 +253,17 @@ The texture detile retry and first-upload guard candidate accepted 1,711 present
 
 In a separate depth-plane readback test, the first list stayed pending while a second twin with complementary depth classes supplied 255 or 256 later lists. On stock `830dc191`, all 16 pixels were correct at 255 and all 16 came from the other twin at 256. The immutable-view branch returned the original pattern at both counts. Both Windows MSVC binaries ran under Wine 11.22, with GE vkd3d-proton `cae8353ed7959c4` and the physical RX 7900 XT on RADV 26.3.1. Their PDBs matched 106 runtime source checksums each. This reproduces the descriptor lifetime bug on Radeon. It does not attribute the reported live flicker to the ring. [Regression and AMD PR](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/22#issuecomment-7209943511)
 
+### Live quad translation with the reflection clamp enabled
+
+I compared the same reflection build with and without the live-quad translator change and its unwind fix on the RX 7900 XT. Both launches enabled the reflection clamp, rendered at 1280×720 with the same interface loader bytes, and started with five empty graphics caches and no story slots. They used the same timed input and the loaded GE vkd3d-proton build `cae8353ed7959c4`. Each staged binary and PDB matched 168 runtime source checksums. The control used an older manifest, so its flags were reconstructed from the same launcher. The live candidate flags were checked on the Wine process. Two interrupted candidate attempts were excluded.
+
+| First 300 seconds | Presents | FPS | P99 gap | Longest gap | Time in gaps >100 ms |
+|---|---:|---:|---:|---:|---:|
+| Reflection clamp control | 2,409 | 8.03 | 921 ms | 11.39 s | 206.85 s |
+| Live quads with unwind fix | 2,525 | 8.42 | 2,209 ms | 11.57 s | 208.03 s |
+
+The candidate had ten gaps of at least 9.5 seconds, versus thirteen in the control. The average was slightly higher and the P99 gap more than doubled. This is one pair. I confirmed several matched shots in the living room. The diffuse and bright couch areas looked similar in these snapshots. The 4 Hz capture and available matches did not establish whether the reported diner flicker changed. Gameplay settings stay as before. [Candidate source](https://github.com/UwUCammie/victory-amd/commit/c5049ab8) · [Original quad work](https://github.com/avatarmanz/VIctory-7900XTX/pull/354)
+
 ### Revised CPU fixtures
 
 On the Ryzen 7 9700X, the [portable-only AVX2 revision](https://github.com/UwUCammie/VIctory-7900XTX/commit/9b96f866) agreed with the original outputs in the same three-way merge fixture. At 64 KiB, the median paired time changes for equal, sparse and dense inputs were −69.71%, −24.36% and −26.51% for baseline x86-64. With `-C target-cpu=x86-64-v3`, the stock loop is selected and the respective changes were 0.00%, −0.21% and −0.01%. The 31-byte measurements varied at nanosecond scale. Seven serial pairs per case.
