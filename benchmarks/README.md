@@ -282,6 +282,20 @@ Seven alternating pairs per case used one core of a Ryzen 7 9700X, Rust 1.98.1 a
 
 The default target got no speedup. The candidate stays out of the gameplay build. Run `python3 benchmarks/shadow_merge.py CHECKOUT 830dc191 84d6ab30` with Rust 1.98.1. To repeat the second configuration, add `--cpu x86-64-v3`. [Tested candidate](https://github.com/UwUCammie/VIctory-7900XTX/commit/84d6ab30)
 
+### Scratch reuse across changed pieces
+
+The piece merge already keeps initialized title and mask buffers between calls. It cleared their lengths and zero-filled them before filling them again. The adapted AMD path keeps the initialized prefix and zeroes only new space after growth. A successful read fills all title bytes. A failed read leaves the original output intact, and the merge writes every mask byte it later uses.
+
+Native release measurements on one Ryzen 7 9700X core used seven alternating pairs for each generated case. Values are median candidate-versus-control times within each pair.
+
+| Bytes | Sparse writes | Dense writes |
+| ---: | ---: | ---: |
+| 256 | −3.65% | −3.75% |
+| 4,096 | −2.93% | −2.76% |
+| 65,536 | −10.04% | −4.73% |
+
+The fixture compared the merged bytes and full range of emitted writes. Thirteen Windows MSVC merge and relay tests passed in Wine, with one existing test ignored. The tested prior-output case covers shrinking, growing and a partial read that fails before the next use. Run `python3 benchmarks/merge_scratch.py CHECKOUT 830dc191 bd8b9e7e` with Rust 1.98.1. The fixture measures the piece merge with a generated read and no GPU or game. [Candidate source](https://github.com/UwUCammie/VIctory-7900XTX/commit/bd8b9e7e)
+
 ### Isolated compiler thread dispatch
 
 The two full selective-heap launches below recorded 1,559 and 1,579 successful host pipeline creations. With `VICTORY_PIPE_FIX=1` the AMD branch launches a Windows thread for each compile attempt. I measured the cost of just handing a trivial job to a fresh or reused isolated compiler on the Ryzen 7 9700X under Wine 11.22. Seven alternating pairs of 128 jobs gave median elapsed times of 17.763 ms for fresh threads and 0.390 ms for reuse, including startup. All seven pairs favored reuse. The fixture checks every reply and uses the same stack reservation and priority in both paths. These are debug fixture measurements without a driver compile. [Worker change and test command](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/24)
