@@ -304,7 +304,7 @@ The [texture copy-back writer change](https://github.com/jtrudeau1530/VIctory-79
 
 Over approximately 171–180 seconds I checked the same 114×76 image-space crop containing the reflective floor in each recording at 15 Hz. Across 138 distinct middle frames per run, no pixels crossed the one-frame reversal threshold in either crop. The camera headings differed inside the room, so the crops cover different floor details. The replay exercised the dependency check and did not reproduce the reported geometry flicker in these crops.
 
-A separate pair flipped `VICTORY_AMBIENT_REFLECT` using the same UI build and saved inputs in both arms. The pass recorded at 853×480 in the enabled arm. Both runs missed the glass door and ended up in the water, with different movement and camera angles. These recordings do not establish an indoor lighting comparison. The next pair starts from the autosave written on a disposable copy of the slot after the earlier route reached the room and uses only menu inputs.
+A separate pair flipped `VICTORY_AMBIENT_REFLECT` using the same UI build and saved inputs in both arms. The pass recorded at 853×480 in the enabled arm. Both runs missed the glass door and ended up in the water, with different movement and camera angles. These recordings do not establish an indoor lighting comparison. The next pair uses the autosave written before the door input during an earlier successful replay, with only menu inputs. The replay will show where the autosave places the player.
 
 ### Desktop play profile at 720p
 
