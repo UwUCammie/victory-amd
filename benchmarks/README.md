@@ -643,6 +643,18 @@ Victory Grimkaaah reports 13.9 FPS in the world with ray tracing, at 4K output o
 
 The shared-buffer pool from Avatar #433 targets allocations made for off-element buffer views and command-list uploads. In the reverse-order 720p runs above, the combined and stock builds peaked at 45 and 70 retained exact views. Their last cumulative mapping counters showed 21,400 and 19,800 waits and 15.6 and 18.0 seconds across threads. Those totals include allocations from all callers and can overlap. The AMD adaptation has both settings opt-in. The first hardware fixture uses the upload pool alone and exercises list-reset ownership. [Upstream discussion](https://github.com/avatarmanz/VIctory-7900XTX/pull/433#issuecomment-7211359080) · [AMD candidate](https://github.com/UwUCammie/VIctory-7900XTX/commit/acfb2357)
 
+### Cold upload-pool comparison
+
+The [720p integration build](https://github.com/UwUCammie/VIctory-7900XTX/commit/47d8e27a) adds [AMD #55](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/55) to the combined CPU branch. Use the same executable, driver DLLs, Series X profile and input sequence in both launches, with five empty graphics caches and no story slots for each. Set `VICTORY_CARD_STEPS=2`, `VICTORY_VIEW_POOL=0` and `VICTORY_VIEW_POOL_MB=256` in both. Change `VICTORY_UPLOAD_POOL` from 0 to 1.
+
+```sh
+python -B benchmarks/cold_boot.py RUN_DIR LAUNCH_JSON --stop 300 \
+  --expect-output 1280x720 --expect-interface 3840x2160 \
+  --expect-vkd3d cae8353e --expect-upload-pool 1
+```
+
+Use `--expect-upload-pool 0` for the control. The scorer checks which setting the shared upload path used and reports the latest cumulative pool and mapping counters logged before the cutoff, with their sample times. Mapping waits include all callers and may overlap. Both arms are timed from launch. Gameplay results are pending.
+
 ### Verify pipeline-library persistence without the game
 
 A separate [vkd3d-proton library fix](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/4) addresses repeat launches. On this branch the host refused its empty library, so it could not save pipeline entries or the list of pipelines to start early next time. The two independent control launches both reported the refusal. A small probe exercises the driver's empty-library calls and serialization without a game or shader compiler. Build `empty_pipeline_library.cpp` in a Windows developer prompt:

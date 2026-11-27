@@ -5,7 +5,7 @@ from tempfile import TemporaryDirectory
 import json
 import unittest
 
-from cold_boot import accepted_frames, loaded_vkd3d_build, report, verify_wait_budgets, window
+from cold_boot import accepted_frames, loaded_vkd3d_build, report, upload_pool_activity, verify_wait_budgets, window
 from first_room import SessionFailed
 
 
@@ -38,6 +38,33 @@ class ColdBootTests(unittest.TestCase):
                 loaded_vkd3d_build(lines, "abcd012")
 
     launched = datetime(2026, 11, 26, tzinfo=timezone.utc)
+
+    def test_upload_pool_counters_use_latest_sample_before_the_cutoff(self):
+        enabled = "2026-11-26T00:00:01Z INFO list upload pool (\x1b[3mVICTORY_UPLOAD_POOL=1\x1b[0m)"
+        sample = (
+            "2026-11-26T00:00:03Z INFO their buffers used again (VICTORY_VIEW_POOL=0): "
+            "8 taken from the pool, 9 put in, 2 MB in it now"
+        )
+        mapped = (
+            "2026-11-26T00:00:02.8Z INFO new card memory waited for until it is mapped "
+            "(VICTORY_WAIT_RESIDENT=0: not), since the start: 8 times, 5.1 ms, the longest 1.4 ms"
+        )
+        later = sample.replace("00:00:03", "00:00:05").replace("8 taken", "12 taken")
+        older = sample.replace("00:00:03", "00:00:02").replace("8 taken", "5 taken")
+        result = upload_pool_activity([enabled, sample, mapped, later, older], self.launched, 5_000_000, 1)
+        self.assertEqual(result, {
+            "enabled": True,
+            "pool": {"sample_seconds": 3, "taken": 8, "returned": 9, "retained_mib": 2},
+            "mapping": {"sample_seconds": 2.8, "waits": 8, "summed_ms": 5.1, "longest_ms": 1.4},
+        })
+        disabled = enabled.replace("POOL=1", "POOL=0")
+        self.assertEqual(upload_pool_activity([disabled], self.launched, 5_000_000, 0),
+                         {"enabled": False, "pool": None, "mapping": None})
+        for lines, switch in (([sample], 1), ([enabled], 0), ([enabled, disabled], 1),
+                              ([enabled, sample.replace("VIEW_POOL=0", "VIEW_POOL=1")], 1),
+                              ([disabled, sample], 0)):
+            with self.subTest(lines=lines, switch=switch), self.assertRaises(ValueError):
+                upload_pool_activity(lines, self.launched, 5_000_000, switch)
 
     def test_edges_count_against_fps(self):
         frames = accepted_frames([trace(t) for t in (0, 50_000, 200_000, 250_000, 2_000_000)], self.launched)

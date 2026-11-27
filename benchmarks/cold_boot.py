@@ -186,9 +186,52 @@ def verify_wait_budgets(lines, *, graphics_ms=None, compute_ms=None):
         raise ValueError(f"reported compute waits {sorted(compute)}, expected {compute_ms} ms")
 
 
+def upload_pool_activity(lines, launched, stop, expected):
+    """Verify the upload-only switch and collect the last counters before the cutoff."""
+    modes = set()
+    latest_pool = latest_map = None
+    for line in session_lines(lines):
+        if not any(marker in line for marker in (
+                "list upload pool (", "their buffers used again (", "new card memory waited for until it is mapped")):
+            continue
+        timestamp = TIMESTAMP.search(line)
+        if timestamp is None:
+            raise ValueError("upload comparison line has no timestamp")
+        at = (datetime.fromisoformat(timestamp[0].replace("Z", "+00:00")) - launched) // MICROSECOND
+        if not 0 <= at < stop:
+            continue
+        if "list upload pool (" in line:
+            match = re.search(r"list upload pool \(VICTORY_UPLOAD_POOL=([01])\)", line)
+            if match is None:
+                raise ValueError("unrecognized upload pool switch")
+            modes.add(int(match[1]))
+        elif "their buffers used again (" in line:
+            match = re.search(r"VICTORY_VIEW_POOL=([01])\): (\d+) taken from the pool, (\d+) put in, (\d+) MB", line)
+            if match is None or match[1] != "0":
+                raise ValueError("upload comparison requires the view pool off")
+            taken, put, mib = map(int, match.groups()[1:])
+            if not expected and (taken or put or mib):
+                raise ValueError("disabled pool reported activity")
+            if latest_pool is None or at >= latest_pool[0]:
+                latest_pool = at, {"taken": taken, "returned": put, "retained_mib": mib}
+        else:
+            match = re.search(r"since the start: (\d+) times, ([\d.]+) ms, the longest ([\d.]+) ms", line)
+            if match is None:
+                raise ValueError("unrecognized shared-memory mapping counters")
+            if latest_map is None or at >= latest_map[0]:
+                latest_map = at, {"waits": int(match[1]), "summed_ms": float(match[2]), "longest_ms": float(match[3])}
+    if modes != {expected}:
+        raise ValueError(f"reported upload pool switches {sorted(modes)}, expected {expected}")
+    return {
+        "enabled": bool(expected),
+        "pool": None if latest_pool is None else {"sample_seconds": latest_pool[0] / 1e6, **latest_pool[1]},
+        "mapping": None if latest_map is None else {"sample_seconds": latest_map[0] / 1e6, **latest_map[1]},
+    }
+
+
 def report(run, metadata, start, stop, *, stalls=0, expected_output=None, expected_interface=None,
            expected_vkd3d=None, progress=False, compute_gap_ms=None,
-           expected_graphics_wait_ms=None, expected_compute_wait_ms=None):
+           expected_graphics_wait_ms=None, expected_compute_wait_ms=None, expected_upload_pool=None):
     launch = json.loads(metadata.read_text())
     check_overlap(run, metadata)
     live = progress and "end_utc" not in launch
@@ -218,6 +261,9 @@ def report(run, metadata, start, stop, *, stalls=0, expected_output=None, expect
     if expected_graphics_wait_ms is not None or expected_compute_wait_ms is not None:
         with (run / "run.log").open(encoding="utf-8", errors="replace") as log:
             verify_wait_budgets(log, graphics_ms=expected_graphics_wait_ms, compute_ms=expected_compute_wait_ms)
+    if expected_upload_pool is not None:
+        with (run / "run.log").open(encoding="utf-8", errors="replace") as log:
+            result["upload_pool"] = upload_pool_activity(log, launched, stop, expected_upload_pool)
     if expected_vkd3d is not None:
         with (run / "vkd3d.log").open(errors="replace") as log:
             result["vkd3d_build"] = loaded_vkd3d_build(log, expected_vkd3d)
@@ -243,6 +289,8 @@ if __name__ == "__main__":
                         help="verify the logged graphics pipeline wait budget")
     parser.add_argument("--expect-compute-wait-ms", type=int, metavar="MS",
                         help="verify the logged compute wait budget (0 expects no announcement)")
+    parser.add_argument("--expect-upload-pool", type=int, choices=(0, 1),
+                        help="verify the upload switch and report mapping and pool counters")
     parser.add_argument("--stalls", type=int, default=0, help="list the N longest gaps and compute-drop notices in each")
     parser.add_argument("--compute-gap-ms", type=int, metavar="MS",
                         help="count gaps at least this long and how many include a compute-drop notice")
@@ -256,7 +304,7 @@ if __name__ == "__main__":
                         expected_output=args.expect_output, expected_interface=args.expect_interface,
                         expected_vkd3d=args.expect_vkd3d, progress=args.progress, compute_gap_ms=args.compute_gap_ms,
                         expected_graphics_wait_ms=args.expect_graphics_wait_ms,
-                        expected_compute_wait_ms=args.expect_compute_wait_ms)
+                        expected_compute_wait_ms=args.expect_compute_wait_ms, expected_upload_pool=args.expect_upload_pool)
     except (ValueError, KeyError, OSError) as error:
         parser.exit(1, f"{error}\n")
     print(json.dumps(result, indent=2))
