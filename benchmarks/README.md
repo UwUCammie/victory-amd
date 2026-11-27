@@ -1662,6 +1662,18 @@ One experiment keeps the last of ten general workers available for pipelines the
 
 Six native tests of the extracted queue passed, including a check that the worker takes a promoted job and leaves speculative jobs for the general workers. All 14 focused Windows tests passed under Wine 11.22 with 115 source checksums verified. The release matched 179 source checksums. The two capture-free launches keep the 3 KiB early cutoff, the 10 s compute wait and all worker priorities fixed. They vary only `VICTORY_PIPELINE_RESERVE_REQUESTED` and verify the reserved worker's startup message before scoring. [Experiment source](https://github.com/UwUCammie/VIctory-7900XTX/commit/2990769f)
 
+The control lost the GPU at 266.53 s. The reservation launch completed the 300 s window with 5,768 accepted presents, or 19.23 FPS. Both used the same executable, driver files, 720p output with the 4K interface, five empty graphics caches and a fresh story. The priority readbacks and reserve setting matched in both. There was no recorded foreground overlap.
+
+| First 250 s from cold launch | Reserve off | Reserve on |
+| --- | ---: | ---: |
+| Accepted presents | 3,741 | 4,152 |
+| P99 gap | 322.83 ms | 350.63 ms |
+| Longest gap | 10.79 s | 20.01 s |
+| Time in gaps over 100 ms | 143.26 s | 140.71 s |
+| Compute waits without a pipeline result | 50 | 30 |
+
+The diagnostic prefix includes accepted presents after the cutoff in both runs. The enabled run finished more compute waits and had a longer worst gap. The control's device loss leaves the five-minute performance comparison open.
+
 ### Cold 720p after the Wine merges
 
 The Wine maintainer merged the cold shader lookup, cache reuse, deadline, pipeline scheduling and face descriptor changes in `907a771`. The new benchmark build carries the existing accepted-present trace, 720p scene with a separate 4K interface, scripted input and dirty-scan marker onto that head. It uses the capture-free profile of the existing reference with the same 3 KiB early cutoff, 10 s compute budget, input and driver. The first comparison keeps the same full 300 s from process launch. [Maintainer's merge note](https://github.com/borntofrag34/VIctory-7900XTX/pull/14#issuecomment-7223229470) · [Merged benchmark build](https://github.com/UwUCammie/VIctory-7900XTX/commit/23cf7512)
