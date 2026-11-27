@@ -15,9 +15,20 @@ from cold_boot import verify_wait_budgets
 from avatar_wine_profile import AVATAR_WINE_CARD_TOUCHED, AVATAR_WINE_SCREEN_WAIT_BOUNDARIES, screen_wait_progress, verify_card_dirty_scan
 from avatar_wine_profile import AVATAR_WINE_CAPTURE_OBSERVERS, AVATAR_WINE_MERGED_COLD, AVATAR_WINE_OBSERVERS_OFF, AVATAR_WINE_OBSERVERS_ON, verify_capture_observers
 from avatar_wine_profile import AVATAR_WINE_SCREEN_WAITER_DIAGNOSTICS, AVATAR_WINE_SCREEN_WAITER_SCORES, verify_screen_waiter_priority
+from avatar_wine_profile import AVATAR_WINE_WRITE_WATCH_GAPS, verify_write_watch_gap
 
 
 class AvatarWineProfileTests(unittest.TestCase):
+    def test_write_watch_gap_pair_uses_the_same_cold_profile(self):
+        for mode, gap in AVATAR_WINE_WRITE_WATCH_GAPS.items():
+            self.assertEqual(benchmark_flags(mode), dict(benchmark_flags(AVATAR_WINE_MERGED_COLD),
+                             VICTORY_AHEAD_GAP_KIB=str(gap)))
+        start = datetime(2026, 11, 27, 8, tzinfo=timezone.utc)
+        lines = ["2026-11-27T08:00:01Z INFO write-watch join gap kib=1024"]
+        verify_write_watch_gap(lines, start, 2_000_000, 1024)
+        with self.assertRaises(ValueError):
+            verify_write_watch_gap(lines, start, 2_000_000, 8192)
+
     def test_observer_pair_uses_the_same_runtime_flags(self):
         off = benchmark_flags(AVATAR_WINE_OBSERVERS_OFF)
         self.assertEqual(off, benchmark_flags(AVATAR_WINE_OBSERVERS_ON))

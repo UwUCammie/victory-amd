@@ -1487,6 +1487,16 @@ The live renderer previously discarded a successful shader translation when atom
 
 The NVIDIA branch now recycles fault-mapped pages once it reaches its memory budget. The current Wine branch also has a lifetime cap. I checked the cap warning in the full 720p reference, a saved geometry run, and the latest long indoor reflection run for each setting. All four logs sampled missing copies and emitted zero cap warnings. The ray-page change addresses an exhausted cap. The cause of the indoor flicker in these captures remains open. [Upstream change](https://github.com/fxceless/victory-fork/commit/3e573d25)
 
+### Pinning a placed texture's alias source
+
+The Wine port holds a reference to the source texture from lookup through copy recording. It releases the alias table lock before comparing descriptors, so a rejected source can release its last reference and unregister safely. Two generated MSVC tests passed under Wine 11.22 on the RX 7900 XT with RADV 26.3.1 and vkd3d-proton `71cae091`. The first recorded a host copy after the title reference was released. The second checked that releasing the last pin removes the source from the table. The test executable matched 114 source checksums. [Wine PR #17](https://github.com/borntofrag34/VIctory-7900XTX/pull/17) · [Upstream lock-order follow-up](https://github.com/fxceless/victory-fork/pull/1487#issuecomment-7223715178)
+
+### Joining write-watch queries under Wine
+
+The generated MSVC probe writes two pages on either side of a clean gap in one private reservation. It compares two `GetWriteWatch` calls against a single combined call, checks that each layout returns exactly the two writes, and alternates the order across eight measured pairs. On this Wine 11.22 host, at 1 MiB the medians were 2.09 µs split and 1.14 µs joined. At 8 MiB they were 2.10 µs split and 2.32 µs joined. The test measures two sparse writes with initialized page tables. Real submissions can have many ranges and write distributions.
+
+The merged Wine experiment adapts the gap setting from #475 and keeps the existing 8 MiB default. It uses the ordinary Wine write-watch API. The capture-free cold pair compares 8 MiB and 1 MiB on the same executable and checks the gap logged by the runtime. A generated journal test must pass for both settings before gameplay. [Runtime change](https://github.com/UwUCammie/VIctory-7900XTX/commit/e8b496e8) · [Upstream write-watch work](https://github.com/avatarmanz/VIctory-7900XTX/pull/475)
+
 ### Half-precision views in fresh descriptor tables
 
 The Wine branch's per-list cache could copy the title's original typed buffer descriptor before the renderer applied the unsigned format needed for half-precision bit moves. The fix sends those slots through the existing conversion. The generated fresh-table regression checks the actual host descriptor in the slot past the start of the declared range. On an RX 7900 XT with Wine 11.22, RADV 26.3.1 and vkd3d-proton `71cae091b06571e`, the unpatched build failed with the list cache enabled. The fix passed with the cache enabled. Both builds passed with it disabled, and each test executable matched 112 source checksums. The cold gameplay comparison applies only the runtime fix to the 3 KiB build and uses the same launch and dialogue route. [Wine PR #14](https://github.com/borntofrag34/VIctory-7900XTX/pull/14)

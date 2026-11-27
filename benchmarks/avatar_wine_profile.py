@@ -41,9 +41,14 @@ AVATAR_WINE_SCREEN_WAITER_SCORES = {
     "vkd3d-master-avatar-wine-440-merged-screen-waiter-off": "0",
     "vkd3d-master-avatar-wine-440-merged-screen-waiter-on": "screen",
 }
+AVATAR_WINE_WRITE_WATCH_GAPS = {
+    "vkd3d-master-avatar-wine-440-write-watch-8m": 8192,
+    "vkd3d-master-avatar-wine-440-write-watch-1m": 1024,
+}
 AVATAR_WINE_CAPTURE_OBSERVERS = {
     AVATAR_WINE_OBSERVERS_OFF: False, AVATAR_WINE_OBSERVERS_ON: True, AVATAR_WINE_MERGED_COLD: False,
     **dict.fromkeys(AVATAR_WINE_SCREEN_WAITER_SCORES, False),
+    **dict.fromkeys(AVATAR_WINE_WRITE_WATCH_GAPS, False),
 }
 AVATAR_WINE_FACE_WORKER_COUNTS = {
     "vkd3d-master-avatar-wine-440-faces-workers6": 6,
@@ -220,6 +225,8 @@ def benchmark_flags(mode):
         flags["VICTORY_EARLY_COMPUTE_MAX_BYTES"] = str(AVATAR_WINE_FACE_TRACE_LIMITS[mode])
     if mode in AVATAR_WINE_FACE_WORKER_COUNTS:
         flags["VICTORY_PIPELINE_WORKERS"] = str(AVATAR_WINE_FACE_WORKER_COUNTS[mode])
+    if mode in AVATAR_WINE_WRITE_WATCH_GAPS:
+        flags["VICTORY_AHEAD_GAP_KIB"] = str(AVATAR_WINE_WRITE_WATCH_GAPS[mode])
     return flags
 
 
@@ -247,6 +254,14 @@ def verify_card_dirty_scan(lines, launched, stop, enabled):
              for _, line in windowed_log_lines(lines, launched, stop, (label,))]
     if modes != [f"enabled={str(enabled).lower()}"]:
         raise ValueError("runtime card copy dirty scan mode did not match")
+
+
+def verify_write_watch_gap(lines, launched, stop, kib):
+    label = "write-watch join gap"
+    modes = [line.rsplit(label, 1)[1].strip()
+             for _, line in windowed_log_lines(lines, launched, stop, (label,))]
+    if modes != [f"kib={kib}"]:
+        raise ValueError("runtime write-watch join gap did not match")
 
 
 def verify_pipeline_workers(lines, launched, stop, expected):
