@@ -5,9 +5,30 @@ from itertools import chain
 import json
 import math
 from pathlib import Path
+import re
 
 from cold_boot import TRACE
 from first_room import DeviceLost, SessionFailed, session_lines
+
+
+def descriptor_gate_activity(lines, *, enabled):
+    """Verify which thin gate ran and record the allocator warning once per run."""
+    thin = gate = dropped = False
+    intervals = 0
+    parks = 0
+    for line in session_lines(lines):
+        thin |= "list calls are written down and translated by threads of ours (VICTORY_THIN=1)" in line
+        gate |= "reserves descriptor space for work the queue needs (VICTORY_THIN_GATE=1)" in line
+        dropped |= "a draw whose descriptor table found no free slots is dropped" in line
+        if "thin recordings deferred since the last frame-rate report" in line:
+            count = re.search(r"\bparks=(\d+)\b", line)
+            if not count:
+                raise ValueError("missing thin gate counter")
+            parks += int(count[1])
+            intervals += 1
+    if not thin or gate != enabled or bool(intervals) != enabled:
+        raise ValueError("thin gate setting does not match the launch")
+    return {"descriptor_gate": gate, "descriptor_deferrals": parks, "descriptor_drop_observed": dropped}
 
 
 def save_fingerprints(data):

@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from saved_route import classify, route_outcome, save_fingerprints, scan_for_failure, scene_samples
+from saved_route import classify, descriptor_gate_activity, route_outcome, save_fingerprints, scan_for_failure, scene_samples
 
 
 class SavedRouteTests(unittest.TestCase):
@@ -44,6 +44,19 @@ class SavedRouteTests(unittest.TestCase):
         self.assertEqual(self.result(self.present, seconds=158), "incomplete")
         self.assertEqual(self.result(), "incomplete")
         self.assertEqual(self.result(self.present, code=0), "incomplete")
+
+    def test_descriptor_gate_requires_the_setting_and_counts_deferrals(self):
+        thin = "list calls are written down and translated by threads of ours (VICTORY_THIN=1)"
+        gate = "thin list translation reserves descriptor space for work the queue needs (VICTORY_THIN_GATE=1)"
+        counter = "thin recordings deferred since the last frame-rate report parks="
+        dropped = "a draw whose descriptor table found no free slots is dropped"
+        self.assertEqual(descriptor_gate_activity([thin, dropped], enabled=False),
+                         {"descriptor_gate": False, "descriptor_deferrals": 0, "descriptor_drop_observed": True})
+        self.assertEqual(descriptor_gate_activity([thin, gate, counter + "2", counter + "4"], enabled=True),
+                         {"descriptor_gate": True, "descriptor_deferrals": 6, "descriptor_drop_observed": False})
+        for lines in ([thin, gate], [thin, counter + "2"], [gate, counter + "2"]):
+            with self.assertRaises(ValueError):
+                descriptor_gate_activity(lines, enabled=True)
 
 
     def test_yield_and_missing_files_before_renderer_initializes(self):
