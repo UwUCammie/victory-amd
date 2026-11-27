@@ -83,10 +83,12 @@ AVATAR_WINE_QUEUE_TIMINGS = {
     "vkd3d-master-avatar-wine-440-queue-timing-on": "1",
 }
 AVATAR_WINE_STAGE_CPU_PROFILE = "vkd3d-master-avatar-wine-440-stage-timing-cpu"
+AVATAR_WINE_STAGE_INDEX_PROFILE = "vkd3d-master-avatar-wine-440-stage-timing-index"
+AVATAR_WINE_STAGE_CPU_PROFILES = (AVATAR_WINE_STAGE_CPU_PROFILE, AVATAR_WINE_STAGE_INDEX_PROFILE)
 AVATAR_WINE_STAGE_TIMINGS = {
     "vkd3d-master-avatar-wine-440-stage-timing-off": "0",
     "vkd3d-master-avatar-wine-440-stage-timing-on": "1",
-    AVATAR_WINE_STAGE_CPU_PROFILE: "0",
+    **dict.fromkeys(AVATAR_WINE_STAGE_CPU_PROFILES, "0"),
 }
 STAGE_TRACE_SECONDS = 82
 STAGE_TRACE_CUTOFF = 75_000_000

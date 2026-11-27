@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 import unittest
 
 from avatar_wine_profile import (AVATAR_WINE_BOOL_SIMPLIFY, AVATAR_WINE_COMPILER_CACHE, AVATAR_WINE_CONSTRUCTOR_POOLS, AVATAR_WINE_EARLY_LIMITS, AVATAR_WINE_FACE_EARLY_LIMITS, AVATAR_WINE_FACE_TRACE, AVATAR_WINE_FACE_TRACE_EARLY, AVATAR_WINE_FACE_WORKER_COUNTS, AVATAR_WINE_FACES, AVATAR_WINE_FACES_2S, AVATAR_WINE_FACES_EARLY, AVATAR_WINE_FACES_OFF, AVATAR_WINE_KEEP_TRANSLATED, AVATAR_WINE_LATEST_CONTROL, AVATAR_WINE_LATEST_SHADERS,
-                                 AVATAR_WINE_NOTIFY_SWITCHES, AVATAR_WINE_PIPELINE_INPUTS, AVATAR_WINE_SCREEN_LIMITS, AVATAR_WINE_SINGLE_PARSE,
+                                 AVATAR_WINE_NOTIFY_SWITCHES, AVATAR_WINE_PIPELINE_INPUTS, AVATAR_WINE_SCREEN_LIMITS, AVATAR_WINE_SINGLE_PARSE, AVATAR_WINE_STAGE_CPU_PROFILE, AVATAR_WINE_STAGE_INDEX_PROFILE,
                                  AVATAR_WINE_QUEUE_TIMING, AVATAR_WINE_QUEUE_TIMINGS, AVATAR_WINE_SCREEN_WORKERS, AVATAR_WINE_VALUE_USE_INDEX, AVATAR_WINE_WAITER_SWITCHES,
                                  AVATAR_WINE_WRITEBACK_SWITCHES, benchmark_flags, compute_wait_activity,
                                  early_compute_activity, early_screen_activity, observed_profile,
@@ -69,6 +69,8 @@ class AvatarWineProfileTests(unittest.TestCase):
                      AVATAR_WINE_LATEST_CONTROL, AVATAR_WINE_LATEST_SHADERS):
             with self.subTest(mode=mode):
                 self.assertEqual(benchmark_flags(mode), benchmark_flags("vkd3d-master-avatar-wine-440"))
+        self.assertEqual(benchmark_flags(AVATAR_WINE_STAGE_CPU_PROFILE),
+                         benchmark_flags(AVATAR_WINE_STAGE_INDEX_PROFILE))
 
     def test_log_confirms_frame_rate_mapping_and_compute_budget(self):
         lines = [
