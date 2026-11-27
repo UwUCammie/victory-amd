@@ -1112,3 +1112,5 @@ The candidate keeps the scan unless at least 128 requests have already been coll
 ```sh
 python -B benchmarks/write_watch_ranges.py PATH_TO_CHECKOUT
 ```
+
+The adaptive implementation also agreed on all 400 generated sequences. Its 4,096 shuffled disjoint inputs took 7.23 ms versus 0.46 ms, and 512 mixed inputs took 13.10 versus 11.52 µs. At 64 mixed inputs it took 356 versus 366 ns. At 4,096 nested inputs only one request survived and the time moved from 2.34 to 3.09 µs. These are eight alternating pairs from a second run of the native fixture. Four range and journal tests and one write-watch generation test passed with the exact MSVC build under Wine 11.22. [Adaptive implementation](https://github.com/UwUCammie/VIctory-7900XTX/commit/968673d7)
