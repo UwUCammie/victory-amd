@@ -231,6 +231,18 @@ Three later attempts also yielded. The longest of those ran for about 244 second
 
 The candidate counted 137 more presents and 8.73 fewer seconds in gaps over 100 ms in this pair. Both controls with the same executable and settings from the earlier run orders reached higher averages than this candidate (9.91 and 10.49 FPS). Both scored runs showed faces and visible scenes later, and the candidate reached a different indoor scene by the end. They had black or underlit samples at different times, and the candidate also had washed-out samples. The roughly eleven-second stalls persisted. This pair leaves the separate contribution of either change and any effect on rendering unresolved. The gameplay default stays on the existing build.
 
+### Wide range scans and borrowed descriptor handles
+
+The Wine descriptor build carries the wide shadow-range scan and the deferred COM-reference acquisition together. The only source changes from the two stock repeats are in `shadow.rs` and `descriptor/host.rs`. All three scored launches used the same 1280×720 output, runtime flags, timed input and GE vkd3d-proton `cae8353ed7959c4` on the RX 7900 XT. Their five graphics caches and story slots started empty. Two candidate attempts yielded to other render clients or builds before the third completed.
+
+| First 300 seconds | Presents | Average FPS | P99 gap | Longest gap | Time in gaps over 100 ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Stock 1 | 2,589 | 8.63 | 2,438 ms | 11.40 s | 198.69 s |
+| Stock 2 | 2,651 | 8.84 | 1,840 ms | 11.39 s | 199.23 s |
+| Wine descriptor build | 2,245 | 7.48 | 2,988 ms | 11.41 s | 211.27 s |
+
+The candidate had black samples at 85, 100 and 130 seconds and showed skin in the car and people in the room later. The stock comparison also had very dark samples and reached different shots. This cold run fell below both stock timings. An isolated comparison is still needed to attribute the difference to either change. The gameplay default is unchanged. [Tested integration](https://github.com/UwUCammie/VIctory-7900XTX/commit/5fb3cc2d) · [AMD PR](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/20)
+
 ### Descriptor heap binding
 
 The draw-and-dispatch bind code can submit up to two heaps. I moved the short list from a vector to a stack array. A native fixture runs the exact list-building code with mock handles. For each of no heap, view only, sampler only and both heaps, it checked 10,000 updates. The retained and bound handles agreed in both versions, including their order. The control made 10,000 temporary allocations per case and the candidate made zero. The Windows MSVC compile check passed. The fixture does not time the D3D12 call or gameplay.
