@@ -1096,7 +1096,7 @@ The AMD renderer's compute wait has two limits. The pipeline age limit stays at 
 For the 500 ms run, check the actual startup announcements along with the present trace. Use `10000` for the second run's last argument.
 
 ```sh
-python -I benchmarks/cold_boot.py "$run" "$launch" --start 0 --stop 300 \\
-  --expect-output 1280x720 --expect-interface 3840x2160 --expect-vkd3d 71cae091 \\
+python -B benchmarks/cold_boot.py "$run" "$launch" --start 0 --stop 300 \
+  --expect-output 1280x720 --expect-interface 3840x2160 --expect-vkd3d 71cae091 \
   --expect-graphics-wait-ms 500 --expect-compute-wait-ms 10000 --expect-compute-frame-ms 500
 ```
