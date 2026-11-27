@@ -361,6 +361,8 @@ A normal texture pass limits the due list to 4,096 slots. The control sorted eve
 
 Run `python3 benchmarks/due_texture_order.py CHECKOUT 830dc191 81c093c2` with Rust 1.98.1. These are nine alternating pairs on one Ryzen 7 9700X core, timing the ordering call on generated records. [Candidate source](https://github.com/UwUCammie/VIctory-7900XTX/commit/81c093c2)
 
+A follow-up measured collecting counts and the due list in one traversal. All 420 generated queue snapshots agreed. For 40,000 queued slots, the median with a due list went from 277.64 to 198.99 µs; the counts-only pass went from 92.82 to 102.72 µs. I kept this revision out of the PR while I recheck a variant that preserves the original counts-only scan. The first Windows build’s PDB showed an out-of-date dependency, so the runtime verification remains pending. [First snapshot experiment](https://github.com/UwUCammie/VIctory-7900XTX/commit/7f79d873)
+
 ### Shared-section buffer import on Wine and native Windows
 
 The selected-adapter fixture reads generated CPU bytes back through the GPU, then writes from the GPU and validates both CPU mappings. On the RX 7900 XT with Wine 11.22 and RADV 26.3.1, the two CPU views agreed across all 320 KiB. The GPU saw zeros there, and its own 256-byte write was visible only on the GPU. That held with GE vkd3d-proton `cae8353e` and upstream `71cae091`, with `descriptor_heap` enabled.
@@ -370,6 +372,12 @@ GiovanniFadanelli independently ran both the reserved and prefilled variants on 
 ### Placed Vulkan device feature probe
 
 I built the experimental placed-memory layer with Vulkan-Headers `v1.4.328` and enabled it only through a scratch `XDG_DATA_HOME`. The RX 7900 XT on RADV reported both `memoryMapPlaced` and `memoryUnmapReserve`. A generated Vulkan device request without a placed-feature record received the two needed extensions and created a device successfully. A second request supplied both feature bits disabled. The layer passed through that request and left both fields unchanged. The AMD port also passed the Windows MSVC `cargo check -p victory`. This verifies device creation and feature negotiation. The actual mapped heap, its CPU/GPU data round trip and a timed game launch are separate checks. [AMD test branch](https://github.com/UwUCammie/VIctory-7900XTX/commit/dc1d9798) · [Upstream PR](https://github.com/avatarmanz/VIctory-7900XTX/pull/420)
+
+### Win32 open flags on Wine 11.22
+
+The file-cache change in Avatar #423 targets platform file I/O during startup. I opened two generated files on the benchmark host with Win32 synchronous `CreateFileW`, one with `FILE_FLAG_NO_BUFFERING`. Both aligned 4 KiB reads returned the expected bytes. `FileModeInformation` reported `0x20` and `0x28`, so Wine retained the unbuffered bit in the Windows mode. While both handles were open, the Linux descriptors had the same flags in both cases and none had `O_DIRECT` set. This narrows the Linux question to other effects of the Win32 mode. The Windows title-logo timings in the source PR are a separate workload. [Opt-in AMD branch](https://github.com/UwUCammie/VIctory-7900XTX/commit/c93361e6) · [Source PR](https://github.com/avatarmanz/VIctory-7900XTX/pull/423)
+
+Build `file_buffering_probe.rs` for `x86_64-pc-windows-msvc` and run `python3 benchmarks/file_buffering_probe.py EXE` with the desired Wine prefix and working `Z:` mapping. The probe creates and removes its own generated files.
 
 ### Relevance of the masked write patch to cold startup
 
