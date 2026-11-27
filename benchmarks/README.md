@@ -352,7 +352,7 @@ Run `python3 benchmarks/due_texture_order.py CHECKOUT 830dc191 81c093c2` with Ru
 
 The selected-adapter fixture reads generated CPU bytes back through the GPU, then writes from the GPU and validates both CPU mappings. On the RX 7900 XT with Wine 11.22 and RADV 26.3.1, the two CPU views agreed across all 320 KiB. The GPU saw zeros there, and its own 256-byte write was visible only on the GPU. That held with GE vkd3d-proton `cae8353e` and upstream `71cae091`, with `descriptor_heap` enabled.
 
-GiovanniFadanelli independently ran both the reserved and prefilled variants on native Windows at `af245c3`. Both passed on the RX 9070 XT with driver `32.0.32029.2010`, using automatic and explicit adapter selection, and on the integrated Radeon Graphics with driver `32.0.21045.29003`. The OS, driver stack and adapters differ between these observations. The new placed-memory route needs its own check on the RX 7900 XT. [Fixture](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/23) · [Native Windows results](https://github.com/avatarmanz/VIctory-7900XTX/pull/380#issuecomment-7208337399)
+GiovanniFadanelli independently ran both the reserved and prefilled variants on native Windows at `af245c3`. Both passed on the RX 9070 XT with driver `32.0.32029.2010`, using automatic and explicit adapter selection, and on the integrated Radeon Graphics with driver `32.0.21045.29003`. The OS, driver stack and adapters differ between these observations. The new placed-memory route needs its own check on the RX 7900 XT. [Fixture](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/23) · [Native Windows results](https://github.com/avatarmanz/VIctory-7900XTX/pull/380#issuecomment-7208330647)
 
 ### Relevance of the masked write patch to cold startup
 
