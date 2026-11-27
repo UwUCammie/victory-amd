@@ -6,7 +6,8 @@ from avatar_wine_profile import (AVATAR_WINE_COMPILER_CACHE, AVATAR_WINE_EARLY_L
                                  AVATAR_WINE_SCREEN_WORKERS, AVATAR_WINE_VALUE_USE_INDEX,
                                  AVATAR_WINE_WRITEBACK_SWITCHES, benchmark_flags, compute_wait_activity,
                                  early_compute_activity, early_screen_activity, observed_profile,
-                                 pipeline_wait_gap_totals, pipeline_wait_group_coverage, screen_wait_coverage, screen_worker_activity,
+                                 pipeline_wait_gap_totals, pipeline_wait_group_coverage, pipeline_wait_translation_coverage,
+                                 screen_wait_coverage, screen_worker_activity,
                                  verify_notification_mode, writeback_activity)
 from cold_boot import verify_wait_budgets
 
@@ -168,6 +169,24 @@ class AvatarWineProfileTests(unittest.TestCase):
             "any_wait_overlap_seconds": 2.5,
             "largest_group_overlap_seconds": 2.0,
             "gaps_with_one_group_covering_at_least_80_percent": 0,
+        })
+
+    def test_wait_translation_coverage_accounts_for_the_last_stage_and_unknown_shaders(self):
+        started = datetime(2026, 11, 27, 8, tzinfo=timezone.utc)
+        logs = [
+            '2026-11-27T08:00:02Z INFO shader translated stage="mesh" hash=2222222222222222',
+            '2026-11-27T08:00:03Z INFO shader translated stage="compute" hash=1111111111111111',
+            '2026-11-27T08:00:04Z INFO shader translated stage="pixel" hash=3333333333333333',
+            '2026-11-27T08:00:05Z INFO a compute pass was waited for ms=4000 made=true shaders=[compute 1111111111111111]',
+            '2026-11-27T08:00:05Z INFO a pass over the screen was waited for ms=3000 made=true'
+            ' shaders=[mesh 2222222222222222, pixel 3333333333333333]',
+            '2026-11-27T08:00:05Z INFO a compute pass was waited for ms=500 made=false shaders=[compute 4444444444444444]',
+            '2026-11-27T08:00:07Z INFO shader translated stage="compute" hash=4444444444444444',
+        ]
+        self.assertEqual(pipeline_wait_translation_coverage(logs, started, 6_000_000, [1_000_000, 5_000_000, 7_000_000]), {
+            "translation_pending_overlap_seconds": 3.0,
+            "translation_logged_overlap_seconds": 2.0,
+            "translation_unknown_overlap_seconds": 0.5,
         })
 
     def test_writeback_activity_rejects_a_wrong_mode_or_threshold(self):

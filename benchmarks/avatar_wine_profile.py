@@ -210,13 +210,15 @@ def screen_worker_activity(lines, launched, stop, expected):
     return {"reserved": expected, "first_claim_seconds": claims[0] / 1e6 if claims else None}
 
 
+_WAIT_LABELS = {"a pass over the screen was waited for": "screen", "a compute pass was waited for": "compute"}
+
+
 def _pipeline_wait_reports(lines, launched, stop):
-    labels = {"a pass over the screen was waited for": "screen", "a compute pass was waited for": "compute"}
-    for end, line in windowed_log_lines(lines, launched, stop, tuple(labels)):
+    for end, line in windowed_log_lines(lines, launched, stop, tuple(_WAIT_LABELS)):
         match = re.search(r"\bms=(\d+)\s+made=(true|false)\b", line)
         if match is None:
             raise ValueError("pipeline wait result has no duration or pipeline status")
-        kind = next(kind for label, kind in labels.items() if label in line)
+        kind = next(kind for label, kind in _WAIT_LABELS.items() if label in line)
         yield kind, end - int(match[1]) * 1000, end, line
 
 
@@ -259,6 +261,10 @@ def pipeline_wait_gap_totals(lines, launched, stop, frames):
                for kind, waits in spans.items()}}
 
 
+def _complete_long_gaps(frames, stop):
+    return [(a, b) for a, b in zip(frames, frames[1:]) if 0 <= a < b <= stop and b - a >= 1_000_000]
+
+
 def pipeline_wait_group_coverage(lines, launched, stop, frames):
     """Aggregate wait groups in complete present gaps lasting at least a second.
 
@@ -274,7 +280,7 @@ def pipeline_wait_group_coverage(lines, launched, stop, frames):
 
     group_spans = [sorted(waits) for waits in groups.values()]
     all_spans = sorted(span for waits in group_spans for span in waits)
-    gaps = [(a, b) for a, b in zip(frames, frames[1:]) if 0 <= a < b <= stop and b - a >= 1_000_000]
+    gaps = _complete_long_gaps(frames, stop)
     largest_per_gap = [max((_wait_overlap(waits, a, b) for waits in group_spans), default=0) for a, b in gaps]
     return {
         "gaps_at_least_one_second": len(gaps),
@@ -284,6 +290,45 @@ def pipeline_wait_group_coverage(lines, launched, stop, frames):
         "gaps_with_one_group_covering_at_least_80_percent": sum(
             5 * overlap >= 4 * (b - a) for (a, b), overlap in zip(gaps, largest_per_gap)
         ),
+    }
+
+
+def pipeline_wait_translation_coverage(lines, launched, stop, frames):
+    """Measure long-gap wait overlap before and after the last shader translation.
+
+    A missing marker makes a wait unclassified. Time covered by separate
+    waiters can appear in more than one column.
+    """
+    translated = {}
+    wait_lines = []
+    for time, line in windowed_log_lines(lines, launched, stop, ("shader translated", *_WAIT_LABELS)):
+        if "shader translated" in line:
+            shader = re.search(r'\bstage="([^"]+)"\s+hash=([0-9a-f]{16})\b', line)
+            if shader is None:
+                raise ValueError("shader translation result has no stage or hash")
+            translated.setdefault(shader.groups(), time)
+        else:
+            wait_lines.append(line)
+    spans = {"translation_pending": [], "translation_logged": [], "translation_unknown": []}
+    for _, start, end, line in _pipeline_wait_reports(wait_lines, launched, stop):
+        shaders = re.search(r"\bshaders=\[([^\]]+)\]", line)
+        if shaders is None:
+            raise ValueError("pipeline wait result has no shader list")
+        times = [translated.get(tuple(shader.split())) for shader in shaders[1].split(", ")]
+        if any(time is None for time in times):
+            spans["translation_unknown"].append((start, end))
+            continue
+        compiled = max(times)
+        if compiled > start:
+            spans["translation_pending"].append((start, min(end, compiled)))
+        if compiled < end:
+            spans["translation_logged"].append((max(start, compiled), end))
+    gaps = _complete_long_gaps(frames, stop)
+    for waits in spans.values():
+        waits.sort()
+    return {
+        f"{kind}_overlap_seconds": sum(_wait_overlap(waits, a, b) for a, b in gaps) / 1e6
+        for kind, waits in spans.items()
     }
 
 
