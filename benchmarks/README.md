@@ -278,6 +278,20 @@ For the compute-wait follow-up, both cold launches used upstream vkd3d-proton `7
 
 The enabled run logged 320 first compute-wait drop notices. With it off, that log path is disabled. No alternate-form recovery appeared in either run. Faces were visible in the sampled opening shots in both. The samples land at different cuts, so they do not establish whether turning the wait off preserves the skin bake throughout the scene. This was one run per setting.
 
+I repeated the comparison with [frame-health counters](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/37) enabled in both arms. The 720p executable, driver, DXGI DLL and 500 ms graphics wait matched. Each started with five empty graphics caches and no story save.
+
+| Compute wait | Presents in first 300 s | Average FPS | P99 gap | Longest gap | Gaps over 1 s | Time in gaps over 100 ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Off | 3,028 | 10.09 | 587 ms | 3.84 s | 5 | 185.49 s |
+| On | 2,623 | 8.74 | 2,159 ms | 11.31 s | 32 | 195.78 s |
+
+| Compute wait | Compute recorded | Compute missed while compiling | Share missed | Draws missed while compiling |
+| --- | ---: | ---: | ---: | ---: |
+| Off | 4,598,280 | 427,931 | 8.51% | 331,866 |
+| On | 2,441,427 | 8,240 | 0.34% | 23,793 |
+
+The counter window covers the first 270 seconds after each first accepted present. The share uses recorded dispatches plus pipeline misses and excludes intentionally omitted ray-only dispatches. Neither run logged a terminal pipeline refusal in that window. The off capture showed a black view with subtitles at 100 seconds and reached the prison by 255 seconds. The enabled run showed an exterior in the first sample and was still in the opening montage at 285 seconds. This is one pair with different scene progress. Its counts cannot isolate the effect of waiting from the difference in work requested.
+
 To verify a driver run locally, use `python benchmarks/cold_boot.py RUN RUN_META/launch.json --expect-vkd3d 71cae091 --expect-output 1280x720 --expect-interface 3840x2160`.
 
 ### Saved waterfront lighting at 720p
