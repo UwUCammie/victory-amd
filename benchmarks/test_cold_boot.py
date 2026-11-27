@@ -40,6 +40,15 @@ class ColdBootTests(unittest.TestCase):
             with self.subTest(lines=lines), self.assertRaises(ValueError):
                 loaded_vkd3d_build(lines, "abcd012")
 
+    def test_compute_frame_and_pipeline_budgets_are_separate(self):
+        announcement = "compute dispatches wait for their pipelines secs=10 \x1b[3mframe_ms\x1b[0m=500"
+        verify_wait_budgets([announcement], compute_ms=10000, compute_frame_ms=500)
+        for lines in ([], [announcement.replace("500", "10000")], [announcement.replace("secs=10", "secs=2")],
+                      [announcement, announcement.replace("500", "10000")],
+                      ["compute dispatches wait for their pipelines ms=500"]):
+            with self.subTest(lines=lines), self.assertRaises(ValueError):
+                verify_wait_budgets(lines, compute_ms=10000, compute_frame_ms=500)
+
     launched = datetime(2026, 11, 26, tzinfo=timezone.utc)
 
     def test_upload_pool_counters_use_latest_sample_before_the_cutoff(self):

@@ -1088,3 +1088,15 @@ The current AMD renderer records a generation for each written 4 KiB part of a 6
 ```sh
 python -I benchmarks/watch_part_bits.py PATH_TO_EXPERIMENT_CHECKOUT --base 830dc191
 ```
+
+### Comparing compute frame budgets on the AMD renderer
+
+The AMD renderer's compute wait has two limits. The pipeline age limit stays at ten seconds. The frame limit starts with the first compute wait in each frame. Runs with `VICTORY_COMPUTE_FRAME_WAIT_MS=500` and `10000` use the same executable, driver files, input, 1280×720 scene, and 500 ms graphics budget. Each run starts a new story with five empty cache directories. The 300-second window includes the time to the first present and every subsequent hold in that window.
+
+For the 500 ms run, check the actual startup announcements along with the present trace. Use `10000` for the second run's last argument.
+
+```sh
+python -I benchmarks/cold_boot.py "$run" "$launch" --start 0 --stop 300 \\
+  --expect-output 1280x720 --expect-interface 3840x2160 --expect-vkd3d 71cae091 \\
+  --expect-graphics-wait-ms 500 --expect-compute-wait-ms 10000 --expect-compute-frame-ms 500
+```

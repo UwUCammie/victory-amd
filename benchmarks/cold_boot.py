@@ -166,24 +166,34 @@ def loaded_vkd3d_build(lines, expected):
     return build
 
 
-def verify_wait_budgets(lines, *, graphics_ms=None, compute_ms=None):
+def verify_wait_budgets(lines, *, graphics_ms=None, compute_ms=None, compute_frame_ms=None):
     """Verify budgets reported by the runtime. Compute zero means no wait announcement."""
-    graphics, compute = set(), set()
+    graphics, compute, compute_frame = set(), set(), set()
     for line in session_lines(lines):
         if graphics_ms is not None and "host pipeline wait budget per frame" in line:
             match = re.search(r"\bmillis=(\d+)\b", line)
             if match is None:
                 raise ValueError("graphics wait announcement has no millisecond value")
             graphics.add(int(match[1]))
-        elif compute_ms is not None and "compute dispatches wait for their pipelines" in line:
-            match = re.search(r"\bms=(\d+)\b", line)
-            if match is None:
-                raise ValueError("compute wait announcement has no millisecond value")
-            compute.add(int(match[1]))
+        elif (compute_ms is not None or compute_frame_ms is not None) and "compute dispatches wait for their pipelines" in line:
+            if compute_frame_ms is None:
+                match = re.search(r"\bms=(\d+)\b", line)
+                if match is None:
+                    raise ValueError("compute wait announcement has no millisecond value")
+                compute.add(int(match[1]))
+            else:
+                seconds = re.search(r"\bsecs=(\d+)\b", line)
+                frame = re.search(r"\bframe_ms=(\d+)\b", line)
+                if seconds is None or frame is None:
+                    raise ValueError("compute wait announcement must include both pipeline seconds and frame milliseconds")
+                compute.add(1000 * int(seconds[1]))
+                compute_frame.add(int(frame[1]))
     if graphics_ms is not None and graphics != {graphics_ms}:
         raise ValueError(f"reported graphics waits {sorted(graphics)}, expected {graphics_ms} ms")
     if compute_ms is not None and compute != ({compute_ms} if compute_ms else set()):
         raise ValueError(f"reported compute waits {sorted(compute)}, expected {compute_ms} ms")
+    if compute_frame_ms is not None and compute_frame != {compute_frame_ms}:
+        raise ValueError(f"reported compute frame waits {sorted(compute_frame)}, expected {compute_frame_ms} ms")
 
 
 def windowed_log_lines(lines, launched, stop, markers):
@@ -300,7 +310,8 @@ def raw_twin_activity(lines, launched, stop, expected):
 def report(run, metadata, start, stop, *, stalls=0, expected_output=None, expected_interface=None,
            expected_vkd3d=None, progress=False, compute_gap_ms=None,
            expected_graphics_wait_ms=None, expected_compute_wait_ms=None, expected_upload_pool=None,
-           expected_buffer_prefetch=None, expected_compute_reserve=None, expected_exact_twins=None):
+           expected_buffer_prefetch=None, expected_compute_reserve=None, expected_exact_twins=None,
+           expected_compute_frame_ms=None):
     launch = json.loads(metadata.read_text())
     check_overlap(run, metadata)
     live = progress and "end_utc" not in launch
@@ -327,9 +338,10 @@ def report(run, metadata, start, stop, *, stalls=0, expected_output=None, expect
         raise ValueError("frame trace extends beyond launcher metadata")
     result = {"first_present_seconds": frames[0] / 1e6,
               **window(frames, start, stop, stalls=stalls, compute_drops=drops, compute_gap_ms=compute_gap_ms)}
-    if expected_graphics_wait_ms is not None or expected_compute_wait_ms is not None:
+    if any(value is not None for value in (expected_graphics_wait_ms, expected_compute_wait_ms, expected_compute_frame_ms)):
         with (run / "run.log").open(encoding="utf-8", errors="replace") as log:
-            verify_wait_budgets(log, graphics_ms=expected_graphics_wait_ms, compute_ms=expected_compute_wait_ms)
+            verify_wait_budgets(log, graphics_ms=expected_graphics_wait_ms, compute_ms=expected_compute_wait_ms,
+                                compute_frame_ms=expected_compute_frame_ms)
     if expected_upload_pool is not None:
         with (run / "run.log").open(encoding="utf-8", errors="replace") as log:
             result["upload_pool"] = upload_pool_activity(log, launched, stop, expected_upload_pool)
@@ -367,6 +379,8 @@ if __name__ == "__main__":
                         help="verify the logged graphics pipeline wait budget")
     parser.add_argument("--expect-compute-wait-ms", type=int, metavar="MS",
                         help="verify the logged compute wait budget (0 expects no announcement)")
+    parser.add_argument("--expect-compute-frame-ms", type=int, metavar="MS",
+                        help="verify a separate compute frame budget, alongside any per-pipeline cap")
     parser.add_argument("--expect-upload-pool", type=int, choices=(0, 1),
                         help="verify the upload switch and report mapping and pool counters")
     parser.add_argument("--expect-buffer-prefetch", type=int, choices=(0, 1),
@@ -390,7 +404,7 @@ if __name__ == "__main__":
                         expected_graphics_wait_ms=args.expect_graphics_wait_ms,
                         expected_compute_wait_ms=args.expect_compute_wait_ms, expected_upload_pool=args.expect_upload_pool,
                         expected_buffer_prefetch=args.expect_buffer_prefetch, expected_compute_reserve=args.expect_compute_reserve,
-                        expected_exact_twins=args.expect_exact_twins)
+                        expected_exact_twins=args.expect_exact_twins, expected_compute_frame_ms=args.expect_compute_frame_ms)
     except (ValueError, KeyError, OSError) as error:
         parser.exit(1, f"{error}\n")
     print(json.dumps(result, indent=2))
