@@ -1654,11 +1654,13 @@ Both launches confirmed all 12 worker priorities, used the same executable and d
 
 The higher priority shortened the longest gap. The frame count fell and the total time in long gaps increased in this pair, so the next experiment retains the original priorities.
 
+A separate device-loss diagnostic reuses the priority −2 executable and driver files at the same cold setup. It sends the same menu inputs and omits the subsequent movement keys. This tests whether the scripted movement is necessary to reproduce the loss. The diagnostic is excluded from FPS scoring.
+
 ### Keeping a compiler worker available for requests
 
 One experiment keeps the last of ten general workers available for pipelines the title has already requested. The other nine can still compile speculative work, and the two priority workers keep their existing queues. The requested worker keeps the normal order of already-requested jobs, including jobs promoted out of the early queue. Both worker recovery paths preserve that assignment. The switch is off by default.
 
-Six native tests of the extracted queue passed, including a check that the worker takes a promoted job and leaves speculative jobs for the general workers. The guarded build also runs the original Windows tests. The two capture-free launches keep the 3 KiB early cutoff, the 10 s compute wait and all worker priorities fixed. They vary only `VICTORY_PIPELINE_RESERVE_REQUESTED` and verify the reserved worker's startup message before scoring. [Experiment source](https://github.com/UwUCammie/VIctory-7900XTX/commit/2990769f)
+Six native tests of the extracted queue passed, including a check that the worker takes a promoted job and leaves speculative jobs for the general workers. All 14 focused Windows tests passed under Wine 11.22 with 115 source checksums verified. The release matched 179 source checksums. The two capture-free launches keep the 3 KiB early cutoff, the 10 s compute wait and all worker priorities fixed. They vary only `VICTORY_PIPELINE_RESERVE_REQUESTED` and verify the reserved worker's startup message before scoring. [Experiment source](https://github.com/UwUCammie/VIctory-7900XTX/commit/2990769f)
 
 ### Cold 720p after the Wine merges
 
