@@ -1148,6 +1148,19 @@ The 2.5 KiB run made the facial-deformation pipeline at 2.54 s and showed both f
 
 Another 2.5 KiB launch made the same pipeline at 2.63 s and also showed both faces, including the matching driver close-up. This run yielded to a parallel build at 253.70 s. Its repeated visual result supports moving the 2 s trial ahead of the remaining 10 s retries. Full 300 s timing is still pending for both settings.
 
+The first two 2 s attempts yielded to parallel builds at 163.39 s and 252.53 s. The second made the facial-deformation pipeline at 2.65 s. Both faces showed skin in the car at 175 s, and the driver's close-up at 160 s showed skin and a centered subtitle in the first attempt. These samples cover face visibility. Lip motion and indoor lighting still need separate checks.
+
+The second 2 s attempt and the 10 s attempt that yielded at 253.70 s had the same executable, three driver file digests, loaded vkd3d-proton build, five initially empty caches, new story, 720p output, input and 2.5 KiB cutoff. The first 245 s precede either overlap marker.
+
+| Compute budget | Accepted presents | P99 interval | Longest gap | Time in gaps above 100 ms | Reported waits without a pipeline result |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 10 s | 4,752 | 223 ms | 17.828 s | 130.23 s | 36 |
+| 2 s | 5,312 | 294 ms | 11.918 s | 118.22 s | 125 |
+
+Both fixed windows include launch and stutters. The 2 s trial had a shorter maximum gap and more missing pipeline results at the end of a reported wait. Its P99 was higher in both interrupted attempts. Accepted presents can repeat an image and concurrent wait notices can overlap. Both runs are excluded from the full 300 s score.
+
+I also staged an independent comparison of the shared completion notification against per-pipeline notifications. The latter wakes only threads waiting on the pipeline that completed, including when a failed compile is handled. The same-binary experiment keeps the 10 s budget and 2.5 KiB cutoff and checks the active notification setting in the log. [Source change](https://github.com/UwUCammie/VIctory-7900XTX/commit/16805bb1), [Wine test source](https://github.com/UwUCammie/VIctory-7900XTX/commit/fd1b42e0)
+
 ### Null constant-buffer descriptors
 
 Adapted the stale-slot fix from fxceless #304 to the Wine build. The Windows MSVC tests verified that null writes replace an existing descriptor in both title record formats. The RX 7900 XT test under Wine 11.22 and vkd3d-proton `71cae091b06571e` also replaced live host views with typed null views, cleared their raw twins, and confirmed that the device remained available. The executable and PDB matched 108 runtime source checksums. [Upstream fix](https://github.com/fxceless/victory-fork/pull/304), [Wine test source](https://github.com/UwUCammie/VIctory-7900XTX/commit/0989cf16)

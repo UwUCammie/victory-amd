@@ -1,8 +1,9 @@
 from datetime import datetime, timezone
 import unittest
 
-from avatar_wine_profile import (AVATAR_WINE_EARLY_LIMITS, AVATAR_WINE_WRITEBACK_SWITCHES, benchmark_flags,
-                                 compute_wait_activity, early_compute_activity, observed_profile, writeback_activity)
+from avatar_wine_profile import (AVATAR_WINE_EARLY_LIMITS, AVATAR_WINE_NOTIFY_SWITCHES, AVATAR_WINE_WRITEBACK_SWITCHES,
+                                 benchmark_flags, compute_wait_activity, early_compute_activity, observed_profile,
+                                 verify_notification_mode, writeback_activity)
 from cold_boot import verify_wait_budgets
 
 
@@ -55,6 +56,20 @@ class AvatarWineProfileTests(unittest.TestCase):
         self.assertEqual(on.pop("VICTORY_WC_NO_BACK"), "1")
         self.assertEqual(off, on)
         self.assertEqual(on["VICTORY_WC_CENSUS"], "0")
+
+    def test_notification_arms_change_only_the_verified_switch(self):
+        shared, local = map(benchmark_flags, AVATAR_WINE_NOTIFY_SWITCHES)
+        self.assertEqual(shared.pop("VICTORY_BENCH_LOCAL_PIPELINE_NOTIFY"), "0")
+        self.assertEqual(local.pop("VICTORY_BENCH_LOCAL_PIPELINE_NOTIFY"), "1")
+        self.assertEqual(shared, local)
+        self.assertEqual(local["VICTORY_EARLY_COMPUTE_MAX_BYTES"], "2560")
+        started = datetime(2026, 11, 27, 8, tzinfo=timezone.utc)
+        event = "2026-11-27T08:00:01Z INFO pipeline completion notification mode local=\x1b[3mtrue\x1b[0m"
+        verify_notification_mode([event], started, 2_000_000, True)
+        with self.assertRaises(ValueError):
+            verify_notification_mode([event], started, 2_000_000, False)
+        with self.assertRaises(ValueError):
+            verify_notification_mode([event], started, 1_000_000, True)
 
     def test_writeback_activity_rejects_a_wrong_mode_or_threshold(self):
         started = datetime(2026, 11, 27, 8, tzinfo=timezone.utc)

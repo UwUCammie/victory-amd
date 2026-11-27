@@ -19,8 +19,12 @@ AVATAR_WINE_EARLY_LIMITS = {
     "vkd3d-master-avatar-wine-440-early-2560": 2560,
     "vkd3d-master-avatar-wine-440-early-2560-wait2000": 2560,
 }
+AVATAR_WINE_NOTIFY_SWITCHES = {
+    "vkd3d-master-avatar-wine-440-notify-global": "0",
+    "vkd3d-master-avatar-wine-440-notify-local": "1",
+}
 AVATAR_WINE_MODES = AVATAR_WINE_COMPUTE_BUDGETS | dict.fromkeys(
-    (*AVATAR_WINE_WRITEBACK_SWITCHES, *AVATAR_WINE_EARLY_LIMITS), 10000
+    (*AVATAR_WINE_WRITEBACK_SWITCHES, *AVATAR_WINE_EARLY_LIMITS, *AVATAR_WINE_NOTIFY_SWITCHES), 10000
 ) | {"vkd3d-master-avatar-wine-440-early-2560-wait2000": 2000}
 
 # Source profile: avatarmanz/VIctory-7900XTX#440, b2bf3d99, play.sh and play-1080p.sh.
@@ -73,6 +77,9 @@ def benchmark_flags(mode):
                      VICTORY_WC_NO_BACK_MIN_KB="64", VICTORY_WC_KEEP_STORES="0", VICTORY_WC_CENSUS="0")
     if mode in AVATAR_WINE_EARLY_LIMITS:
         flags["VICTORY_EARLY_COMPUTE_MAX_BYTES"] = str(AVATAR_WINE_EARLY_LIMITS[mode])
+    if mode in AVATAR_WINE_NOTIFY_SWITCHES:
+        flags.update(VICTORY_EARLY_COMPUTE_MAX_BYTES="2560",
+                     VICTORY_BENCH_LOCAL_PIPELINE_NOTIFY=AVATAR_WINE_NOTIFY_SWITCHES[mode])
     return flags
 
 
@@ -148,3 +155,15 @@ def early_compute_activity(lines, launched, stop, expected_limit):
         raise ValueError("early compute diagnostics do not match the requested mode")
     return {"limit_bytes": expected_limit,
             "first_early_compute_seconds": None if first_started is None else first_started / 1e6}
+
+
+def verify_notification_mode(lines, launched, stop, expected):
+    label = "pipeline completion notification mode"
+    observed = set()
+    for _, line in windowed_log_lines(lines, launched, stop, (label,)):
+        match = re.search(r"\blocal=(true|false)\b", line)
+        if match is None:
+            raise ValueError("pipeline completion notification mode was not logged")
+        observed.add(match[1] == "true")
+    if observed != {expected}:
+        raise ValueError("pipeline completion notifications do not match the requested mode")
