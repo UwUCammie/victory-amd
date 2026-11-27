@@ -1080,3 +1080,11 @@ To check the private screenshots from a route, add `--sample-seconds 125 135 145
 On the RX 7900 XT with RADV 26.3.1, Wine 11.22 and vkd3d-proton GE build `cae8353e`, the ordering-off run completed a 161 s saved-game route with `VICTORY_PORT_CONSTANTS=1`. The in-place path logged 86 samples with indirect draws and peaked at 5,536 executions per frame. Zero were ordered by the patch, as expected with `VICTORY_PORT_CONSTANTS_ORDER=0`. The HUD appeared over a black world. At 125, 135, 145 and 155 s, every pixel in the center half of the captured window had all three channels at 0 or 1 on the 0–255 scale.
 
 An interrupted run with ordering enabled also showed a black world. A separate launch with ordering enabled exited at startup with a renderer breakpoint before any affected indirect draws were logged. These are observations on disposable copies of the same save. The setting for importing buffers in place was on in both runs. The port-off control completed with the same binary, starting save snapshot, cache inputs, camera inputs and 161 s timeout. At 125, 135, 145 and 155 s, the character and waterfront were visible. No center pixel at those times met the near-black threshold, against 100% with constants in place and ordering off. The stock control had zero in-place indirect draws. The order switch was at its default for that control and only applies to in-place draws. Both completed launches yielded a HUD. These results cover this saved route with the journal disabled. [AMD ordering patch](https://github.com/jtrudeau1530/VIctory-7900XTX/pull/18)
+
+### Write-watch page-part updates
+
+The current AMD renderer records a generation for each written 4 KiB part of a 64 KiB page while holding the write journal. I tried visiting only the marked parts. The extracted native loops agreed for all 65,536 masks. Across 12 alternating timing pairs per case, portable x86-64 took 63%, 57% and 34% less time for 1, 2 and 4 marked parts. It took 11%, 65% and 84% more time for 8, 12 and 15. The x86-64-v3 build showed the same crossover. These are timings for the update loop with generated masks, without the journal or B-tree lock. The trial stayed off the gameplay build. [Experiment source](https://github.com/UwUCammie/VIctory-7900XTX/commit/cea72a5b)
+
+```sh
+python -I benchmarks/watch_part_bits.py PATH_TO_EXPERIMENT_CHECKOUT --base 830dc191
+```
