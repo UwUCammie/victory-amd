@@ -40,7 +40,8 @@ def build_in_worktree(source, worktree, command):
             if git(worktree, "rev-parse", "--verify", "HEAD") != revision:
                 git(worktree, "switch", "--detach", revision)
         print(f"Build checkout is pinned at {revision[:12]} in {worktree}", flush=True)
-        return subprocess.run(command, cwd=worktree).returncode
+        # Keep the checkout pinned if the wrapper is interrupted before the build exits.
+        return subprocess.run(command, cwd=worktree, pass_fds=(lock.fileno(),)).returncode
 
 
 def main():
