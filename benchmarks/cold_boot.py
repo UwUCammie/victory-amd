@@ -282,10 +282,25 @@ def compute_reserve_activity(lines, launched, stop, expected):
     return {"general_workers": count, "strict": strict, "screen_borrowed_reserve": borrowed}
 
 
+def raw_twin_activity(lines, launched, stop, expected):
+    """Verify observed exact-twin activity and report peak frame-average counters."""
+    label = "raw twins of buffer views made per frame"
+    counters = re.compile(r"([\d.]+) that do not begin on 16 bytes \(([\d.]+) null, ([\d.]+) exact\)")
+    peaks = [0.0, 0.0, 0.0]
+    for _, line in windowed_log_lines(lines, launched, stop, (label,)):
+        match = counters.search(line)
+        if match is None:
+            raise ValueError("unrecognized raw twin counters")
+        peaks = [max(peak, float(value)) for peak, value in zip(peaks, match.groups())]
+    if not peaks[0] or bool(peaks[2]) != bool(expected):
+        raise ValueError("unexpected exact raw twin activity")
+    return dict(zip(("peak_misaligned_per_frame", "peak_null_per_frame", "peak_exact_per_frame"), peaks))
+
+
 def report(run, metadata, start, stop, *, stalls=0, expected_output=None, expected_interface=None,
            expected_vkd3d=None, progress=False, compute_gap_ms=None,
            expected_graphics_wait_ms=None, expected_compute_wait_ms=None, expected_upload_pool=None,
-           expected_buffer_prefetch=None, expected_compute_reserve=None):
+           expected_buffer_prefetch=None, expected_compute_reserve=None, expected_exact_twins=None):
     launch = json.loads(metadata.read_text())
     check_overlap(run, metadata)
     live = progress and "end_utc" not in launch
@@ -324,6 +339,9 @@ def report(run, metadata, start, stop, *, stalls=0, expected_output=None, expect
     if expected_compute_reserve is not None:
         with (run / "run.log").open(encoding="utf-8", errors="replace") as log:
             result["compute_reserve"] = compute_reserve_activity(log, launched, stop, expected_compute_reserve)
+    if expected_exact_twins is not None:
+        with (run / "run.log").open(encoding="utf-8", errors="replace") as log:
+            result["raw_twins"] = raw_twin_activity(log, launched, stop, expected_exact_twins)
     if expected_vkd3d is not None:
         with (run / "vkd3d.log").open(errors="replace") as log:
             result["vkd3d_build"] = loaded_vkd3d_build(log, expected_vkd3d)
@@ -353,6 +371,8 @@ if __name__ == "__main__":
                         help="verify the upload switch and report mapping and pool counters")
     parser.add_argument("--expect-buffer-prefetch", type=int, choices=(0, 1),
                         help="verify the buffer prefetch setting and report observable reuse")
+    parser.add_argument("--expect-exact-twins", type=int, choices=(0, 1),
+                        help="verify observed exact raw twin activity and report peak frame averages")
     parser.add_argument("--expect-compute-reserve", type=int, choices=(0, 1),
                         help="verify the general pipeline worker reserve policy")
     parser.add_argument("--stalls", type=int, default=0, help="list the N longest gaps and compute-drop notices in each")
@@ -369,7 +389,8 @@ if __name__ == "__main__":
                         expected_vkd3d=args.expect_vkd3d, progress=args.progress, compute_gap_ms=args.compute_gap_ms,
                         expected_graphics_wait_ms=args.expect_graphics_wait_ms,
                         expected_compute_wait_ms=args.expect_compute_wait_ms, expected_upload_pool=args.expect_upload_pool,
-                        expected_buffer_prefetch=args.expect_buffer_prefetch, expected_compute_reserve=args.expect_compute_reserve)
+                        expected_buffer_prefetch=args.expect_buffer_prefetch, expected_compute_reserve=args.expect_compute_reserve,
+                        expected_exact_twins=args.expect_exact_twins)
     except (ValueError, KeyError, OSError) as error:
         parser.exit(1, f"{error}\n")
     print(json.dumps(result, indent=2))

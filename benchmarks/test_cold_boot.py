@@ -7,7 +7,7 @@ import unittest
 
 from cold_boot import (
     accepted_frames, buffer_prefetch_activity, compute_reserve_activity, loaded_vkd3d_build, report, upload_pool_activity,
-    verify_wait_budgets, window,
+    raw_twin_activity, verify_wait_budgets, window,
 )
 from first_room import SessionFailed
 
@@ -99,6 +99,21 @@ class ColdBootTests(unittest.TestCase):
                       [strict, prefix + "no pipeline worker"], [strict, normal]):
             with self.subTest(lines=lines), self.assertRaises(ValueError):
                 compute_reserve_activity(lines, self.launched, 300_000_000, 1)
+
+    def test_raw_twin_activity_requires_an_in_window_witness(self):
+        label = "raw twins of buffer views made per frame (VICTORY_RAW_VIEWS=0: none): "
+        off = "2026-11-26T00:00:01Z INFO " + label + "100, of them 16.0 that do not begin on 16 bytes (15.0 null, 0.0 exact)"
+        on = off.replace("15.0 null, 0.0 exact", "1.0 null, 14.0 exact")
+        late = on.replace("00:00:01", "00:05:00")
+        self.assertEqual(raw_twin_activity([off, late], self.launched, 300_000_000, 0), {
+            "peak_misaligned_per_frame": 16.0,
+            "peak_null_per_frame": 15.0,
+            "peak_exact_per_frame": 0.0,
+        })
+        self.assertEqual(raw_twin_activity([off, on], self.launched, 300_000_000, 1)["peak_exact_per_frame"], 14.0)
+        for lines, expected in (([off, late], 1), ([on], 0), ([], 0), ([off.replace(", 0.0 exact", "")], 0)):
+            with self.subTest(lines=lines, expected=expected), self.assertRaises(ValueError):
+                raw_twin_activity(lines, self.launched, 300_000_000, expected)
 
     def test_edges_count_against_fps(self):
         frames = accepted_frames([trace(t) for t in (0, 50_000, 200_000, 250_000, 2_000_000)], self.launched)
