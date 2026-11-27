@@ -361,6 +361,8 @@ Both replays of that autosave completed with the same source-verified release, a
 
 The wider repeat completed in reverse order on the same release. The enabled arm recorded the 853×480 reflection pass and the disabled arm did not record it. Both reached the bedroom by the 140 s captures. A three-second thumbnail comparison of the two full recordings found closely matched views of the exterior around 120 s. The eight closest candidates were all outdoors. The sampled bedroom views still differ in pose and camera angle. This gives an outdoor match and no controlled comparison of an indoor reflective surface. The saved replays are visual checks with copied caches.
 
+I repeated the thumbnail search starting at about 140 s in both replays. The nearest three-second bedroom candidates still face different parts of the room. The closest normalized gradient distance was 0.844 indoors versus 0.025 on the matched exterior shot, and inspecting the frames confirmed the camera mismatch. The current replay still cannot tell whether the pass changes indoor flicker.
+
 ### Desktop play profile at 720p
 
 The interactive session that produced the waterfront save reported 32,585 presents in 1,948.58 seconds of complete reporting intervals (16.72 FPS and 5,043 draws/frame). It includes menus and gameplay. The submission thread worked 53.46 ms/frame. The GPU queue was empty for 35.25 ms/frame, including 31.05 ms while that thread was working. This points to CPU submission work as a candidate in this session. The interactive timing uses the desktop caches and is separate from the clean first-boot baseline.
