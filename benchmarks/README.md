@@ -38,14 +38,15 @@ Add `--stalls 5` to list the five longest gaps in a saved run, including gaps at
 
 The two stock 720p launches each had five gaps of at least ten seconds, all between seconds 27 and 83 of the first story boot. The earliest compute-drop notice in each gap came 9.85–10.15 seconds after the preceding present. The first gap of each boot contained 243 and 235 first-drop notices respectively. The compute wait budget is shared across a frame, so those counts can bunch together when the budget runs out. Measuring the duration of an individual pipeline build requires its own start and finish timestamps.
 
-In a separate matched run pair, I changed the frame-wide compute budget and kept the per-pipeline age limit at ten seconds. Both launches used the same release executable, RX 7900 XT, RADV 26.3.1 and GE vkd3d-proton `cae8353e`. Timing covers the first 300 seconds from starting Wine, with the same inputs, five empty graphics caches and no story save.
+In a separate experiment, I changed the frame-wide compute budget and kept the per-pipeline age limit at ten seconds. All three launches used the same release executable, RX 7900 XT, RADV 26.3.1 and GE vkd3d-proton `cae8353e`. Timing covers the first 300 seconds from starting Wine, with the same inputs, five empty graphics caches and no story save.
 
 | Frame budget | Presents | Average FPS | P99 gap | Longest gap | Gaps over 1 s | Time in gaps over 100 ms | First compute-drop notices |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | 10 s | 4,268 | 14.23 | 292 ms | 11.18 s | 31 | 141.43 s | 337 |
+| 4 s | 4,099 | 13.66 | 479 ms | 5.27 s | 39 | 144.84 s | 479 |
 | 2 s | 4,511 | 15.04 | 1,514 ms | 3.39 s | 48 | 134.35 s | 552 |
 
-The shorter budget reduced the worst hold but produced more holds over one second and more first-drop notices. Faces and skin were visible in later indoor shots in both launches. The shots differed at fixed timestamps and one run per budget leaves visual equivalence and the FPS difference unconfirmed. See the [experiment source](https://github.com/UwUCammie/victory-amd/commit/a8343791).
+Both shorter budgets reduced the worst hold and produced more holds over one second and more first-drop notices. The four-second trial averaged fewer presents than the ten-second run. Faces and skin were visible in later shots in all three launches. Several cuts differed at fixed timestamps and one run per budget leaves visual equivalence and the FPS differences unconfirmed. See the [experiment source](https://github.com/UwUCammie/victory-amd/commit/a8343791).
 
 On Linux, `cold_launch.py` creates the directories and records the metadata for a direct Wine launch. Use a dedicated offline prefix, export the settings from `radv_first_room.env` and pass the same timed input to each run. Supply a fresh output directory for every trial. The installed Wine prefix needs a working Z: mapping. For example, from the installed game's working directory:
 
