@@ -1117,6 +1117,8 @@ cc -std=c11 -O2 -Wall -Wextra -Werror benchmarks/udmabuf_probe.c -o "$fixture_di
 
 The benchmark account on the RX 7900 XT host could open `/dev/udmabuf` and passed all four checks, with a 4,096-byte page. The probe uses CPU mappings and no render node. Vulkan import, Wine section lifetime and GPU readback still need their own validation.
 
+For the physical Radeon check, build `udmabuf_vulkan_probe.c` with Vulkan headers and link `-lvulkan`. Run it only in a free GPU slot. It selects a discrete RADV device, imports a generated dma-buf slice at a nonzero memfd offset, then checks a Vulkan copy, a Vulkan fill and the two neighboring words outside the slice. A passing result has both direction counts equal to `words` and `neighbors=1`. It exercises Vulkan directly. The Wine and vkd3d-proton section path needs a separate check. [Vulkan external-memory fd import](https://docs.vulkan.org/refpages/latest/refpages/source/VkImportMemoryFdInfoKHR.html)
+
 #### Measuring the Vulkan compute compile flag
 
 The explicit test layer lets the same vkd3d-proton executable request faster compilation for compute pipelines. It adds Vulkan's `DISABLE_OPTIMIZATION` flag to single-pipeline calls. It uses the flags2 structure when vkd3d supplies it and preserves the descriptor heap flag and the rest of the chain. The layer counts batched calls or a flags2 structure deeper in the chain as bypassed. The generated native smoke test created a pipeline through the legacy and flags2 forms in both modes and observed two flagged calls when enabled. [Vulkan pipeline flags](https://docs.vulkan.org/refpages/latest/refpages/source/VkPipelineCreateFlagBits2.html)
