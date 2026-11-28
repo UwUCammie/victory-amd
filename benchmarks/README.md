@@ -1797,3 +1797,19 @@ With the split Wine page table, a request for a different valid first page and a
 Adapted the stale-slot fix from fxceless #304 to the Wine build. The Windows MSVC tests verified that null writes replace an existing descriptor in both title record formats. The RX 7900 XT test under Wine 11.22 and vkd3d-proton `71cae091b06571e` also replaced live host views with typed null views, cleared their raw twins, and confirmed that the device remained available. The executable and PDB matched 108 runtime source checksums. [Upstream fix](https://github.com/fxceless/victory-fork/pull/304), [Wine test source](https://github.com/UwUCammie/VIctory-7900XTX/commit/0989cf16)
 
 The three checks passed again on the exact Avatar main-based PR head `82313d59`, with 111 source checksums and confirmation that the raw twins were active on the physical device. [Avatar PR #446](https://github.com/avatarmanz/VIctory-7900XTX/pull/446)
+
+### Wine fork comparison before foreground GPU use
+
+On the RX 7900 XT with RADV 26.3.1, Wine 11.22 and vkd3d-proton `71cae091b06571e`, the `4f317404` control and the [`b5d2ce46` candidate](https://github.com/UwUCammie/VIctory-7900XTX/commit/b5d2ce46) started at native 1280×720 with the separate 3840×2160 interface plane. Both started with five empty graphics caches and a fresh story. The input, runtime flags, driver DLL hashes and 10 s compute wait matched. Capture was off.
+
+The guard yielded to foreground GPU use at 243.815 s for the control and 118.075 s for the candidate. Neither attempt qualified for the 300 s score. Both presented past 110 s before the interruption. No device loss was logged before either yield.
+
+| First 110 s, including startup and all holds | Control | Candidate |
+| --- | ---: | ---: |
+| Accepted presents | 1,008 | 838 |
+| Presents per second | 9.16 | 7.62 |
+| P99 present gap | 356.809 ms | 1,534.944 ms |
+| Longest present gap | 18.135 s | 20.167 s |
+| Time in gaps over 100 ms | 77.579 s | 82.680 s |
+
+This single interrupted pair covers the opening only. The full cold comparison and its repeat are still pending.
