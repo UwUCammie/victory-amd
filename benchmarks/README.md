@@ -1106,6 +1106,17 @@ Two further off-card comparisons ran the three translator settings in opposite o
 
 Compaction was slower in both off-card orders and in the first physical pair. Wider raw loads saved 0.11–0.23 s on these 16 fixtures. Their gameplay effect is open. The benchmark keeps the standard settings for cold first boot. The full fixture took 41–42 s per arm, including translation, DXC validation and startup. The device namespace leaves the physical card available throughout.
 
+#### Checking the Linux dma-buf prerequisite
+
+The section-heap report on an RX 6900 XT used a dma-buf to share a Wine section with RADV. This small probe checks the Linux side before spending time on a Wine or vkd3d-proton build. It exports one page at a nonzero offset in a sealed memfd, checks writes in both directions and verifies that the two excluded pages keep their values. It also checks that the exported page remains readable after unmapping and closing the original memfd. [RADV section-heap report](https://github.com/fxceless/victory-fork/pull/1117#issuecomment-7239065849) · [Linux dma-buf synchronization](https://docs.kernel.org/driver-api/dma-buf.html)
+
+```sh
+cc -std=c11 -O2 -Wall -Wextra -Werror benchmarks/udmabuf_probe.c -o "$fixture_directory/udmabuf-probe"
+"$fixture_directory/udmabuf-probe"
+```
+
+The benchmark account on the RX 7900 XT host could open `/dev/udmabuf` and passed all four checks, with a 4,096-byte page. The probe uses CPU mappings and no render node. Vulkan import, Wine section lifetime and GPU readback still need their own validation.
+
 #### Measuring the Vulkan compute compile flag
 
 The explicit test layer lets the same vkd3d-proton executable request faster compilation for compute pipelines. It adds Vulkan's `DISABLE_OPTIMIZATION` flag to single-pipeline calls. It uses the flags2 structure when vkd3d supplies it and preserves the descriptor heap flag and the rest of the chain. The layer counts batched calls or a flags2 structure deeper in the chain as bypassed. The generated native smoke test created a pipeline through the legacy and flags2 forms in both modes and observed two flagged calls when enabled. [Vulkan pipeline flags](https://docs.vulkan.org/refpages/latest/refpages/source/VkPipelineCreateFlagBits2.html)
