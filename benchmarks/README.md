@@ -1812,4 +1812,6 @@ The guard yielded to foreground GPU use at 243.815 s for the control and 118.075
 | Longest present gap | 18.135 s | 20.167 s |
 | Time in gaps over 100 ms | 77.579 s | 82.680 s |
 
-This single interrupted pair covers the opening only. The full cold comparison and its repeat are still pending.
+The second control attempt used the same executable, runtime flags and driver files. It yielded to foreground GPU use at 43.934 s. Both controls and the first candidate had accepted presents beyond 40 s before their guard markers. In the first 40 s they accepted 808, 810 and 815 presents, respectively. The divergence in the first pair came after 40 s. From 40 to 110 s the first control accepted 200 presents and the first candidate accepted 23. Neither log recorded a compute-dispatch drop in that interval.
+
+These interrupted attempts cover the opening only. The full cold comparison is still pending.
